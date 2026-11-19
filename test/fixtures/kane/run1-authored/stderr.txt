@@ -1,0 +1,9 @@
+Skill update available: not installed → 0.1.4 — run `kane-cli install skill`
+
+evidence: 1 status_disagrees advisory(ies) — self-explained by triaged failure record(s)
+
+Evidence — view locally:
+  kane-cli evidence serve /tmp/claude-0/-home-user-GREENLIGHT/f4bfd0f5-c61d-5a85-ac97-b025b21842b1/scratchpad/gl-test-app/kane-tests/.testmuai/evidence/553326c5-1953-485e-89e4-308bd415c7b4.evidence   # execution
+  kane-cli evidence serve /tmp/claude-0/-home-user-GREENLIGHT/f4bfd0f5-c61d-5a85-ac97-b025b21842b1/scratchpad/gl-test-app/kane-tests/.testmuai/evidence/553326c5-1953-485e-89e4-308bd415c7b4.evidence   # about_nav_test.md (authored)
+  kane-cli evidence serve /tmp/claude-0/-home-user-GREENLIGHT/f4bfd0f5-c61d-5a85-ac97-b025b21842b1/scratchpad/gl-test-app/kane-tests/.testmuai/evidence/553326c5-1953-485e-89e4-308bd415c7b4.evidence   # cart_test.md (authored)
+  kane-cli evidence serve /tmp/claude-0/-home-user-GREENLIGHT/f4bfd0f5-c61d-5a85-ac97-b025b21842b1/scratchpad/gl-test-app/kane-tests/.testmuai/evidence/553326c5-1953-485e-89e4-308bd415c7b4.evidence   # subscribe_test.md (authored)

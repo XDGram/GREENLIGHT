@@ -1,0 +1,13 @@
+{
+  "name": "greenlight",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Greenlight: verify deployed applications against approved requirements using Kane CLI.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  }
+}
