@@ -193,9 +193,13 @@ test("the application-failure example matches what the report renderer prints", 
 });
 
 test("the passing and could-not-verify examples use the CLI's real messages", () => {
-  for (const s of ["Approved tests:", "Checking deployment ", "Deployment ready: commit ", "Credits: estimate ", "fresh recording(s)", "known failing step(s)); balance ", "Running Kane (run ", "Evidence: ", "Credits used: ", "Verified: all ", " claim(s) passed."]) {
+  for (const s of ["Approved tests:", "Checking deployment ", "Deployment ready: commit ", "Credits: estimate ", "fresh recording(s)", "known failing step(s)); balance ", "Running Kane (run ", "Evidence: ", "Credits: ", "Verified: all ", " claim(s) passed."]) {
     assert.ok(EXAMPLES.includes(s), `passing example lacks: ${s}`);
     assert.ok(SRC.cli.includes(s), `CLI does not print: ${s}`);
+  }
+  for (const s of ["Credits: actual ", " (balance ", "Kane-reported ", "(lower bound)", "unaccounted by Kane ", "estimate "]) {
+    assert.ok(EXAMPLES.includes(s), `passing example lacks credit text: ${s}`);
+    assert.ok(SRC.report.includes(s.replace("Credits: ", "")), `report renderer does not print: ${s}`);
   }
   for (const s of ["Deployment not ready: ", "Kane was not run.", "live commit ", "Credit check refused the run: ", "Confirmation needed for fresh recording", "Tests are not approved ("]) {
     assert.ok(EXAMPLES.includes(s), `blocker example lacks: ${s}`);

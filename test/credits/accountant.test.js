@@ -20,6 +20,7 @@ import {
   readSessionCredits,
   sessionsOfRun,
   reconcileUsage,
+  creditRecord,
   DEFAULT_RATES,
 } from "../../src/credits/index.js";
 import { evaluateRun } from "../../src/verify/classify.js";
@@ -93,11 +94,12 @@ test("the accountant can only run `kane-cli balance`, never a test", async () =>
 
 // ---------------------------------------------------------------- estimate
 
-test("Run 1 plan (3 fresh tests) estimates 108 against a real 109.12", () => {
+test("Run 1 plan (3 fresh tests) estimates 131: conservatively above the real 109.12", () => {
   const e = estimateRun({ tests: APPROVED_SMOKE.tests.map((t) => ({ file: t.file, author: true })) });
-  assert.equal(e.credits, 108);
+  assert.equal(e.credits, 131); // 20 run overhead + 3 x 37
   assert.equal(e.authoredTests, 3);
-  assert.ok(Math.abs(e.credits - 109.1185) < 2);
+  assert.equal(e.runOverhead, 20);
+  assert.ok(e.credits >= 109.1185 && e.credits <= 109.1185 * 1.25, "conservative, but not absurdly so");
 });
 
 test("Run 2 plan (2 passing replays, 1 known failing step) estimates 14.6 against a real 14.30", () => {
@@ -138,7 +140,7 @@ test("planFromRecordings: no recording means fresh authoring; previous app failu
     { file: "subscribe_test.md", author: false, knownFailingSteps: 1 },
     { file: "about_nav_test.md", author: true, knownFailingSteps: 0 },
   ]);
-  assert.equal(estimateRun(plan).credits, 50.4); // 0.2 + 14.2 + 36
+  assert.equal(estimateRun(plan).credits, 71.4); // 0.2 + 14.2 + 37 + 20 run overhead (one test authors)
 });
 
 // ---------------------------------------------------------------- authorisation
@@ -164,7 +166,7 @@ test("fresh authoring and certification need explicit confirmation", () => {
 });
 
 test("per-run cap, reserve, balance and unknown balance all refuse the run", () => {
-  const e = estimateRun({ tests: [1, 2, 3, 4, 5].map((i) => ({ file: `t${i}_test.md`, author: true })) }); // 180
+  const e = estimateRun({ tests: [1, 2, 3, 4, 5].map((i) => ({ file: `t${i}_test.md`, author: true })) }); // 205
   const cap = authorizeRun({ estimate: e, balance: OK(11200), policy: POLICY, runKind: "iteration", confirmed: true });
   assert.deepEqual(cap.reasons, ["exceeds_per_run_cap"]);
 
@@ -258,14 +260,89 @@ test("logs claim more than the balance moved, and a balance that went up, are di
   assert.deepEqual(reconcileUsage({ before: OK(100), after: OK(120), usage: { loggedCredits: 0, complete: true } }).reasons, ["balance_increased", "logged_exceeds_balance_change"]);
 });
 
-test("missing balances make reconciliation unverifiable, with logs as a flagged lower bound", async () => {
+test("missing balances make reconciliation unverifiable: no actual spend, logs kept only as a lower bound", async () => {
   const u = await actualUsage({ runResult: runFromFixture("run2-replay"), sessionsDir: SESSIONS("run2-replay") });
-  const r = reconcileUsage({ before: { ok: false, balance: null }, after: OK(11076.5779), usage: u });
+  const r = reconcileUsage({ before: { ok: false, balance: null }, after: OK(11076.5779), usage: u, estimate: 14.6 });
   assert.equal(r.status, "unverifiable");
   assert.deepEqual(r.reasons, ["balance_before_unavailable"]);
-  assert.equal(r.spent, 13.920988);
-  assert.equal(r.spentSource, "session_logs_lower_bound");
+  assert.equal(r.spent, null, "neither the logs nor the estimate stand in for the actual spend");
+  assert.equal(r.spentSource, null);
+  assert.equal(r.loggedCredits, 13.920988);
+  assert.equal(r.loggedIsLowerBound, true);
+  const rec = creditRecord(r);
+  assert.deepEqual([rec.actualSpend, rec.actualSpendSource, rec.kaneReportedSpend, rec.estimate, rec.balanceBefore, rec.balanceAfter], [null, null, 13.920988, 14.6, null, 11076.5779]);
   assert.equal(reconcileUsage({ before: OK(1), after: { ok: false }, usage: u }).reasons.includes("balance_after_unavailable"), true);
+});
+
+// ---------------------------------------------------------------- Step 11 E1 regressions
+
+// E1 (Kane 0.10.6, --local, 2 authored 3-step tests): balance 11076.5779 -> 10999.9376.
+// Kane's session logs: cart-add-two 36.64698, newsletter-subscribe 25.053479.
+const E1 = { before: 11076.5779, after: 10999.9376, cart: 36.64698, newsletter: 25.053479 };
+
+test("E1 reconciliation: actual spend is the balance difference; the 14.94 Kane did not log stays visible", () => {
+  const usage = { loggedCredits: Math.round((E1.cart + E1.newsletter) * 1e6) / 1e6, complete: true };
+  const r = reconcileUsage({ before: OK(E1.before), after: OK(E1.after), usage, estimate: 72 });
+  assert.equal(r.spent, 76.6403);
+  assert.equal(r.spentSource, "balance_difference");
+  assert.equal(r.status, "discrepancy");
+  assert.ok(r.reasons.includes("unlogged_spend"), r.reasons.join(","));
+  const rec = creditRecord(r);
+  assert.deepEqual(rec, {
+    status: "discrepancy",
+    balanceBefore: 11076.5779,
+    balanceAfter: 10999.9376,
+    actualSpend: 76.6403,
+    actualSpendSource: "balance_difference",
+    kaneReportedSpend: 61.700459,
+    kaneReportedIsLowerBound: true,
+    discrepancy: 14.939841,
+    estimate: 72,
+    estimateDifference: 4.6403,
+    reasons: r.reasons,
+  });
+});
+
+test("E1 recalibration: two authored 3-step tests now estimate 94, above the real 76.64 and within the 100 cap", () => {
+  const e = estimateRun({ tests: [{ file: "cart-add-two_test.md", author: true, steps: 3 }, { file: "newsletter-subscribe_test.md", author: true, steps: 3 }] });
+  assert.equal(e.credits, 94);
+  assert.ok(e.credits >= E1.before - E1.after);
+  assert.ok(e.credits >= 72 && e.credits <= 100);
+  // The most expensive single test E1 logged fits inside the per-test rate.
+  assert.ok(DEFAULT_RATES.authorPerTest >= E1.cart);
+  // Kane's unlogged run-level spend (E1 14.94, Run 1 19.04) fits inside the run overhead.
+  assert.ok(DEFAULT_RATES.authorRunOverhead >= 19.04);
+});
+
+test("authoring estimates differ per test: longer tests cost more, overhead is charged once and only when authoring", () => {
+  const e = estimateRun({ tests: [{ file: "a_test.md", author: true, steps: 3 }, { file: "b_test.md", author: true, steps: 5 }, { file: "c_test.md", author: false }] });
+  assert.deepEqual(e.breakdown.map((b) => b.credits), [37, 62, 0.2]);
+  assert.equal(e.runOverhead, 20);
+  assert.equal(e.credits, 119.2);
+  const replayOnly = estimateRun({ tests: [{ file: "a_test.md", author: false }, { file: "b_test.md", author: false, knownFailingSteps: 1 }] });
+  assert.equal(replayOnly.runOverhead, 0);
+  assert.equal(replayOnly.credits, 14.4, "the planned E2 replay figure is unchanged");
+  // Fewer steps than the reference never make a test cheaper than the calibrated rate.
+  assert.equal(estimateRun({ tests: [{ file: "a_test.md", author: true, steps: 1 }] }).breakdown[0].credits, 37);
+  // Configurable, and margin can only add.
+  assert.equal(estimateRun({ tests: [{ file: "a_test.md", author: true }] }, { rates: { ...DEFAULT_RATES, authorPerTest: 40, authorRunOverhead: 0 } }).credits, 40);
+  assert.equal(estimateRun({ tests: [{ file: "a_test.md", author: true }] }, { margin: 1.5 }).credits, 85.5);
+  assert.throws(() => estimateRun({ tests: [{ file: "a_test.md", author: true, steps: 0 }] }), /steps/);
+  assert.throws(() => estimateRun({ tests: [{ file: "a_test.md", author: true }] }, { rates: { ...DEFAULT_RATES, authorRunOverhead: -1 } }), /authorRunOverhead/);
+});
+
+test("E1 layout: output dirs holding only meta.json are planned as fresh authoring, never as replays", async () => {
+  const d = await tmp();
+  for (const stem of ["cart-add-two", "newsletter-subscribe"]) {
+    await mkdir(path.join(d, `output-${stem}`, ".internal"), { recursive: true });
+    await writeFile(path.join(d, `output-${stem}`, ".internal", "meta.json"), '{"executions":[{"run_kind":"author","status":"passed"}]}');
+  }
+  const files = ["cart-add-two_test.md", "newsletter-subscribe_test.md"];
+  const plan = await planFromRecordings({ testsDir: d, files, stepCounts: { "cart-add-two_test.md": 3, "newsletter-subscribe_test.md": 3 } });
+  assert.deepEqual(plan.tests.map((t) => [t.file, t.author, t.steps]), [["cart-add-two_test.md", true, 3], ["newsletter-subscribe_test.md", true, 3]]);
+  const e = estimateRun(plan);
+  assert.equal(e.credits, 94);
+  assert.equal(authorizeRun({ estimate: e, balance: OK(E1.after), policy: { maxPerRun: 28.3597, minReserve: 500 }, runKind: "iteration", confirmed: true }).reasons.includes("exceeds_per_run_cap"), true, "the remaining E2 budget cannot cover re-authoring");
 });
 
 test("incomplete and broken session logs are reported and make reconciliation a discrepancy", async () => {

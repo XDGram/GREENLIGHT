@@ -1,6 +1,7 @@
 export {
   buildFailureReport,
   renderMarkdown,
+  renderCredits,
   toPublicReport,
   writeFailureReport,
   catalogFromSpec,

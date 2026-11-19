@@ -52,7 +52,7 @@ Details of the spec format: [references/greenlight-yaml.md](references/greenligh
 | `greenlight status` | Spec validity, approval, hash integrity, generated tests, recording cache |
 | `greenlight verify` | Gates, then Kane against the live URL, then classification and the report |
 
-`greenlight verify` options: `--url <url>` (live URL; default `project.url`), `--environment <name>`, `--max-credits <n>`, `--reserve <n>`, `--kane <path>`, `--kane-timeout-minutes <n>`, `--deploy-timeout-seconds <n>`, `--deploy-interval-seconds <n>`, `--confirm-spend <n>` (relayed mode only). Do not change the credit options unless the user asks.
+`greenlight verify` options: `--url <url>` (live URL; default `project.url`), `--environment <name>`, `--max-credits <n>`, `--reserve <n>`, `--kane <path>`, `--kane-timeout-minutes <n>`, `--deploy-timeout-seconds <n>`, `--deploy-interval-seconds <n>`, `--confirm-spend <n>` (relayed mode only), `--estimate-margin <n>` (multiplies the credit estimate; 1 or more, so it can only make it more conservative). Do not change the credit options unless the user asks.
 
 ### Exit codes of `greenlight verify`
 
@@ -120,6 +120,10 @@ For a controlled test in an environment with no terminal, a person can approve i
 
 ## First runs and credits
 
-Tests that have never been recorded cost far more (about 36 credits each) than replays. `greenlight verify` asks a person to type `yes` before recording tests afresh, so in your shell it stops with exit `4` ("Confirmation needed for fresh recording …"). Tell the user to run `greenlight verify` in their own terminal for that first run. Never try to answer the prompt.
+Tests that have never been recorded cost far more than replays: Greenlight budgets 37 credits per authored test of up to 3 steps, 12.5 per extra step, and 20 once per authoring run (real authoring runs cost 76.64 for two tests and 109.12 for three). A test counts as recorded only when Kane left a replayable `.internal/execution.json`. `greenlight verify` asks a person to type `yes` before recording tests afresh, so in your shell it stops with exit `4` ("Confirmation needed for fresh recording …"). Tell the user to run `greenlight verify` in their own terminal for that first run. Never try to answer the prompt.
+
+If the report or the Stop hook shows `recording_not_retained`, Kane authored those tests but kept no replayable recording (Kane 0.10.6 does this in its local-only mode, which Greenlight always uses). The next run will author them afresh and cost fresh-authoring credits again. Tell the user before anything else runs. Do not turn off local-only mode, enable Test Manager uploads or run Kane yourself to "fix" it.
+
+Every run's `latest.json` and run manifest record `credits`: `balanceBefore`, `balanceAfter`, `actualSpend` (the balance difference, or `null` if a balance could not be read, never an estimate), `kaneReportedSpend` (Kane's logs, a lower bound), `discrepancy` (spend Kane's logs do not account for) and `estimate`. Report `actualSpend` to the user, not the estimate.
 
 Worked examples (pass, app failure, could not verify): [references/examples.md](references/examples.md).

@@ -109,6 +109,8 @@ async function writePrivate(filePath, data) {
  * @param {(packPath: string) => Promise<object>} [p.validator]  default: kaneEvidenceValidator()
  * @param {object} [p.evaluation]           Step 2 evaluateRun() output, summarised into the record
  * @param {{method: string, certifiable: boolean}} [p.approval]  how the tests were approved
+ * @param {object} [p.credits]            credits/usage.js creditRecord(): actual spend from the balance difference
+ * @param {object[]} [p.warnings]         run warnings, e.g. recording_not_retained
  * @param {() => Date} [p.now]
  */
 export async function collectEvidence({
@@ -122,6 +124,8 @@ export async function collectEvidence({
   validator = kaneEvidenceValidator(),
   evaluation,
   approval,
+  credits,
+  warnings,
   now = () => new Date(),
 }) {
   validateInputs({ runId, approvedTestHash, deployedCommit, runResult });
@@ -169,6 +173,9 @@ export async function collectEvidence({
     result: evaluation ? summariseEvaluation(evaluation) : null,
     // How the tests were approved. A relayed approval is never certifiable.
     approval: approval ? { method: approval.method ?? null, certifiable: approval.certifiable === true } : null,
+    // Balance before/after and the actual spend (balance difference), Kane's logged spend and the estimate.
+    credits: credits ?? null,
+    warnings: Array.isArray(warnings) ? warnings : [],
   };
   manifest.recordSha256 = recordHash(manifest); // last: after every other hash is set
 

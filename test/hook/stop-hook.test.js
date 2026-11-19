@@ -220,6 +220,60 @@ test("app failure: exit 2 with the report and fix-the-app instructions; the same
   assert.equal(v.calls, 1, "no duplicate run for the failed commit");
 });
 
+// ---------------------------------------------------------------- run warnings (Step 11 E1)
+
+const RETENTION = {
+  code: "recording_not_retained",
+  tests: [{ file: "cart-add-two_test.md", reason: "missing_execution_json" }, { file: "newsletter-subscribe_test.md", reason: "missing_execution_json" }],
+  message: "Kane authored 2 test(s) in this run but kept no replayable recording (.internal/execution.json): cart-add-two_test.md, newsletter-subscribe_test.md. The next run cannot replay them: it will author them afresh and incur fresh-authoring credit costs again.",
+};
+
+/** Fake verify that, like the real one, writes latest.json (with warnings) for the run it just did. */
+function warningVerifier(code, { generatedAt = "2026-11-19T12:00:00.000Z", warnings = [RETENTION] } = {}) {
+  const v = verifier([code]);
+  const run = v.run;
+  v.run = async (o) => {
+    const res = await run(o);
+    await mkdir(path.join(o.cwd, ".greenlight", "reports"), { recursive: true });
+    await writeFile(path.join(o.cwd, ".greenlight", "reports", "latest.json"), JSON.stringify({ generatedAt, warnings, failures: [] }));
+    return res;
+  };
+  return v;
+}
+
+test("E1: an app failure with unretained recordings: exit 2, attempt 1 of 3, and the warning is in the hook output", async () => {
+  const root = await project();
+  const out = await hook(root, repo(), warningVerifier(1));
+  assert.deepEqual([out.exitCode, out.decision], [2, "app_failure"]);
+  assert.match(out.stderr, /automatic fix attempt 1 of 3/);
+  assert.match(out.stderr, /Greenlight warning \(recording_not_retained\): Kane authored 2 test\(s\)/);
+  assert.match(out.stderr, /incur fresh-authoring credit costs again/);
+  assert.ok(out.stderr.indexOf("recording_not_retained") < out.stderr.indexOf("### CLM-002"), "shown before the report, so clipping cannot hide it");
+  assert.deepEqual(out.warnings, ["recording_not_retained"]);
+  assert.deepEqual((await state(root)).lastRun.warnings, ["recording_not_retained"]);
+});
+
+test("a passing run still surfaces a recording warning (exit 0)", async () => {
+  const root = await project();
+  const out = await hook(root, repo(), warningVerifier(0));
+  assert.deepEqual([out.exitCode, out.decision], [0, "verified"]);
+  assert.match(out.stdout, /Greenlight warning \(recording_not_retained\)/);
+  assert.match(out.stdout, /every approved claim passed/);
+});
+
+test("a could-not-verify run surfaces this run's warnings; an older report's warnings are never repeated", async () => {
+  let root = await project();
+  let out = await hook(root, repo(), warningVerifier(3));
+  assert.deepEqual([out.exitCode, out.decision], [1, "couldnt_verify"]);
+  assert.match(out.stderr, /Greenlight warning \(recording_not_retained\)/);
+
+  root = await project();
+  out = await hook(root, repo(), warningVerifier(1, { generatedAt: "2026-11-19T11:59:59.000Z" }));
+  assert.equal(out.exitCode, 2);
+  assert.doesNotMatch(out.stderr, /recording_not_retained/, "latest.json written before this verification started");
+  assert.deepEqual(out.warnings, []);
+});
+
 test("successful fix: failure, new commit passes, counter resets", async () => {
   const root = await project();
   const r = repo();

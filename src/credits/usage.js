@@ -119,7 +119,9 @@ export async function actualUsage({ runResult, sessionsDir }) {
 
 /**
  * Compare Kane's logged credits, the balance change and the estimate.
- * The balance change is the authoritative spend whenever both balances are known.
+ * The balance change is the ONLY actual spend. When either balance is unknown the
+ * actual spend is null: neither Kane's logs nor the estimate ever stand in for it
+ * (the logs are kept, flagged as a lower bound).
  *
  * @param {object} p
  * @param {{ok: boolean, balance: number|null}} p.before   readBalance() before the run
@@ -131,40 +133,74 @@ export async function actualUsage({ runResult, sessionsDir }) {
 export function reconcileUsage({ before, after, usage, estimate, tolerance = DEFAULT_TOLERANCE }) {
   const reasons = [];
   const logged = usage?.loggedCredits ?? null;
+  const est = Number.isFinite(estimate) ? estimate : null;
+  const balanceBefore = before?.ok && Number.isFinite(before.balance) ? before.balance : null;
+  const balanceAfter = after?.ok && Number.isFinite(after.balance) ? after.balance : null;
   if (!usage?.complete) reasons.push("session_logs_incomplete");
 
-  if (!before?.ok || !after?.ok) {
-    if (!before?.ok) reasons.push("balance_before_unavailable");
-    if (!after?.ok) reasons.push("balance_after_unavailable");
+  if (balanceBefore === null || balanceAfter === null) {
+    if (balanceBefore === null) reasons.push("balance_before_unavailable");
+    if (balanceAfter === null) reasons.push("balance_after_unavailable");
     return {
       status: "unverifiable",
-      spent: logged, // best available figure, flagged as a lower bound
-      spentSource: "session_logs_lower_bound",
+      spent: null,
+      spentSource: null,
+      balanceBefore,
+      balanceAfter,
       balanceDelta: null,
       loggedCredits: logged,
+      loggedIsLowerBound: true,
       unloggedCredits: null,
-      estimate: estimate ?? null,
+      estimate: est,
+      estimateDifference: null,
       reasons,
     };
   }
 
-  const delta = round(before.balance - after.balance);
+  const delta = round(balanceBefore - balanceAfter);
   const allowance = Math.max(tolerance.absolute, tolerance.relative * Math.abs(delta));
   if (delta < 0) reasons.push("balance_increased");
   if (logged !== null && logged > delta + allowance) reasons.push("logged_exceeds_balance_change");
   if (logged !== null && delta - logged > allowance) reasons.push("unlogged_spend");
-  if (Number.isFinite(estimate) && delta > estimate * (1 + tolerance.estimateRelative) + tolerance.estimateAbsolute) {
+  if (est !== null && delta > est * (1 + tolerance.estimateRelative) + tolerance.estimateAbsolute) {
     reasons.push("exceeds_estimate");
   }
   return {
     status: reasons.length ? "discrepancy" : "consistent",
     spent: delta,
     spentSource: "balance_difference",
+    balanceBefore,
+    balanceAfter,
     balanceDelta: delta,
     loggedCredits: logged,
+    loggedIsLowerBound: true,
     unloggedCredits: logged === null ? null : round(delta - logged),
-    estimate: estimate ?? null,
+    estimate: est,
+    estimateDifference: est === null ? null : round(delta - est),
     reasons,
+  };
+}
+
+/**
+ * The persisted credit record (run manifest and latest.json).
+ * actualSpend is the balance difference or null, never an estimate or a log total.
+ * discrepancy = actualSpend - kaneReportedSpend (credits Kane's logs do not account for).
+ * @param {ReturnType<typeof reconcileUsage>} r
+ */
+export function creditRecord(r) {
+  if (!r) return null;
+  return {
+    status: r.status,
+    balanceBefore: r.balanceBefore ?? null,
+    balanceAfter: r.balanceAfter ?? null,
+    actualSpend: r.spentSource === "balance_difference" ? r.spent : null,
+    actualSpendSource: r.spentSource === "balance_difference" ? "balance_difference" : null,
+    kaneReportedSpend: r.loggedCredits ?? null,
+    kaneReportedIsLowerBound: true,
+    discrepancy: r.unloggedCredits ?? null,
+    estimate: r.estimate ?? null,
+    estimateDifference: r.estimateDifference ?? null,
+    reasons: [...(r.reasons ?? [])],
   };
 }
 

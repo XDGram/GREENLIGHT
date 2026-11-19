@@ -359,13 +359,16 @@ test("recording cache: baseline, ignored files, changes, additions and removals"
   const base = await saveRecordingsBaseline({ ...args, now: () => new Date("2026-11-19T12:00:00Z") });
   assert.deepEqual(base.notRecorded, ["cart-then-about_test.md"]);
   assert.ok(!Object.keys(base.files).some((k) => k.endsWith("meta.json") || k.endsWith("Result.md")));
-  assert.equal((await checkRecordings(args)).status, "unchanged");
+  // Intact, but cart-then-about has no recording: "partial", never "unchanged".
+  assert.equal((await checkRecordings(args)).status, "partial");
 
   // Kane appends run history to meta.json and rewrites Result.md on every run: ignored.
   const internal = path.join(testsDir(root), "output-cart-add-two", ".internal");
   await writeFile(path.join(internal, "meta.json"), '{"executions":[{"run_kind":"replay"}]}');
   await writeFile(path.join(testsDir(root), "output-cart-add-two", "Result.md"), "# result 2\n");
-  assert.equal((await checkRecordings(args)).status, "unchanged");
+  assert.equal((await checkRecordings(args)).status, "partial");
+  // With every test recorded and nothing changed: "unchanged".
+  assert.equal((await checkRecordings({ ...args, testFiles: ["cart-add-two_test.md", "newsletter-subscribe_test.md"] })).status, "unchanged");
 
   // A rewritten step (e.g. healing) is detected.
   await writeFile(path.join(internal, "steps", "2.json"), "healed");

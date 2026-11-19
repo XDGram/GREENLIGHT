@@ -18,7 +18,7 @@ Deployment ready: commit 3f2a9c1d0b7e (preview)
 Credits: estimate 0.6 (0 fresh recording(s), 0 known failing step(s)); balance 11076.5779; cap 60; reserve 500
 Running Kane (run gl-20261119T120000-3f2a9c1d) …
 Evidence: stored (sha256 2c2f2beace4dd01d…)
-Credits used: 0.4 (consistent)
+Credits: actual 0.4 (balance 11076.5779 -> 11076.1779) · Kane-reported 0.39 (lower bound) · unaccounted by Kane 0.01 · estimate 0.6 — consistent
   passed         CLM-001
   passed         CLM-002
   passed         CLM-003

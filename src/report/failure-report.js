@@ -159,7 +159,9 @@ async function readEvidence({ manifest, runDir, kane, stepIndex, problems }) {
 }
 
 /**
- * Build the failure report, or return null when the project passed.
+ * Build the failure report, or return null when the project passed (unless
+ * `always` is set: then a passing run gets a report too, with no failures, so its
+ * credit record and warnings are persisted in latest.json).
  *
  * @param {object} p
  * @param {object} p.evaluation      Step 2 evaluateRun() result
@@ -168,12 +170,15 @@ async function readEvidence({ manifest, runDir, kane, stepIndex, problems }) {
  * @param {string} [p.runDir]        directory holding the manifest (for local evidence paths)
  * @param {object} [p.deployment]    Step 6 verifyDeployment() result
  * @param {string[]} [p.secrets]     exact strings to redact everywhere
+ * @param {object} [p.credits]       credits/usage.js creditRecord() (defaults to manifest.credits)
+ * @param {object[]} [p.warnings]    run warnings (defaults to manifest.warnings)
+ * @param {boolean} [p.always]       also build a report for a passing run
  * @param {() => Date} [p.now]
  */
-export async function buildFailureReport({ evaluation, catalog, manifest, runDir, deployment, secrets = [], now = () => new Date() }) {
+export async function buildFailureReport({ evaluation, catalog, manifest, runDir, deployment, secrets = [], credits, warnings, always = false, now = () => new Date() }) {
   if (!evaluation?.project || !Array.isArray(evaluation.tests)) throw new TypeError("evaluation must be a Step 2 evaluateRun() result");
   if (!catalog || !Array.isArray(catalog.claims) || !Array.isArray(catalog.tests)) throw new TypeError("catalog with claims and tests is required");
-  if (evaluation.project.status === "passed") return null;
+  if (evaluation.project.status === "passed" && !always) return null;
 
   const red = (t) => redactText(t, secrets);
   const claimText = new Map(catalog.claims.map((c) => [c.id, c.text]));
@@ -235,7 +240,7 @@ export async function buildFailureReport({ evaluation, catalog, manifest, runDir
     generatedAt: now().toISOString(),
     runId: manifest?.runId ?? null,
     executionId: manifest?.evidence?.executionId ?? manifest?.kane?.executionId ?? null,
-    kind: appFailures && unverified ? "mixed" : appFailures ? FAILURE_TYPE.APP_FAILURE : FAILURE_TYPE.COULDNT_VERIFY,
+    kind: failures.length === 0 ? "passed" : appFailures && unverified ? "mixed" : appFailures ? FAILURE_TYPE.APP_FAILURE : FAILURE_TYPE.COULDNT_VERIFY,
     project: {
       status: evaluation.project.status,
       failingClaims: evaluation.project.failingClaims.filter((c) => claimText.has(c)),
@@ -246,6 +251,9 @@ export async function buildFailureReport({ evaluation, catalog, manifest, runDir
       ? { url: redactUrl(deployment.url ?? ""), commit: deployment.deployedCommit ?? null, expectedCommit: deployment.expectedCommit ?? null, state: deployment.state ?? null }
       : null,
     counts: { appFailures, couldntVerify: unverified },
+    // Actual spend is the balance difference (null if a balance was unknown), never an estimate.
+    credits: credits ?? manifest?.credits ?? null,
+    warnings: (warnings ?? manifest?.warnings ?? []).map((w) => ({ ...w, message: red(w.message ?? "") })),
     failures,
     ignoredUnapprovedTests: [...new Set([...ignored, ...(evaluation.unapprovedTestsRun ?? [])])].sort(),
   };
@@ -266,7 +274,7 @@ const q = (s) => `"${s}"`;
 export function renderMarkdown(report) {
   if (!report) return "";
   const L = [];
-  L.push(`# Greenlight: ${report.kind === "couldnt_verify" ? "could not verify" : "verification failed"}`);
+  L.push(`# Greenlight: ${report.kind === "passed" ? "verified" : report.kind === "couldnt_verify" ? "could not verify" : "verification failed"}`);
   const meta = [report.runId && `run ${report.runId}`, report.deployment?.commit && `commit ${report.deployment.commit.slice(0, 12)}`, report.deployment?.url, report.generatedAt].filter(Boolean);
   L.push(meta.join(" · "));
   L.push("");
@@ -300,8 +308,26 @@ export function renderMarkdown(report) {
     }
   }
   if (report.ignoredUnapprovedTests.length) L.push("", `Ignored (not approved): ${report.ignoredUnapprovedTests.join(", ")}`);
+  const warnings = report.warnings ?? [];
+  if (warnings.length) {
+    L.push("", "## Warnings");
+    for (const w of warnings) L.push(`- \`${w.code}\`: ${w.message}`);
+  }
+  if (report.credits) L.push("", `Credits: ${renderCredits(report.credits)}`);
   L.push("", "Pass/fail comes from Kane's test results and the approved tests only. Do not edit approved tests to make them pass; propose a change for human approval instead.");
   return L.join("\n") + "\n";
+}
+
+/** One line describing a creditRecord(); the discrepancy is always shown when known. */
+export function renderCredits(c) {
+  const n = (v) => (v === null || v === undefined ? "unknown" : String(v));
+  const parts = [
+    `actual ${c.actualSpend === null ? "unknown (a balance could not be read; no estimate or log total is used instead)" : `${c.actualSpend} (balance ${n(c.balanceBefore)} -> ${n(c.balanceAfter)})`}`,
+    `Kane-reported ${n(c.kaneReportedSpend)} (lower bound)`,
+    `unaccounted by Kane ${n(c.discrepancy)}`,
+    `estimate ${n(c.estimate)}`,
+  ];
+  return `${parts.join(" · ")} — ${c.status}${c.reasons?.length ? `: ${c.reasons.join(", ")}` : ""}`;
 }
 
 /** Write latest.json / latest.md (and a public copy) under .greenlight/reports/. */

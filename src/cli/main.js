@@ -20,13 +20,13 @@ import { collectEvidence } from "../evidence/collect.js";
 import { kaneEvidenceValidator } from "../evidence/validate.js";
 import { readBalance, kaneBalanceReader } from "../credits/balance.js";
 import { estimateRun, planFromRecordings, authorizeRun } from "../credits/estimate.js";
-import { actualUsage, reconcileUsage } from "../credits/usage.js";
+import { actualUsage, reconcileUsage, creditRecord } from "../credits/usage.js";
 import { writeGenerated, loadProject, toApprovedTests, SPEC_FILE, TESTS_DIR } from "../spec/generate.js";
 import { SpecError } from "../spec/schema.js";
 import { approve, approveRelayed, checkApproval, detectAgentEnvironment, RELAYED_METHOD, RELAYED_ENV } from "../spec/approval.js";
-import { checkRecordings, saveRecordingsBaseline, classifyRecordingChanges } from "../spec/recordings.js";
+import { checkRecordings, saveRecordingsBaseline, classifyRecordingChanges, findUnretainedRecordings, INTACT_RECORDING_STATUSES } from "../spec/recordings.js";
 import { verifyDeployment, requireReady } from "../deploy/check.js";
-import { buildFailureReport, renderMarkdown, writeFailureReport, catalogFromSpec, REPORTS_DIR } from "../report/failure-report.js";
+import { buildFailureReport, renderMarkdown, renderCredits, writeFailureReport, catalogFromSpec, REPORTS_DIR } from "../report/failure-report.js";
 import { redactUrl, redactText } from "../report/redact.js";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
@@ -61,6 +61,7 @@ verify options
   --deploy-timeout-seconds <n>    How long to wait for the deployment (default ${DEFAULTS.deployTimeoutSeconds})
   --deploy-interval-seconds <n>   Time between deployment checks (default ${DEFAULTS.deployIntervalSeconds})
   --confirm-spend <n>             Relayed mode only: this run's credit confirmation and maximum spend
+  --estimate-margin <n>           Multiply the credit estimate by n >= 1 (more conservative only)
 
 Relayed mode (controlled tests only; never certifiable): with ${RELAYED_ENV}=1,
   greenlight approve --relayed <full hash>   records an approval a person gave in chat
@@ -80,6 +81,7 @@ const OPTIONS = {
     "--deploy-timeout-seconds": "number",
     "--deploy-interval-seconds": "number",
     "--confirm-spend": "number",
+    "--estimate-margin": "number",
   },
   init: {},
   generate: {},
@@ -274,6 +276,7 @@ async function cmdStatus(ctx) {
   }
   ctx.out(`Recording cache: ${rec.status}`);
   for (const f of [...(rec.changed ?? []), ...(rec.added ?? []), ...(rec.removed ?? [])]) ctx.out(`  - ${f}`);
+  for (const m of rec.missing ?? []) ctx.out(`  not recorded (next run authors it afresh): ${m.file} (${m.reason})`);
   return s.status === "approved" && gen.clean && rec.status !== "changed" && rec.status !== "stale" ? EXIT.OK : EXIT.BLOCKED;
 }
 
@@ -355,8 +358,15 @@ async function cmdVerify(ctx) {
 
   // 4. Credits: estimate, limits, confirmation.
   const before = await ctx.deps.readBalance();
-  const plan = await planFromRecordings({ testsDir, files: testFiles, previousEvaluation: await previousFailures(ctx.cwd) });
-  const estimate = estimateRun(plan);
+  const catalog = catalogFromSpec(project.spec);
+  const stepCounts = Object.fromEntries(catalog.tests.map((t) => [t.file, t.steps.length]));
+  const plan = await planFromRecordings({ testsDir, files: testFiles, previousEvaluation: await previousFailures(ctx.cwd), stepCounts });
+  const margin = o["estimate-margin"] ?? 1;
+  if (!(Number.isFinite(margin) && margin >= 1)) {
+    ctx.err("--estimate-margin must be a number >= 1 (it can only make the estimate more conservative). Kane was not run.");
+    return EXIT.USAGE;
+  }
+  const estimate = estimateRun(plan, { margin, ...(ctx.deps.rates ? { rates: ctx.deps.rates } : {}) });
   const policy = relayed
     ? { maxPerRun: Math.min(confirmSpend, o["max-credits"] ?? Infinity), minReserve: o.reserve ?? DEFAULTS.reserve }
     : { maxPerRun: o["max-credits"] ?? DEFAULTS.maxCredits, minReserve: o.reserve ?? DEFAULTS.reserve };
@@ -393,8 +403,15 @@ async function cmdVerify(ctx) {
     abortSignal: ctx.signal,
   });
 
-  // 6. Classify, collect evidence, account credits, report.
+  // 6. Classify, account credits, check recordings were kept, collect evidence, report.
   const evaluation = evaluateRun(runResult, toApprovedTests(project.rendered));
+  const after = await ctx.deps.readBalance();
+  const usage = await actualUsage({ runResult });
+  const credits = reconcileUsage({ before, after, usage, estimate: estimate.credits });
+  const creditsRecord = creditRecord(credits);
+  const warnings = [];
+  const unretained = await findUnretainedRecordings({ testsDir, testFiles, runResult });
+  if (unretained) warnings.push(unretained);
   const collected = await collectEvidence({
     runId,
     runResult,
@@ -406,16 +423,15 @@ async function cmdVerify(ctx) {
     validator: ctx.deps.validator,
     evaluation,
     approval: { method: approval.method, certifiable: approval.certifiable },
+    credits: creditsRecord,
+    warnings,
     now: ctx.deps.now,
   });
-  const after = await ctx.deps.readBalance();
-  const usage = await actualUsage({ runResult });
-  const credits = reconcileUsage({ before, after, usage, estimate: estimate.credits });
 
   const saveBaseline = () => saveRecordingsBaseline({ root: ctx.cwd, testsDir, testFiles, approvedHash: approval.approvedHash, now: ctx.deps.now });
   if (evaluation.run.usable && recordings.status === "no_baseline") {
     await saveBaseline();
-  } else if (recordings.status === "unchanged") {
+  } else if (INTACT_RECORDING_STATUSES.includes(recordings.status)) {
     const now = await checkRecordings({ root: ctx.cwd, testsDir, testFiles, approvedHash: approval.approvedHash });
     if (now.status === "changed") {
       const c = await classifyRecordingChanges({ testsDir, check: now });
@@ -429,23 +445,29 @@ async function cmdVerify(ctx) {
   }
 
   say(`Evidence: ${collected.manifest.evidence.status}${collected.manifest.evidence.sha256 ? ` (sha256 ${collected.manifest.evidence.sha256.slice(0, 16)}…)` : ""}`);
-  say(`Credits used: ${credits.spent ?? "unknown"} (${credits.status}${credits.reasons.length ? `: ${credits.reasons.join(", ")}` : ""})`);
+  say(`Credits: ${renderCredits(creditsRecord)}`);
+  for (const w of warnings) ctx.err(`Warning (${w.code}): ${w.message}`);
 
   const report = await buildFailureReport({
     evaluation,
-    catalog: catalogFromSpec(project.spec),
+    catalog,
     manifest: collected.manifest,
     runDir: collected.runDir,
     deployment,
+    credits: creditsRecord,
+    warnings,
+    always: true,
     now: ctx.deps.now,
   });
   for (const c of evaluation.claims) say(`  ${c.status.padEnd(14)} ${c.id}`);
   if (runResult.aborted) {
     ctx.err("Interrupted: Kane was stopped. Results from this run are not trusted.");
-    if (report) await writeFailureReport({ root: ctx.cwd, report });
+    await writeFailureReport({ root: ctx.cwd, report });
     return EXIT.INTERRUPTED;
   }
-  if (!report) {
+  if (evaluation.project.status === "passed") {
+    // latest.json still records this run's credits and warnings (and clears an older failure report).
+    await writeFailureReport({ root: ctx.cwd, report });
     say(`Verified: all ${evaluation.claims.length} claim(s) passed.`);
     return EXIT.OK;
   }

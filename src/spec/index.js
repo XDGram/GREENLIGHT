@@ -29,4 +29,17 @@ export {
   RELAYED_METHOD,
   RELAYED_ENV,
 } from "./approval.js";
-export { snapshotRecordings, saveRecordingsBaseline, checkRecordings, classifyRecordingChanges, RECORDINGS_FILE, RECORDINGS_SCHEMA } from "./recordings.js";
+export {
+  snapshotRecordings,
+  saveRecordingsBaseline,
+  checkRecordings,
+  classifyRecordingChanges,
+  detectRecording,
+  recordingDir,
+  findUnretainedRecordings,
+  RECORDINGS_FILE,
+  RECORDINGS_SCHEMA,
+  RECORDING_FILE,
+  NOT_RECORDED,
+  INTACT_RECORDING_STATUSES,
+} from "./recordings.js";

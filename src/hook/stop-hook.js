@@ -81,6 +81,23 @@ const clip = (s) => (s.length > MAX_MESSAGE ? `${s.slice(0, MAX_MESSAGE)}\n… (
 const tail = (s, n = 20) => String(s ?? "").trim().split("\n").slice(-n).join("\n");
 
 /**
+ * Warnings from the report THIS verification wrote (latest.json generated at or
+ * after `since`); an older report's warnings are never repeated.
+ */
+export async function readRunWarnings(cwd, since) {
+  try {
+    const r = JSON.parse(await readFile(path.join(cwd, REPORTS_DIR, "latest.json"), "utf8"));
+    if (!r?.generatedAt || Date.parse(r.generatedAt) < since.getTime()) return [];
+    return Array.isArray(r.warnings) ? r.warnings.filter((w) => w && typeof w.code === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+const warningText = (warnings) =>
+  warnings.length ? `${warnings.map((w) => `Greenlight warning (${w.code}): ${w.message ?? ""}`.trim()).join("\n")}\n\n` : "";
+
+/**
  * Run the Stop hook once.
  * @param {object} p
  * @param {object} [p.input]   parsed hook JSON from stdin
@@ -193,7 +210,9 @@ export async function runStopHook({
     const started = now();
     const v = await runVerify({ cwd, env, signal });
     const runResult = v.aborted || v.exitCode === 130 ? "interrupted" : { 0: "passed", 1: "failed", 3: "couldnt_verify", 4: "blocked" }[v.exitCode] ?? "error";
-    state.lastRun = { commit: head, result: runResult, exitCode: v.exitCode, at: at(), durationMs: now() - started };
+    const warnings = await readRunWarnings(cwd, started);
+    const warn = warningText(warnings);
+    state.lastRun = { commit: head, result: runResult, exitCode: v.exitCode, at: at(), durationMs: now() - started, warnings: warnings.map((w) => w.code) };
     state.history.push({ commit: head, result: runResult, at: at() });
 
     switch (runResult) {
@@ -201,7 +220,7 @@ export async function runStopHook({
         state.lastVerified = { commit: head, at: at() };
         state.fixAttempts = 0;
         state.humanNeeded = false;
-        return result(HOOK_EXIT.ALLOW, "verified", { stdout: `Greenlight verified commit ${short(head)}: every approved claim passed.` });
+        return withWarnings(result(HOOK_EXIT.ALLOW, "verified", { stdout: `${warn}Greenlight verified commit ${short(head)}: every approved claim passed.` }));
 
       case "failed": {
         let report = "";
@@ -214,34 +233,38 @@ export async function runStopHook({
         }
         if (state.fixAttempts >= maxFixAttempts) {
           state.humanNeeded = true;
-          return result(HOOK_EXIT.BLOCKER, "fix_limit_reached", {
-            stderr: `Greenlight: commit ${short(head)} still fails after ${maxFixAttempts} automatic fix attempts. Stopping the loop; a person needs to review ${reportPath}.`,
-          });
+          return withWarnings(result(HOOK_EXIT.BLOCKER, "fix_limit_reached", {
+            stderr: `${warn}Greenlight: commit ${short(head)} still fails after ${maxFixAttempts} automatic fix attempts. Stopping the loop; a person needs to review ${reportPath}.`,
+          }));
         }
         state.fixAttempts += 1;
         block("app_failure", head);
-        return result(HOOK_EXIT.BLOCK, "app_failure", {
+        return withWarnings(result(HOOK_EXIT.BLOCK, "app_failure", {
           stderr: clip(
-            `Greenlight verification FAILED for commit ${short(head)} (automatic fix attempt ${state.fixAttempts} of ${maxFixAttempts}).\n\n${report.trim()}\n\n` +
+            `Greenlight verification FAILED for commit ${short(head)} (automatic fix attempt ${state.fixAttempts} of ${maxFixAttempts}).\n\n${warn}${report.trim()}\n\n` +
               "What to do: investigate and fix the APPLICATION code so the approved claims hold, then commit and push. " +
               "Do not edit greenlight.yaml, .greenlight/tests/ or .greenlight/approval.json, and do not weaken or remove approved tests; " +
               "if you believe a test is wrong, explain why and propose the change for a person to approve.",
           ),
-        });
+        }));
       }
 
       case "couldnt_verify":
       case "blocked":
-        return result(HOOK_EXIT.BLOCKER, runResult, {
-          stderr: `Greenlight could not ${runResult === "blocked" ? "start verification (a gate needs a person)" : "verify the deployment"} for commit ${short(head)}. This is not an application failure; do not change code for it.\n${tail(v.stderr || v.stdout)}`,
-        });
+        return withWarnings(result(HOOK_EXIT.BLOCKER, runResult, {
+          stderr: `${warn}Greenlight could not ${runResult === "blocked" ? "start verification (a gate needs a person)" : "verify the deployment"} for commit ${short(head)}. This is not an application failure; do not change code for it.\n${tail(v.stderr || v.stdout)}`,
+        }));
 
       case "interrupted":
-        return result(HOOK_EXIT.BLOCKER, "interrupted", { stderr: `Greenlight verification of ${short(head)} was interrupted; it will run again next time.` });
+        return withWarnings(result(HOOK_EXIT.BLOCKER, "interrupted", { stderr: `${warn}Greenlight verification of ${short(head)} was interrupted; it will run again next time.` }));
 
       default:
         return result(HOOK_EXIT.BLOCKER, "error", { stderr: `Greenlight verification failed to run (exit ${v.exitCode}); it will run again next time.\n${tail(v.stderr)}` });
     }
+  }
+
+  function withWarnings(r) {
+    return { ...r, warnings: state.lastRun?.warnings ?? [] };
   }
 
   function askOnce(reason, head, message) {

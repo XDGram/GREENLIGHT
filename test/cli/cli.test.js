@@ -302,7 +302,7 @@ test("verify passes the live URL and options to the deployment check, with the s
 
 test("credit refusals: cap, reserve and unknown balance stop verify before Kane", async () => {
   const cases = [
-    [[], { recordings: false }, {}, /exceeds_per_run_cap/], // 3 fresh recordings = 108 > default cap 60
+    [[], { recordings: false }, {}, /exceeds_per_run_cap/], // 3 fresh recordings = 156 > default cap 60
     [["--reserve", "11076"], { recordings: true }, {}, /breaches_minimum_reserve/],
     [[], { recordings: true }, { readBalance: async () => ({ ok: false, balance: null, reason: "nonzero_exit" }) }, /balance_unavailable/],
   ];
@@ -338,7 +338,7 @@ test("fresh recording needs a person to type yes; agents and pipes cannot confir
   assert.equal(kaneCalled(x.calls), false);
 
   x = await run({ stdin: terminal("yes") });
-  assert.match(x.r.out, /records 3 test\(s\) afresh and is estimated to use 108 credits/);
+  assert.match(x.r.out, /records 3 test\(s\) afresh and is estimated to use 156 credits/);
   assert.equal(kaneCalled(x.calls), true);
 });
 
@@ -381,13 +381,18 @@ test("known failing step from the last report raises the next estimate", async (
   assert.match(second.out, /Credits: estimate 14\.6 \(0 fresh recording\(s\), 1 known failing step\(s\)\)/);
 });
 
-test("all claims pass: exit 0 and no failure report", async () => {
+test("all claims pass: exit 0, a passing report with no failures records the run's credits", async () => {
   const root = await newProject({ recordings: true });
   const calls = [];
   const r = await cli(["verify"], { root, d: deps(calls, { runKane: fakeKane(calls, Object.fromEntries(FILES.map((f) => [f, "passed"]))) }) });
   assert.equal(r.code, EXIT.OK, r.err);
   assert.match(r.out, /Verified: all 3 claim\(s\) passed\./);
-  assert.equal(existsSync(path.join(root, ".greenlight", "reports", "latest.json")), false);
+  const latest = JSON.parse(await readFile(path.join(root, ".greenlight", "reports", "latest.json"), "utf8"));
+  assert.equal(latest.kind, "passed");
+  assert.deepEqual(latest.failures, []);
+  assert.equal(latest.project.status, "passed");
+  assert.equal(latest.credits.actualSpendSource, "balance_difference");
+  assert.deepEqual(latest.warnings, [], "replayed tests with recordings: nothing to warn about");
 });
 
 test("infrastructure failure inside Kane: exit 3 and a could-not-verify report", async () => {

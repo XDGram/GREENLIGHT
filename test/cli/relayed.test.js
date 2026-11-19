@@ -89,8 +89,11 @@ function fakeKane(calls, kaneOpts = {}) {
     for (const f of FILES) {
       const dir = path.join(opts.cwd, `output-${f.replace(/_test\.md$/, "")}`, ".internal");
       await mkdir(path.join(dir, "steps"), { recursive: true });
-      await writeFile(path.join(dir, "execution.json"), "{}");
-      await writeFile(path.join(dir, "steps", "1.json"), "step 1");
+      // kaneOpts.noRecording: what Kane 0.10.6 did in Step 11 E1 under --local (only meta.json kept).
+      if (!kaneOpts.noRecording) {
+        await writeFile(path.join(dir, "execution.json"), "{}");
+        await writeFile(path.join(dir, "steps", "1.json"), "step 1");
+      }
       await writeFile(path.join(dir, "meta.json"), JSON.stringify({ executions: [{ run_kind: f.startsWith("newsletter") && kaneOpts.liveStep ? "author" : runKind }] }));
       if (f.startsWith("newsletter") && kaneOpts.liveStep) await writeFile(path.join(dir, "steps", "3.json"), "step 3, authored live");
       if (f.startsWith("cart") && kaneOpts.tamper) await writeFile(path.join(dir, "steps", "1.json"), "rewritten during replay");
@@ -173,19 +176,65 @@ test("--confirm-spend cannot replace a person's confirmation on human-approved t
   assert.deepEqual(calls, []);
 });
 
-test("E1 shape: two fresh recordings (estimate 72) run under --confirm-spend 100 without a prompt", async () => {
+test("E1 shape: two fresh recordings (estimate 94) run under --confirm-spend 100 without a prompt", async () => {
   const { root } = await project();
   const calls = [];
   const r = await cli(["verify", "--url", PREVIEW, "--confirm-spend", "100"], { root, d: deps(calls) });
   assert.equal(r.code, EXIT.FAILED, r.err);
   assert.deepEqual(names(calls), ["verifyDeployment", "readBalance", "runKane", "readBalance"]);
   assert.match(r.out, /Approval: relayed-by-agent \(controlled test only; never certifiable\)\. Spend confirmed for this run: at most 100 credits\./);
-  assert.match(r.out, /Credits: estimate 72 \(2 fresh recording\(s\), 0 known failing step\(s\)\); balance 11076\.5779; cap 100; reserve 500/);
+  assert.match(r.out, /Credits: estimate 94 \(2 fresh recording\(s\), 0 known failing step\(s\)\); balance 11076\.5779; cap 100; reserve 500/);
   const k = calls.find((c) => c.name === "runKane").opts;
   for (const flag of ["--agent", "--headless", "--no-adaptive-heal", "--local", "--override-start-url"]) assert.ok(k.args.includes(flag), flag);
   const runs = await readdir(path.join(root, ".greenlight", "runs"));
   const manifest = JSON.parse(await readFile(path.join(root, ".greenlight", "runs", runs[0], "manifest.json"), "utf8"));
   assert.deepEqual(manifest.approval, { method: "relayed-by-agent", certifiable: false });
+});
+
+test("E1 regression: authored tests Kane did not keep are flagged, and the real spend (not the estimate) is persisted", async () => {
+  const { root } = await project();
+  const calls = [];
+  const balances = [11076.5779, 10999.9376]; // E1's real balances, before and after
+  const d = { ...deps(calls, 0, { noRecording: true }), readBalance: async () => (calls.push({ name: "readBalance" }), { ok: true, balance: balances.shift() }) };
+  const r = await cli(["verify", "--url", PREVIEW, "--confirm-spend", "100"], { root, d });
+  assert.equal(r.code, EXIT.FAILED, r.err);
+  assert.match(r.err, /Warning \(recording_not_retained\): Kane authored 2 test\(s\) .* fresh-authoring credit costs again/);
+  assert.match(r.out, /Credits: actual 76\.6403 \(balance 11076\.5779 -> 10999\.9376\)/);
+  assert.match(r.out, /## Warnings\n- `recording_not_retained`/);
+
+  const latest = JSON.parse(await readFile(path.join(root, ".greenlight", "reports", "latest.json"), "utf8"));
+  assert.deepEqual(latest.warnings.map((w) => [w.code, w.tests.map((t) => t.file)]), [["recording_not_retained", FILES]]);
+  assert.equal(latest.credits.actualSpend, 76.6403);
+  assert.equal(latest.credits.actualSpendSource, "balance_difference");
+  assert.equal(latest.credits.balanceBefore, 11076.5779);
+  assert.equal(latest.credits.balanceAfter, 10999.9376);
+  assert.equal(latest.credits.estimate, 94);
+  assert.equal(latest.credits.estimateDifference, -17.3597);
+  assert.ok("kaneReportedSpend" in latest.credits && "discrepancy" in latest.credits);
+  assert.notEqual(latest.credits.actualSpend, latest.credits.estimate, "the estimate never stands in for the spend");
+  const pub = JSON.parse(await readFile(path.join(root, ".greenlight", "reports", "latest.public.json"), "utf8"));
+  assert.equal(pub.credits.actualSpend, 76.6403);
+
+  const runs = await readdir(path.join(root, ".greenlight", "runs"));
+  const manifest = JSON.parse(await readFile(path.join(root, ".greenlight", "runs", runs[0], "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.credits, latest.credits);
+  assert.equal(manifest.warnings[0].code, "recording_not_retained");
+  assert.deepEqual(manifest.approval, { method: "relayed-by-agent", certifiable: false }, "still never certifiable");
+
+  const baseline = JSON.parse(await readFile(path.join(root, ".greenlight", "recordings.json"), "utf8"));
+  assert.deepEqual(baseline.recorded, [], "missing recordings are not recorded as recorded");
+  const status = await cli(["status"], { root });
+  assert.match(status.out, /Recording cache: not_recorded/);
+  assert.match(status.out, /not recorded \(next run authors it afresh\): cart-add-two_test\.md \(missing_execution_json\)/);
+  assert.doesNotMatch(status.out, /Recording cache: unchanged/);
+
+  // The next run is planned and priced as fresh authoring again, and E2's remaining budget refuses it.
+  const calls2 = [];
+  const again = await cli(["verify", "--url", PREVIEW, "--confirm-spend", "28.3597"], { root, d: deps(calls2, 10999.9376, { noRecording: true }) });
+  assert.equal(again.code, EXIT.BLOCKED);
+  assert.match(again.out, /Credits: estimate 94 \(2 fresh recording\(s\)/);
+  assert.match(again.err, /exceeds_per_run_cap/);
+  assert.equal(names(calls2).includes("runKane"), false);
 });
 
 test("relayed spend limits are enforced: estimate above --confirm-spend, --max-credits, reserve", async () => {
