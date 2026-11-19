@@ -108,6 +108,7 @@ async function writePrivate(filePath, data) {
  * @param {string} [p.startUrl]
  * @param {(packPath: string) => Promise<object>} [p.validator]  default: kaneEvidenceValidator()
  * @param {object} [p.evaluation]           Step 2 evaluateRun() output, summarised into the record
+ * @param {{method: string, certifiable: boolean}} [p.approval]  how the tests were approved
  * @param {() => Date} [p.now]
  */
 export async function collectEvidence({
@@ -120,6 +121,7 @@ export async function collectEvidence({
   startUrl,
   validator = kaneEvidenceValidator(),
   evaluation,
+  approval,
   now = () => new Date(),
 }) {
   validateInputs({ runId, approvedTestHash, deployedCommit, runResult });
@@ -165,6 +167,8 @@ export async function collectEvidence({
     },
     evidence,
     result: evaluation ? summariseEvaluation(evaluation) : null,
+    // How the tests were approved. A relayed approval is never certifiable.
+    approval: approval ? { method: approval.method ?? null, certifiable: approval.certifiable === true } : null,
   };
   manifest.recordSha256 = recordHash(manifest); // last: after every other hash is set
 

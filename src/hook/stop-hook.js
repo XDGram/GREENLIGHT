@@ -91,7 +91,13 @@ export async function runStopHook({
   cwd = input.cwd ?? process.cwd(),
   env = process.env,
   runGit = hookGitRunner(cwd),
-  runVerify = cliVerifier({ extraArgs: env.GREENLIGHT_URL ? ["--url", env.GREENLIGHT_URL] : [] }),
+  runVerify = cliVerifier({
+    extraArgs: [
+      ...(env.GREENLIGHT_URL ? ["--url", env.GREENLIGHT_URL] : []),
+      // Relayed controlled tests only: the per-run spend confirmation for this one invocation.
+      ...(env.GREENLIGHT_CONFIRM_SPEND ? ["--confirm-spend", env.GREENLIGHT_CONFIRM_SPEND] : []),
+    ],
+  }),
   now = () => new Date(),
   lockOptions = {},
   signal,

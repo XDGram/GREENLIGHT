@@ -66,7 +66,7 @@ test("every relative link in the Skill points to a file that exists", () => {
 
 // ---------------------------------------------------------------- CLI accuracy
 
-const PLACEHOLDER = { "<url>": "https://app.example.com/", "<n>": "1", "<name>": "preview", "<path>": "/opt/kane" };
+const PLACEHOLDER = { "<url>": "https://app.example.com/", "<n>": "1", "<name>": "preview", "<path>": "/opt/kane", "<hash>": "a".repeat(64) };
 
 test("every `greenlight <command …>` in the Skill is a real command with real options", () => {
   const found = [...ALL.matchAll(/`greenlight ([a-z]+)((?: [^`]*)?)`/g)];
@@ -82,6 +82,7 @@ test("every --option named in the Skill is a real verify option, and every verif
   const named = new Set([...ALL.matchAll(/`(--[a-z-]+)(?: <[a-z]+>)?`/g)].map((m) => m[1]));
   named.delete("--no-adaptive-heal");
   for (const opt of named) assert.doesNotThrow(() => parseArgs(["verify", opt, "1"]), opt);
+  assert.ok(SKILL.includes("`greenlight approve --relayed <hash>`"), "relayed approval documented");
   const real = [...SRC.cli.matchAll(/^\s+"(--[a-z-]+)": "(?:string|number)",$/gm)].map((m) => m[1]);
   assert.ok(real.length >= 8);
   for (const opt of real) assert.ok(SKILL.includes(`\`${opt} <`), `undocumented verify option ${opt}`);

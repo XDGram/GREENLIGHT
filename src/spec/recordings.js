@@ -91,3 +91,40 @@ export async function checkRecordings({ root, testsDir, testFiles, approvedHash 
   const status = changed.length || removed.length || added.length ? "changed" : "unchanged";
   return { status, changed, added, removed };
 }
+
+/**
+ * Which recording changes a finished run may legitimately have made.
+ * Kane logs each test's run kind in output-<stem>/.internal/meta.json
+ * (executions[-1].run_kind, verified in Run 2): "author" means Kane wrote
+ * steps this run (first recording, or a check that had never passed), so new or
+ * changed recordings for that test are expected. A "replay" test must not change.
+ * Removed recording files are never accepted.
+ * @returns {Promise<{acceptable: boolean, authoredStems: string[], unexpected: string[]}>}
+ */
+export async function classifyRecordingChanges({ testsDir, check }) {
+  const touched = [...(check.changed ?? []), ...(check.added ?? [])];
+  const stemOf = (p) => /^output-([^/]+)\//.exec(p)?.[1] ?? null;
+  const authoredStems = [];
+  const unexpected = [...(check.removed ?? [])];
+  const kinds = new Map();
+  for (const p of touched) {
+    const stem = stemOf(p);
+    if (!stem) {
+      unexpected.push(p);
+      continue;
+    }
+    if (!kinds.has(stem)) {
+      let kind = null;
+      try {
+        const meta = JSON.parse(await readFile(path.join(testsDir, `output-${stem}`, ".internal", "meta.json"), "utf8"));
+        kind = meta?.executions?.at?.(-1)?.run_kind ?? null;
+      } catch {
+        kind = null;
+      }
+      kinds.set(stem, kind);
+      if (kind === "author") authoredStems.push(stem);
+    }
+    if (kinds.get(stem) !== "author") unexpected.push(p);
+  }
+  return { acceptable: unexpected.length === 0, authoredStems: authoredStems.sort(), unexpected };
+}

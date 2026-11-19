@@ -11,7 +11,7 @@ Work only in the developer's existing repository, in the current working directo
 
 ## Non-negotiable rules
 
-1. **Never approve tests.** `greenlight approve` is for a person at their own terminal; it refuses AI agents (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `AI_AGENT`), CI and non-interactive shells. Do not edit `.greenlight/approval.json`, set or unset those variables, or fake a terminal to get around it.
+1. **Never approve tests.** `greenlight approve` is for a person at their own terminal; it refuses AI agents (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `AI_AGENT`), CI and non-interactive shells. Do not edit `.greenlight/approval.json`, set or unset those variables, or fake a terminal to get around it. The only exception is relayed mode for controlled tests (below), and only when the user gives you the full hash in chat.
 2. **Never weaken approved tests.** Do not edit `greenlight.yaml` claims or tests, `.greenlight/tests/*_test.md`, or `.greenlight/approval.json` to make something pass. Any edit invalidates the approval anyway (`greenlight status` shows `invalidated`). If a test looks wrong, explain why and propose the exact change for a person to approve.
 3. **Never bypass the gates.** Approval, deployment readiness and credit limits are enforced by `greenlight verify`. Do not work around them, raise `--max-credits`/`--reserve` on your own, or answer the credit confirmation (it needs a person typing `yes` at a terminal).
 4. **Never run Kane yourself.** Do not call `kane-cli` directly for checks Greenlight owns; it would skip the gates, spend credits and produce results nobody approved. Greenlight orchestrates Kane.
@@ -52,7 +52,7 @@ Details of the spec format: [references/greenlight-yaml.md](references/greenligh
 | `greenlight status` | Spec validity, approval, hash integrity, generated tests, recording cache |
 | `greenlight verify` | Gates, then Kane against the live URL, then classification and the report |
 
-`greenlight verify` options: `--url <url>` (live URL; default `project.url`), `--environment <name>`, `--max-credits <n>`, `--reserve <n>`, `--kane <path>`, `--kane-timeout-minutes <n>`, `--deploy-timeout-seconds <n>`, `--deploy-interval-seconds <n>`. Do not change the credit options unless the user asks.
+`greenlight verify` options: `--url <url>` (live URL; default `project.url`), `--environment <name>`, `--max-credits <n>`, `--reserve <n>`, `--kane <path>`, `--kane-timeout-minutes <n>`, `--deploy-timeout-seconds <n>`, `--deploy-interval-seconds <n>`, `--confirm-spend <n>` (relayed mode only). Do not change the credit options unless the user asks.
 
 ### Exit codes of `greenlight verify`
 
@@ -108,6 +108,15 @@ The hook never re-runs a commit that already has a result, skips commits that ch
 You get **three automatic fix attempts** per failure streak. After the third failed fix, the hook stops blocking and says "Greenlight: commit … still fails after 3 automatic fix attempts". From then on it does not verify until a person reviews `.greenlight/reports/latest.md` and runs `greenlight-stop-hook reset`. When that happens, stop trying fixes. Summarise for the user what you tried, what the report shows, and your best explanation.
 
 The counter resets after a fully passing verification or when a person approves changed tests.
+
+## Relayed mode (controlled tests only)
+
+For a controlled test in an environment with no terminal, a person can approve in chat and you record it:
+
+- Only when the user explicitly asks for relayed approval and gives you the **full 64-character** approved-test hash that `greenlight generate` printed. Never use a hash you computed or chose yourself.
+- Only with `GREENLIGHT_RELAYED_APPROVAL=1`: `greenlight approve --relayed <hash>`. The record is `method: relayed-by-agent`, `certifiable: false`.
+- Every `greenlight verify` on relayed tests needs `--confirm-spend <n>`, where `n` is the credit limit the user approved **for that run**. Never reuse an earlier figure or raise it yourself. Through the Stop hook, set `GREENLIGHT_CONFIRM_SPEND` for that one invocation only.
+- A relayed approval can never be used for certification or publishing.
 
 ## First runs and credits
 

@@ -25,6 +25,17 @@ import { sha256Bytes, canonicalJson } from "../evidence/hash.js";
 export const APPROVAL_FILE = path.join(".greenlight", "approval.json");
 export const APPROVAL_SCHEMA = "greenlight.approval/v1";
 export const CONFIRM_CHARS = 12;
+export const HUMAN_METHOD = "local-terminal-confirmation";
+export const RELAYED_METHOD = "relayed-by-agent";
+export const RELAYED_ENV = "GREENLIGHT_RELAYED_APPROVAL";
+
+/**
+ * Only a person's own terminal approval can ever support certification or
+ * publishing. Relayed approvals (and anything unknown) never can.
+ */
+export function isCertifiable(record) {
+  return Boolean(record) && record.method === HUMAN_METHOD && record.certifiable !== false;
+}
 
 const AGENT_MARKERS = ["CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "AI_AGENT", "CI", "GITHUB_ACTIONS", "GREENLIGHT_AGENT"];
 
@@ -90,7 +101,15 @@ export async function checkApproval(root) {
   if (generated.missing.length) reasons.push("generated_tests_missing", ...generated.missing.map((f) => `missing:${f}`));
   if (generated.unexpected.length) reasons.push("unexpected_test_files", ...generated.unexpected.map((f) => `unexpected:${f}`));
 
-  return { ...base, status: reasons.length ? "invalidated" : "approved", reasons, approvedHash: rec.approvedHash, record: rec };
+  return {
+    ...base,
+    status: reasons.length ? "invalidated" : "approved",
+    reasons,
+    approvedHash: rec.approvedHash,
+    record: rec,
+    method: rec.method ?? null,
+    certifiable: isCertifiable(rec),
+  };
 }
 
 function ask(stdin, stdout, question) {
@@ -163,7 +182,8 @@ export async function approve({
     approvedHash: hash,
     approvedAt: now().toISOString(),
     approvedBy: approver(),
-    method: "local-terminal-confirmation",
+    method: HUMAN_METHOD,
+    certifiable: true,
     generator: GENERATOR_VERSION,
     specFile: SPEC_FILE,
     specFileSha256: project.specFileSha256,
@@ -177,5 +197,53 @@ export async function approve({
   await writeFile(`${target}.tmp`, JSON.stringify(record, null, 2) + "\n");
   await rename(`${target}.tmp`, target);
   say(`Approved. Hash ${hash} recorded in ${APPROVAL_FILE}.`);
+  return { approved: true, reason: null, hash, record };
+}
+
+/**
+ * Relayed approval, for controlled tests only (e.g. a cloud session with no
+ * terminal). The agent records an approval the person gave in chat:
+ *   - only when GREENLIGHT_RELAYED_APPROVAL=1,
+ *   - only for the exact, full current approved-test hash the person supplied,
+ *   - only when the generated tests on disk match the spec.
+ * The record is marked method "relayed-by-agent" and certifiable: false, and
+ * can never support certification or publishing. It does not change approve().
+ * @returns {Promise<{approved: boolean, reason: string|null, hash: string|null, record?: object}>}
+ */
+export async function approveRelayed({ root, env = process.env, hash, now = () => new Date(), relayedFor = "controlled-test" }) {
+  if (env[RELAYED_ENV] !== "1") return { approved: false, reason: "relayed_mode_not_enabled", hash: null };
+  if (typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) return { approved: false, reason: "full_hash_required", hash: null };
+  let project;
+  try {
+    project = await loadProject(root);
+  } catch (err) {
+    if (err instanceof SpecError) return { approved: false, reason: "spec_invalid", hash: null };
+    throw err;
+  }
+  if (hash !== project.hash) return { approved: false, reason: "hash_mismatch", hash: null };
+  const generated = await checkGenerated(project);
+  if (!generated.clean) return { approved: false, reason: "generated_tests_out_of_date", hash: null };
+
+  const { spec, rendered } = project;
+  const record = {
+    schema: APPROVAL_SCHEMA,
+    approvedHash: hash,
+    approvedAt: now().toISOString(),
+    approvedBy: RELAYED_METHOD,
+    method: RELAYED_METHOD,
+    certifiable: false,
+    relayedFor,
+    generator: GENERATOR_VERSION,
+    specFile: SPEC_FILE,
+    specFileSha256: project.specFileSha256,
+    projectUrl: spec.project.url,
+    claims: spec.claims.map((c) => c.id),
+    tests: rendered.map((r) => ({ id: r.testId, file: r.file, claims: r.claims, sha256: r.sha256 })),
+  };
+  record.recordSha256 = approvalRecordHash(record);
+  await mkdir(path.join(root, ".greenlight"), { recursive: true });
+  const target = path.join(root, APPROVAL_FILE);
+  await writeFile(`${target}.tmp`, JSON.stringify(record, null, 2) + "\n");
+  await rename(`${target}.tmp`, target);
   return { approved: true, reason: null, hash, record };
 }

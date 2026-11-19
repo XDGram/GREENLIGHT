@@ -23,12 +23,13 @@ import { estimateRun, planFromRecordings, authorizeRun } from "../credits/estima
 import { actualUsage, reconcileUsage } from "../credits/usage.js";
 import { writeGenerated, loadProject, toApprovedTests, SPEC_FILE, TESTS_DIR } from "../spec/generate.js";
 import { SpecError } from "../spec/schema.js";
-import { approve, checkApproval, detectAgentEnvironment } from "../spec/approval.js";
-import { checkRecordings, saveRecordingsBaseline } from "../spec/recordings.js";
+import { approve, approveRelayed, checkApproval, detectAgentEnvironment, RELAYED_METHOD, RELAYED_ENV } from "../spec/approval.js";
+import { checkRecordings, saveRecordingsBaseline, classifyRecordingChanges } from "../spec/recordings.js";
 import { verifyDeployment, requireReady } from "../deploy/check.js";
 import { buildFailureReport, renderMarkdown, writeFailureReport, catalogFromSpec, REPORTS_DIR } from "../report/failure-report.js";
 import { redactUrl, redactText } from "../report/redact.js";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { ensureGreenlightGitignore } from "../hook/state.js";
 
 export const EXIT = Object.freeze({ OK: 0, FAILED: 1, USAGE: 2, COULDNT_VERIFY: 3, BLOCKED: 4, INTERRUPTED: 130 });
@@ -59,6 +60,11 @@ verify options
   --kane-timeout-minutes <n>      Kane run limit (default ${DEFAULTS.kaneTimeoutMinutes})
   --deploy-timeout-seconds <n>    How long to wait for the deployment (default ${DEFAULTS.deployTimeoutSeconds})
   --deploy-interval-seconds <n>   Time between deployment checks (default ${DEFAULTS.deployIntervalSeconds})
+  --confirm-spend <n>             Relayed mode only: this run's credit confirmation and maximum spend
+
+Relayed mode (controlled tests only; never certifiable): with ${RELAYED_ENV}=1,
+  greenlight approve --relayed <full hash>   records an approval a person gave in chat
+  greenlight verify --confirm-spend <n>      is then required on every run
 
 Exit codes: 0 passed · 1 app failures · 2 usage · 3 could not verify · 4 blocked · 130 interrupted
 `;
@@ -73,10 +79,11 @@ const OPTIONS = {
     "--kane-timeout-minutes": "number",
     "--deploy-timeout-seconds": "number",
     "--deploy-interval-seconds": "number",
+    "--confirm-spend": "number",
   },
   init: {},
   generate: {},
-  approve: {},
+  approve: { "--relayed": "string" },
   status: {},
 };
 
@@ -216,6 +223,23 @@ async function cmdGenerate(ctx) {
 }
 
 async function cmdApprove(ctx) {
+  if (ctx.options.relayed !== undefined) {
+    const r = await approveRelayed({ root: ctx.cwd, env: ctx.env, hash: ctx.options.relayed, now: ctx.deps.now });
+    if (!r.approved) {
+      const why = {
+        relayed_mode_not_enabled: `relayed approval needs ${RELAYED_ENV}=1`,
+        full_hash_required: "the full 64-character approved-test hash is required",
+        hash_mismatch: "that hash is not the current approved-test hash (run greenlight generate and use the hash it prints)",
+        generated_tests_out_of_date: "generated tests do not match greenlight.yaml; run greenlight generate first",
+        spec_invalid: "greenlight.yaml is invalid",
+      }[r.reason] ?? r.reason;
+      ctx.err(`Relayed approval refused: ${why}. Nothing was approved.`);
+      return EXIT.BLOCKED;
+    }
+    ctx.out(`Relayed approval recorded for hash ${r.hash} (method ${RELAYED_METHOD}).`);
+    ctx.out("Controlled testing only: this approval can never be used for certification or publishing.");
+    return EXIT.OK;
+  }
   const r = await ctx.deps.approve({ root: ctx.cwd, env: ctx.env, stdin: ctx.stdin, stdout: ctx.stdout });
   return r.approved ? EXIT.OK : EXIT.BLOCKED;
 }
@@ -277,10 +301,27 @@ async function cmdVerify(ctx) {
     ctx.err("Run greenlight generate, review the tests, then greenlight approve at your own terminal.");
     return EXIT.BLOCKED;
   }
+  // Relayed approvals: controlled tests only, with an explicit per-run spend confirmation.
+  const relayed = approval.method === RELAYED_METHOD;
+  const relayMode = ctx.env[RELAYED_ENV] === "1";
+  const confirmSpend = o["confirm-spend"];
+  if (relayed && !relayMode) {
+    ctx.err(`These tests have a relayed approval, which only works with ${RELAYED_ENV}=1 (controlled testing). Kane was not run.`);
+    return EXIT.BLOCKED;
+  }
+  if (confirmSpend !== undefined && !relayed) {
+    ctx.err("--confirm-spend is only accepted for a relayed approval; a person confirms spending at their terminal otherwise. Kane was not run.");
+    return EXIT.BLOCKED;
+  }
+  if (relayed && confirmSpend === undefined) {
+    ctx.err("A relayed approval needs --confirm-spend <max credits> on every run. Kane was not run.");
+    return EXIT.BLOCKED;
+  }
   const project = approval.project;
   const testFiles = project.rendered.map((r) => r.file);
   const testsDir = path.join(ctx.cwd, TESTS_DIR);
   say(`Approved tests: ${testFiles.length} (hash ${approval.approvedHash.slice(0, 12)}…)`);
+  if (relayed) say(`Approval: ${RELAYED_METHOD} (controlled test only; never certifiable). Spend confirmed for this run: at most ${confirmSpend} credits.`);
 
   // 2. Recording cache must not have been changed behind our back.
   const recordings = await checkRecordings({ root: ctx.cwd, testsDir, testFiles, approvedHash: approval.approvedHash });
@@ -316,8 +357,11 @@ async function cmdVerify(ctx) {
   const before = await ctx.deps.readBalance();
   const plan = await planFromRecordings({ testsDir, files: testFiles, previousEvaluation: await previousFailures(ctx.cwd) });
   const estimate = estimateRun(plan);
-  const policy = { maxPerRun: o["max-credits"] ?? DEFAULTS.maxCredits, minReserve: o.reserve ?? DEFAULTS.reserve };
-  let auth = authorizeRun({ estimate, balance: before, policy, runKind: "iteration" });
+  const policy = relayed
+    ? { maxPerRun: Math.min(confirmSpend, o["max-credits"] ?? Infinity), minReserve: o.reserve ?? DEFAULTS.reserve }
+    : { maxPerRun: o["max-credits"] ?? DEFAULTS.maxCredits, minReserve: o.reserve ?? DEFAULTS.reserve };
+  // Relayed: --confirm-spend is the explicit confirmation, bounded by its own limit.
+  let auth = authorizeRun({ estimate, balance: before, policy, runKind: "iteration", confirmed: relayed });
   say(`Credits: estimate ${estimate.credits} (${estimate.authoredTests} fresh recording(s), ${estimate.liveFailingSteps} known failing step(s)); balance ${before.ok ? before.balance : "unknown"}; cap ${policy.maxPerRun}; reserve ${policy.minReserve}`);
   if (auth.requiresConfirmation && auth.reasons.length === 1 && auth.reasons[0] === "confirmation_required") {
     const a = await askHuman(ctx, `This run records ${estimate.authoredTests} test(s) afresh and is estimated to use ${estimate.credits} credits. Type "yes" to spend them: `);
@@ -338,7 +382,9 @@ async function cmdVerify(ctx) {
   if (ctx.signal.aborted) return EXIT.INTERRUPTED;
 
   // 5. Kane.
-  const runId = `gl-${ctx.deps.now().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "")}-${deployment.deployedCommit.slice(0, 8)}`;
+  const baseRunId = `gl-${ctx.deps.now().toISOString().replace(/[-:]/g, "").replace(/\..*$/, "")}-${deployment.deployedCommit.slice(0, 8)}`;
+  let runId = baseRunId;
+  for (let n = 2; existsSync(path.join(ctx.cwd, ".greenlight", "runs", runId)); n++) runId = `${baseRunId}-${n}`;
   say(`Running Kane (run ${runId}) …`);
   const runResult = await ctx.deps.runKane({
     args: buildTestrunArgs({ testFiles, startUrl: url, runName: runId }),
@@ -359,17 +405,27 @@ async function cmdVerify(ctx) {
     startUrl: url,
     validator: ctx.deps.validator,
     evaluation,
+    approval: { method: approval.method, certifiable: approval.certifiable },
     now: ctx.deps.now,
   });
   const after = await ctx.deps.readBalance();
   const usage = await actualUsage({ runResult });
   const credits = reconcileUsage({ before, after, usage, estimate: estimate.credits });
 
+  const saveBaseline = () => saveRecordingsBaseline({ root: ctx.cwd, testsDir, testFiles, approvedHash: approval.approvedHash, now: ctx.deps.now });
   if (evaluation.run.usable && recordings.status === "no_baseline") {
-    await saveRecordingsBaseline({ root: ctx.cwd, testsDir, testFiles, approvedHash: approval.approvedHash, now: ctx.deps.now });
+    await saveBaseline();
   } else if (recordings.status === "unchanged") {
     const now = await checkRecordings({ root: ctx.cwd, testsDir, testFiles, approvedHash: approval.approvedHash });
-    if (now.status === "changed") ctx.err(`Warning: Kane changed recordings during this run: ${[...now.changed, ...now.added, ...now.removed].join(", ")}`);
+    if (now.status === "changed") {
+      const c = await classifyRecordingChanges({ testsDir, check: now });
+      if (evaluation.run.usable && c.acceptable) {
+        await saveBaseline();
+        say(`Recordings updated for steps Kane recorded this run: ${c.authoredStems.join(", ")}`);
+      } else {
+        ctx.err(`Warning: recordings changed unexpectedly during this run (${c.unexpected.join(", ")}); the baseline was not updated and the next verify will stop.`);
+      }
+    }
   }
 
   say(`Evidence: ${collected.manifest.evidence.status}${collected.manifest.evidence.sha256 ? ` (sha256 ${collected.manifest.evidence.sha256.slice(0, 16)}…)` : ""}`);
