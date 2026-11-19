@@ -284,3 +284,270 @@ Example:
   }
 }
 ```
+
+---
+
+## 8. CLOSED-LOOP AGENT INTEGRATION
+
+This is a critical part of Greenlight.
+
+The integration must work without developers manually copying failure reports between applications.
+
+Expected sequence:
+
+1. Claude develops the application.
+2. Claude attempts to finish.
+3. Stop Hook checks Git state.
+4. If verification is required, Greenlight initiates the process.
+5. Changes are pushed and deployed.
+6. Greenlight verifies the deployed commit.
+7. Kane executes the approved tests.
+8. Kane identifies an application failure.
+9. Greenlight returns the structured report through the Stop Hook.
+10. Claude investigates the source code.
+11. Claude implements a correction.
+12. Claude commits and pushes the correction.
+13. Greenlight waits for deployment.
+14. Kane verifies the failed claims again.
+
+The process repeats until:
+- All relevant tests pass.
+- Three fix attempts have been exhausted.
+- A human intervention is required.
+
+**Maximum automatic fix attempts: THREE.**
+
+The hook must track attempts and avoid repeatedly triggering the same verification without relevant code changes.
+
+---
+
+## 9. VERIFICATION STATES
+
+Support the following claim-level statuses:
+
+- `passed`
+- `failed`
+- `partial`
+- `couldnt_verify`
+
+Definitions:
+
+**PASSED:** All tests associated with a claim passed.
+
+**FAILED:** The claim's verification tests failed.
+
+**PARTIAL:** Some tests associated with a claim passed while others failed.
+
+**COULDNT_VERIFY:** The claim could not be reliably tested because of authentication, infrastructure, timeout or another external limitation.
+
+Overall project status should be calculated from the individual claim results.
+
+Do not describe an unverified claim as passed.
+
+---
+
+## 10. EVIDENCE STORAGE
+
+Each Kane execution should produce an evidence package.
+
+Where available, capture:
+- Screenshots for individual steps.
+- Annotated screenshots.
+- Browser console logs.
+- Network logs.
+- Execution notes.
+- Failed-step records.
+- Test results.
+
+Greenlight must store its own evidence.
+
+Do not assume Kane's internal run links are publicly accessible.
+
+Generate cryptographic hashes for:
+- Approved test configuration.
+- Evidence package.
+- Final verification record.
+
+These hashes should be associated with the published certification.
+
+---
+
+## 11. FINAL CERTIFICATION
+
+The developer initiates publishing through:
+
+`greenlight publish`
+
+This triggers a fresh server-side verification.
+
+The certification process must:
+
+1. Retrieve the approved test configuration.
+2. Validate its hash.
+3. Confirm the target application's deployed commit.
+4. Execute the full approved test suite through Kane.
+5. Collect the raw execution output.
+6. Store the evidence package.
+7. Generate evidence hashes.
+8. Calculate the final verification status.
+9. Create a permanent verification record.
+10. Return the public verification URL.
+
+Only a successful server-side execution can produce a Greenlight certification.
+
+Developer-side iteration reports must never be treated as public certification.
+
+For final certification, run the tests fresh without relying on cached execution results.
+
+---
+
+## 12. PUBLIC VERIFICATION API
+
+The backend must support permanent public verification records.
+
+Every published run receives a unique identifier.
+
+A verification record should contain:
+- Project information.
+- Application URL.
+- Git commit.
+- Approved requirements.
+- Test configuration hash.
+- Individual claim results.
+- Overall verification status.
+- Execution timestamps.
+- Kane execution metadata.
+- Evidence references.
+- Evidence package hash.
+- Certification timestamp.
+
+Each subsequent certification creates a separate record.
+
+Previous verification records must remain accessible.
+
+Each run should have its own permanent public URL.
+
+A failed run must remain a historical record of what happened at that particular time. It must not imply that the application is permanently broken.
+
+---
+
+## 13. BACKEND INFRASTRUCTURE REQUIREMENTS
+
+Kane requires a browser execution environment.
+
+The execution service must run in a container or dedicated server with Chrome available.
+
+Do not rely on standard serverless functions such as Vercel Functions for long-running browser execution.
+
+The architecture should support:
+- Background execution jobs.
+- Execution timeouts.
+- Job status tracking.
+- Concurrent job limits.
+- Secure credential handling.
+- Evidence uploads.
+- Persistent storage.
+- API authentication.
+- Rate limiting.
+- Retry management.
+- Execution logs.
+
+Kane execution credits must be tracked.
+
+Public users must not be able to trigger unlimited executions.
+
+---
+
+## 14. BUILD PRIORITIES
+
+Implement in this order.
+
+### PHASE 1: CORE LOOP
+
+1. Greenlight CLI.
+2. Kane subprocess integration.
+3. Structured execution results.
+4. Failure report generation.
+5. Claude Code Skill.
+6. Claude Code Stop Hook.
+7. Git-based change detection.
+8. Deployment verification.
+9. Automatic failure feedback.
+10. Re-verification after code changes.
+
+### PHASE 2: CERTIFICATION
+
+1. Server-side Kane runner.
+2. Approved test hash validation.
+3. Evidence storage.
+4. Cryptographic integrity checks.
+5. Certification workflow.
+6. Permanent public verification records.
+
+### PHASE 3: PLATFORM
+
+1. Project submission API.
+2. AI requirement analysis.
+3. Test generation.
+4. Human approval workflow.
+5. Project and verification management APIs.
+
+**Frontend implementation is outside the scope of this brief.**
+
+---
+
+## 15. IMPLEMENTATION REQUIREMENTS
+
+Before implementing each major component:
+
+- Inspect Kane CLI's actual commands and output formats.
+- Verify the Claude Code Skill and Stop Hook interfaces.
+- Confirm the available evidence formats.
+- Test subprocess behaviour.
+- Validate exit-code handling.
+- Identify deployment-provider requirements.
+
+Do not invent Kane capabilities or assume undocumented behaviour.
+
+Use actual tool documentation and working integration tests.
+
+Keep the components modular so the CLI, agent integration, backend and certification service can be tested independently.
+
+Do not introduce MCP in this implementation.
+
+Do not implement automatic repository cloning or direct repository modification by Greenlight.
+
+Claude operates on the developer's existing project and repository.
+
+---
+
+## 16. DEFINITION OF DONE
+
+The backend is not complete until this entire scenario works:
+
+1. A developer initializes Greenlight.
+2. Greenlight generates tests from project requirements.
+3. The developer approves the tests.
+4. Claude builds an application.
+5. Claude commits and pushes its changes.
+6. Greenlight waits for deployment.
+7. Kane tests the deployed application.
+8. Kane identifies a deliberately broken feature.
+9. The Stop Hook returns the failure report to Claude.
+10. Claude fixes the source code.
+11. Claude pushes the correction.
+12. Greenlight waits for the updated deployment.
+13. Kane verifies the correction.
+14. All approved claims pass.
+15. `greenlight publish` triggers fresh server-side certification.
+16. Greenlight creates a permanent verification record with supporting evidence.
+
+The central acceptance criterion is a genuinely working, automated agent-verification-fix-reverification loop.
+
+A collection of disconnected components is not sufficient.
+
+The complete workflow must work end to end.
+
+---
+
+# END OF PROJECT BRIEF
