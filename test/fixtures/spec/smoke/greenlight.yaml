@@ -1,0 +1,59 @@
+# Greenlight specification for the throwaway smoke-test app.
+version: 1
+
+project:
+  name: Greenlight Test App
+  description: >
+    Throwaway app with one working feature (cart) and one
+    deliberately broken feature (newsletter subscribe).
+  url: https://gl-test-93mjujacr-timeb7208-5361s-projects.vercel.app/
+
+claims:
+  - id: CLM-001
+    text: Users can add items to the cart.
+    requirement: "The cart shows how many items have been added."
+  - id: CLM-002
+    text: Users can subscribe to the newsletter.
+  - id: CLM-003
+    text: The About page is reachable from the home page.
+
+tests:
+  - id: cart-add-two
+    title: Add two items to the cart
+    claims: [CLM-001]
+    steps:
+      - name: Open the app
+        do: Open the start page.
+      - name: Add two items
+        do: Click the "Add item" button two times.
+      - name: Check the cart count
+        expect_text: "Items in cart: 2"
+
+  - id: newsletter-subscribe
+    title: Subscribe to the newsletter
+    claims: [CLM-002]
+    steps:
+      - name: Open the app
+        do: Open the start page.
+      - name: Subscribe
+        do: Type "smoke@example.com" into the Email field and click the "Subscribe" button.
+      - name: Check the confirmation   # the deployed app is deliberately broken here
+        expect_text: "Thanks for subscribing, smoke@example.com!"
+
+  - id: cart-then-about
+    title: Cart survives a visit to the About page
+    claims:
+      - CLM-001
+      - CLM-003
+    max_steps: 20
+    steps:
+      - name: Open the app
+        do: Open the start page.
+      - name: Add one item
+        do: Click the "Add item" button once.
+      - name: Check the cart count
+        expect_text: "Items in cart: 1"
+      - name: Go to About
+        do: Click the "About this app" link.
+      - name: Check the About page
+        expect_text: This is a throwaway app for testing Kane CLI.

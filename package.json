@@ -4,6 +4,9 @@
   "private": true,
   "description": "Greenlight: verify deployed applications against approved requirements using Kane CLI.",
   "type": "module",
+  "bin": {
+    "greenlight": "bin/greenlight.js"
+  },
   "engines": {
     "node": ">=20"
   },
