@@ -1,5 +1,10 @@
-// Persistent storage for the Greenlight server: projects, test versions,
-// approvals, jobs and verification records, as JSON files under one data dir.
+// FILE-BACKED STORE: automated tests, local development and the SOURCE of the
+// file -> Supabase migration (bin/greenlight-migrate-to-supabase.js) only.
+// Production persistence is Supabase (src/server/supabase/store.js); the server
+// binary refuses to start on this store.
+//
+// Same interface as SupabaseStore: projects, test versions, approvals, jobs,
+// runs and verification records, as JSON files under one data dir.
 //
 //   <data>/projects/<projectId>/project.json
 //   <data>/projects/<projectId>/versions/<n>.json        (spec text + rendered tests)
@@ -17,6 +22,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile, rename, readdir, open } from "node:fs/promises";
 import { GreenlightError } from "../cli/errors.js";
+import { describeRun, runFiles } from "./run-archive.js";
 
 export const ID = Object.freeze({
   project: /^prj_[0-9a-f]{32}$/,
@@ -27,11 +33,11 @@ const VERSION = /^[1-9][0-9]{0,5}$/;
 
 export const newId = (prefix) => `${prefix}_${randomUUID().replace(/-/g, "")}`;
 
-function assertId(kind, id) {
+export function assertId(kind, id) {
   if (typeof id !== "string" || !ID[kind].test(id)) throw new GreenlightError("not_found", `No such ${kind}.`);
   return id;
 }
-function assertVersion(n) {
+export function assertVersion(n) {
   const s = String(n);
   if (!VERSION.test(s)) throw new GreenlightError("not_found", "No such test version.");
   return Number(s);
@@ -88,6 +94,11 @@ export class FileStore {
   }
   evidenceRoot(jobId) {
     return this.p("evidence", assertId("job", jobId));
+  }
+
+  /** Tokens live in GREENLIGHT_API_TOKENS for this store; there is no token table. */
+  async authenticate() {
+    return null;
   }
 
   // ---- projects (scoped to an account)
@@ -160,7 +171,7 @@ export class FileStore {
     if (!j) throw new GreenlightError("not_found", "No such job.");
     return j;
   }
-  async listJobs() {
+  async listJobs(/* { statuses } ignored: callers filter */) {
     let names = [];
     try {
       names = await readdir(this.p("jobs"));
@@ -172,8 +183,36 @@ export class FileStore {
     return out.filter(Boolean);
   }
 
-  // ---- verification records (permanent, write-once)
-  async putRecord(record) {
+  // ---- runs (evidence stays in the run directory; the run row is write-once)
+  async archiveRun({ job, runId, runDir, now }) {
+    const rel = path.relative(this.dir, runDir).split(path.sep).join("/");
+    const { run } = await describeRun({ job, runId, runDir, storagePrefix: `local:${rel}`, now });
+    return run;
+  }
+  async getRun(runId) {
+    const r = await readJson(this.p("runs", `${runId}.json`));
+    if (!r || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(runId)) throw new GreenlightError("not_found", "No such run.");
+    return r;
+  }
+  async verifyRunEvidence(runId) {
+    const run = await this.getRun(runId);
+    const dir = path.join(this.dir, run.storagePrefix.replace(/^local:/, ""));
+    const now = new Map((await runFiles(dir).catch(() => [])).map((f) => [f.name, f]));
+    const problems = [];
+    for (const f of run.files) {
+      const got = now.get(f.name);
+      if (!got) problems.push(`missing:${f.name}`);
+      else if (got.sha256 !== f.sha256 || got.bytes !== f.bytes) problems.push(`hash_mismatch:${f.name}`);
+    }
+    return { runId, ok: problems.length === 0, problems, files: run.files.length };
+  }
+  async cleanupRun() {
+    /* file store keeps evidence in place */
+  }
+
+  // ---- verification records (permanent, write-once), with their run
+  async putRecord(record, { run } = {}) {
+    if (run) await writeJsonOnce(this.p("runs", `${run.runId}.json`), run);
     await writeJsonOnce(this.p("records", `${assertId("record", record.id)}.json`), record);
     return record;
   }

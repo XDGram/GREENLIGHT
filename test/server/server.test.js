@@ -118,7 +118,12 @@ const kaneRuns = (calls) => calls.filter((c) => c.name === "runKane").length;
 // ---------------------------------------------------------------- configuration and auth
 
 test("config: tokens are stored as hashes only; bad configuration is refused", () => {
-  assert.throws(() => loadConfig({}), /GREENLIGHT_DATA_DIR/);
+  assert.throws(() => loadConfig({}), /SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY/);
+  assert.throws(() => loadConfig({ SUPABASE_URL: "https://x.supabase.co" }), /both/);
+  assert.throws(() => loadConfig({ SUPABASE_URL: "http://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "k".repeat(40) }), /https/);
+  const c = loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-key-" + "k".repeat(40) });
+  assert.equal(c.store, "supabase");
+  assert.ok(!JSON.stringify(c).includes("kkkk"), "the service-role key never serialises");
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: "relative/dir" }), /absolute/);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: "/tmp/x", GREENLIGHT_API_TOKENS: '[{"name":"a","role":"owner","account":"x","token":"plaintext"}]' }), /sha256/);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: "/tmp/x", GREENLIGHT_API_TOKENS: '[{"name":"a","role":"admin","account":"x","sha256":"' + "a".repeat(64) + '"}]' }), /role/);

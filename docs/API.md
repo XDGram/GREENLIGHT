@@ -1,5 +1,7 @@
 # Greenlight API and data contract (v1)
 
+Persistence is Supabase (Postgres and private Storage); see [SUPABASE.md](SUPABASE.md). Clients never talk to Supabase: they use this API.
+
 This is the integration contract for a frontend or any other client. It covers
 the HTTP API served by `greenlight-server`, the JSON documents the CLI emits with
 `--json`, the persisted data models, and the stable error codes.
@@ -39,6 +41,7 @@ Rate limit: `GREENLIGHT_RATE_LIMIT_PER_MINUTE` per token, per client IP for anon
 | `POST /v1/projects/:projectId/certifications` | certify (owner) | `{version, commit, confirmSpend, url?, environment?, approvedTestHash?}` | `202` Job |
 | `GET /v1/jobs/:jobId` | read | | `200` Job |
 | `GET /v1/projects/:projectId/records` | read | | `200 {records: VerificationRecord[]}`, each with `integrity` |
+| `GET /v1/projects/:projectId/records/:recordId/evidence` | read | | `200` EvidenceIntegrity: stored evidence re-downloaded and re-hashed |
 | `GET /v1/public/records/:recordId` | none | | `200` PublicVerification |
 
 ### Projects
@@ -140,6 +143,10 @@ A job that was queued or running when the server stopped is marked `failed` with
 ```
 
 `certified` is `true` only when all of these hold: `status` is `passed`, the run was usable, the evidence pack was stored and validated, the run was the server's own `certification` run, and the approval is a valid owner approval for exactly `approvedTestHash`. A failed record is history of that moment, not a statement that the application is broken.
+
+### EvidenceIntegrity — `greenlight.evidence-integrity/v1`
+
+`{recordId, runId, ok, problems: ["hash_mismatch:<file>" | "missing:<file>" | "unreadable:<file>"], files, evidencePackSha256, record: {ok, recordSha256, computed}}`. This re-downloads every stored file of the record's run from private storage and compares SHA-256 and size with what was verified at upload. Storage locations are never returned.
 
 ### PublicVerification — `greenlight.public-verification/v1`
 

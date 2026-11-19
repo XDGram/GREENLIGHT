@@ -39,3 +39,16 @@ test("the Kane recording limitation is stated where people will read it", () => 
   assert.match(README, /Kane 0\.10\.6 keeps no recordings in local mode/);
   assert.match(README, /cannot run unattended/);
 });
+
+test("docs/SUPABASE.md documents every table, the bucket and every migration file", async () => {
+  const { readdirSync } = await import("node:fs");
+  const doc = readFileSync(new URL("../docs/SUPABASE.md", import.meta.url), "utf8");
+  const dir = new URL("../supabase/migrations/", import.meta.url);
+  const files = readdirSync(dir).filter((f) => f.endsWith(".sql"));
+  const sql = files.map((f) => readFileSync(new URL(f, dir), "utf8")).join("\n");
+  for (const f of files) assert.ok(doc.includes(f), `SUPABASE.md lacks migration ${f}`);
+  const tables = [...sql.matchAll(/create table greenlight\.([a-z_]+)/g)].map((m) => m[1]);
+  assert.ok(tables.length >= 11);
+  for (const t of tables) assert.ok(doc.includes(`\`${t}\``), `SUPABASE.md lacks table ${t}`);
+  assert.ok(doc.includes("greenlight-evidence") && sql.includes("'greenlight-evidence', 'greenlight-evidence', false"));
+});

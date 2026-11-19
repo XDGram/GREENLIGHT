@@ -7,7 +7,9 @@
   "bin": {
     "greenlight": "bin/greenlight.js",
     "greenlight-stop-hook": "bin/greenlight-stop-hook.js",
-    "greenlight-server": "bin/greenlight-server.js"
+    "greenlight-server": "bin/greenlight-server.js",
+    "greenlight-admin": "bin/greenlight-admin.js",
+    "greenlight-migrate-to-supabase": "bin/greenlight-migrate-to-supabase.js"
   },
   "engines": {
     "node": ">=20"
@@ -15,5 +17,8 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "server": "node bin/greenlight-server.js"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.13"
   }
 }

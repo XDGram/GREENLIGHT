@@ -4,7 +4,7 @@
 // the deployment checker would refuse to verify).
 
 import path from "node:path";
-import { readFile, writeFile, rename, open, unlink, mkdir, link, readdir } from "node:fs/promises";
+import { readFile, writeFile, rename, open, unlink, mkdir, readdir, stat } from "node:fs/promises";
 
 export const STATE_FILE = path.join(".greenlight", "state.json");
 export const LOCK_FILE = path.join(".greenlight", "hook.lock");
@@ -23,7 +23,7 @@ export const GITIGNORE_CONTENT = `# Written by Greenlight. Local files only; do 
 .gitignore
 state.json
 hook.lock
-*.lock.stale-*
+*.lock.takeover
 recordings.json
 runs/
 reports/
@@ -138,13 +138,17 @@ function defaultIsAlive(pid) {
 
 /**
  * Exclusive lock (default: the hook lock; pass `file` for another one).
- * A lock left by a dead process, or older than staleMs, is taken over atomically:
- * the stale file is renamed away (only one contender can win that rename), and a
- * contender that finds a FRESH lock under the renamed name puts it back and loses.
+ *
+ * A new lock is only ever created with exclusive create (O_EXCL), so at most one
+ * process can hold it. A lock left by a dead process, or older than staleMs, is
+ * taken over only by the holder of a short-lived takeover mutex
+ * (<lock>.takeover, also O_EXCL), which re-reads the lock and removes it only if
+ * it is still the same stale lock. Nobody ever removes a fresh lock.
  * @returns {Promise<{acquired: true, release: () => Promise<void>} | {acquired: false, holder: object}>}
  */
-export async function acquireLock(root, { file: lockRel = LOCK_FILE, pid = process.pid, now = () => new Date(), staleMs = 2 * 60 * 60 * 1000, isAlive = defaultIsAlive } = {}) {
+export async function acquireLock(root, { file: lockRel = LOCK_FILE, pid = process.pid, now = () => new Date(), staleMs = 2 * 60 * 60 * 1000, takeoverStaleMs = 30_000, isAlive = defaultIsAlive } = {}) {
   const file = path.join(root, lockRel);
+  const takeover = `${file}.takeover`;
   await mkdir(path.dirname(file), { recursive: true });
   const token = `${pid}-${now().getTime()}-${Math.random().toString(36).slice(2)}`;
   const readHolder = async (f) => {
@@ -158,42 +162,68 @@ export async function acquireLock(root, { file: lockRel = LOCK_FILE, pid = proce
     const age = holder?.at ? now().getTime() - new Date(holder.at).getTime() : Infinity;
     return !holder || !Number.isInteger(holder.pid) || !isAlive(holder.pid) || !(age < staleMs);
   };
-  for (let attempt = 0; attempt < 3; attempt++) {
+  const create = async () => {
     try {
       const fh = await open(file, "wx");
       await fh.writeFile(JSON.stringify({ pid, at: now().toISOString(), token }));
       await fh.close();
-      let released = false;
-      return {
-        acquired: true,
-        release: async () => {
-          if (released) return;
-          released = true;
-          const holder = await readHolder(file);
-          if (holder?.token === token) await unlink(file).catch(() => {});
-        },
-      };
     } catch (err) {
-      if (err.code !== "EEXIST") throw err;
-      const holder = await readHolder(file);
-      if (!isStale(holder) || attempt === 2) return { acquired: false, holder };
-      // Take over: move the stale lock aside. Losing this rename means someone else did.
-      const aside = `${file}.stale-${token}`;
-      try {
-        await rename(file, aside);
-      } catch (e) {
-        if (e.code === "ENOENT") continue;
-        throw e;
-      }
-      const moved = await readHolder(aside);
-      if (moved && !isStale(moved)) {
-        // We moved a lock someone took between our read and our rename: restore it.
-        await link(aside, file).catch(() => {});
-        await unlink(aside).catch(() => {});
-        return { acquired: false, holder: moved };
-      }
-      await unlink(aside).catch(() => {});
+      if (err.code === "EEXIST") return null;
+      throw err;
     }
+    let released = false;
+    return {
+      acquired: true,
+      release: async () => {
+        if (released) return;
+        released = true;
+        const holder = await readHolder(file);
+        if (holder?.token === token) await unlink(file).catch(() => {});
+      },
+    };
+  };
+
+  const first = await create();
+  if (first) return first;
+  const seen = await readHolder(file);
+  if (!isStale(seen)) return { acquired: false, holder: seen };
+
+  // Take over a stale lock, serialised by the takeover mutex.
+  let mutex;
+  try {
+    mutex = await open(takeover, "wx");
+  } catch (err) {
+    if (err.code !== "EEXIST") throw err;
+    // A takeover left behind by a crashed process is cleared once it is old.
+    try {
+      const st = await stat(takeover);
+      if (now().getTime() - st.mtimeMs > takeoverStaleMs) await unlink(takeover).catch(() => {});
+    } catch {
+      /* gone already */
+    }
+    return { acquired: false, holder: seen };
   }
-  return { acquired: false, holder: null };
+  try {
+    await mutex.close();
+    const current = await readHolder(file);
+    if (current !== null) {
+      // Remove it only if it is still exactly the stale lock we saw.
+      const sameStale = isStale(current) && current.token === seen?.token && current.pid === seen?.pid && current.at === seen?.at;
+      if (!sameStale) return { acquired: false, holder: current };
+      await unlink(file).catch(() => {});
+    } else {
+      // Unreadable: a creator mid-write (fresh file) or a crash mid-write (old file).
+      try {
+        const st = await stat(file);
+        if (Date.now() - st.mtimeMs > takeoverStaleMs) await unlink(file).catch(() => {});
+      } catch {
+        /* vanished */
+      }
+    }
+    // Either we removed the stale lock or it vanished meanwhile: exclusive create decides.
+    const got = await create();
+    return got ?? { acquired: false, holder: await readHolder(file) };
+  } finally {
+    await unlink(takeover).catch(() => {});
+  }
 }

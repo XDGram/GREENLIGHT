@@ -227,15 +227,40 @@ test("two verifications cannot run at once: the second is refused before Kane or
   assert.equal(existsSync(path.join(root, VERIFY_LOCK_FILE)), false, "released after the run");
 });
 
-test("stale lock takeover is atomic: of many contenders exactly one wins", async () => {
+test("stale lock takeover: under heavy contention at most one process ever holds the lock", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "gl-lock-"));
   temps.push(dir);
+  const gl = path.join(dir, ".greenlight");
+  await mkdir(gl, { recursive: true });
+  const lockFile = path.join(gl, "hook.lock");
+  const isAlive = (pid) => pid !== 999999999;
+  for (let round = 0; round < 40; round++) {
+    await writeFile(lockFile, JSON.stringify({ pid: 999999999, at: "2020-01-01T00:00:00.000Z", token: `dead-${round}` }));
+    const results = await Promise.all(Array.from({ length: 16 }, (_, i) => acquireLock(dir, { pid: 1000 + i, isAlive })));
+    const winners = results.filter((r) => r.acquired);
+    assert.equal(winners.length, 1, `round ${round}: ${winners.length} holders`);
+    // The winner's lock is the one on disk, and nobody else can take it while it is fresh.
+    const late = await acquireLock(dir, { pid: 5000, isAlive });
+    assert.equal(late.acquired, false, `round ${round}: a fresh lock was taken`);
+    await winners[0].release();
+    assert.equal(existsSync(lockFile), false);
+  }
+  assert.deepEqual((await readdir(gl)).filter((f) => f.includes(".takeover")), [], "no takeover mutex left behind");
+});
+
+test("lock: a fresh unreadable lock (creator mid-write) is respected; an old corrupt one is cleared", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "gl-lock2-"));
+  temps.push(dir);
   await mkdir(path.join(dir, ".greenlight"), { recursive: true });
-  await writeFile(path.join(dir, ".greenlight", "hook.lock"), JSON.stringify({ pid: 999999999, at: "2020-01-01T00:00:00.000Z" }));
-  const results = await Promise.all(Array.from({ length: 12 }, (_, i) => acquireLock(dir, { pid: 1000 + i, isAlive: (pid) => pid !== 999999999 })));
-  assert.equal(results.filter((r) => r.acquired).length, 1);
-  const leftovers = (await readdir(path.join(dir, ".greenlight"))).filter((f) => f.includes(".stale-"));
-  assert.deepEqual(leftovers, []);
+  const lockFile = path.join(dir, ".greenlight", "hook.lock");
+  await writeFile(lockFile, "");
+  assert.equal((await acquireLock(dir)).acquired, false, "an empty lock that was just created is not stolen");
+  const { utimes } = await import("node:fs/promises");
+  const old = new Date(Date.now() - 120_000);
+  await utimes(lockFile, old, old);
+  const got = await acquireLock(dir);
+  assert.equal(got.acquired, true, "a corrupt lock left by a crash is cleared after the grace period");
+  await got.release();
 });
 
 // ---------------------------------------------------------------- infrastructure retry

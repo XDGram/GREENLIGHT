@@ -32,6 +32,9 @@ import { newId } from "./store.js";
 
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
+/** The run id of a certification job's one Kane run (stable, so recovery can find it). */
+export const certificationRunId = (jobId) => `cert-${jobId.slice(4, 20)}`;
+
 /** Everything checked before any credit can be spent. Throws GreenlightError. */
 export async function prepareCertification({ store, project, versionNo, request }) {
   const version = await store.getVersion(project.id, versionNo);
@@ -113,7 +116,7 @@ export async function runCertification({ store, job, config, deps }) {
   }
 
   const files = derived.rendered.map((r) => r.file);
-  const runId = `cert-${job.id.slice(4, 20)}`;
+  const runId = certificationRunId(job.id);
   const startedAt = deps.now().toISOString();
   const runResult = await deps.runKane({
     args: buildTestrunArgs({ testFiles: files, startUrl: url, runName: runId }),
@@ -128,7 +131,7 @@ export async function runCertification({ store, job, config, deps }) {
     runId,
     runResult,
     kaneCwd: testsDir,
-    projectRoot: store.evidenceRoot(job.id), // <data>/evidence/<jobId>/.greenlight/runs/<runId>/
+    projectRoot: store.evidenceRoot(job.id), // local: <root>/evidence/<jobId>/.greenlight/runs/<runId>/
     approvedTestHash: derived.hash,
     deployedCommit: deployment.deployedCommit,
     startUrl: url,
@@ -152,7 +155,11 @@ export async function runCertification({ store, job, config, deps }) {
     endedAt,
     now: deps.now(),
   });
-  await store.putRecord(record);
+  // Evidence is archived and hash-verified BEFORE the record exists; then the
+  // record, its run, claims and test results are written in one transaction.
+  const run = await store.archiveRun({ job, runId, runDir: collected.runDir, now: deps.now() });
+  await store.putRecord(record, { run });
+  await store.cleanupRun({ jobId: job.id, runDir: collected.runDir });
   // The workspace held only generated tests and Kane's local copy of the pack (now stored).
   await rm(work, { recursive: true, force: true });
   return { record, outcome: record.certified ? "certified" : `not_certified:${record.status}` };

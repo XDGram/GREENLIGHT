@@ -13,6 +13,7 @@
 //   POST /v1/projects/:projectId/certifications             certify   {version, commit, confirmSpend, url?, environment?, approvedTestHash?}
 //   GET  /v1/jobs/:jobId                                    read
 //   GET  /v1/projects/:projectId/records                    read      (full records, all runs, passed or not)
+//   GET  /v1/projects/:projectId/records/:recordId/evidence read      (re-downloads and re-hashes stored evidence)
 // Public (no auth, rate limited per IP):
 //   GET  /v1/public/records/:recordId                       redacted public verification record
 //
@@ -23,7 +24,7 @@ import { GreenlightError, errorBody, httpFor } from "../cli/errors.js";
 import { SpecError } from "../spec/schema.js";
 import { projectFromText } from "../spec/generate.js";
 import { isLocalOrPrivateHost } from "../deploy/host.js";
-import { authenticate, can } from "./config.js";
+import { resolvePrincipal, can } from "./config.js";
 import { SCHEMAS, buildApproval, publicRecord, verifyRecordIntegrity } from "./models.js";
 import { prepareCertification } from "./certify.js";
 
@@ -220,6 +221,15 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       return [200, { records: records.map((r) => ({ ...r, integrity: verifyRecordIntegrity(r) })) }];
     }],
 
+    // Re-download the record's stored evidence and re-check every SHA-256. No storage paths are returned.
+    ["GET", /^\/v1\/projects\/([^/]+)\/records\/([^/]+)\/evidence$/, "read", async ({ principal, m }) => {
+      const project = await store.getProject(m[1], principal.account);
+      const record = await store.getRecord(m[2]);
+      if (record.projectId !== project.id) throw new GreenlightError("not_found", "No such verification record.");
+      const ev = await store.verifyRunEvidence(record.execution.runId);
+      return [200, { schema: "greenlight.evidence-integrity/v1", recordId: record.id, runId: ev.runId, ok: ev.ok, problems: ev.problems, files: ev.files, evidencePackSha256: record.evidence.packSha256, record: verifyRecordIntegrity(record) }];
+    }],
+
     ["GET", /^\/v1\/public\/records\/([^/]+)$/, null, async ({ m }) => {
       const r = await store.getRecord(m[1]);
       if (!verifyRecordIntegrity(r).ok) throw new GreenlightError("run_record_invalid", "This record failed its integrity check.");
@@ -235,8 +245,14 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
     } catch {
       return fail(res, "invalid_request", "Bad request URL.");
     }
-    const principal = authenticate(config, req.headers.authorization);
-    const key = principal ? `p:${principal.name}` : `ip:${req.socket?.remoteAddress ?? "unknown"}`;
+    let principal;
+    try {
+      principal = await resolvePrincipal(config, store, req.headers.authorization);
+    } catch {
+      log({ event: "auth_backend_error", path: url.pathname });
+      return fail(res, "internal_error", "Authentication is temporarily unavailable.");
+    }
+    const key = principal ? `p:${principal.account}:${principal.name}` : `ip:${req.socket?.remoteAddress ?? "unknown"}`;
     const rl = limiter.take(key);
     if (!rl.ok) {
       res.setHeader("retry-after", String(rl.retryAfterS));

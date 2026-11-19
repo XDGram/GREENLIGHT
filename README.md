@@ -14,7 +14,7 @@ developer's repo (Claude Code works here)          Greenlight server (container 
 │                                          │       │  certification jobs · permanent records       │
 │ greenlight CLI (src/cli)                 │ HTTPS │  public records (redacted, hash-checkable)    │
 │  generate · approve · status · verify ───┼──┐    │ certify.js: fresh workspace → Kane → record   │
-│  runs · check-run · publish ─────────────┼──┼──▶ │ store.js: file-backed, write-once records     │
+│  runs · check-run · publish ─────────────┼──┼──▶ │ supabase/: Postgres RPC + private Storage     │
 │ Stop hook (src/hook) ── verify loop      │  │    └───────────────────────────────────────────────┘
 │ Skill (skills/greenlight) ── teaches     │  │
 └──────────────┬───────────────────────────┘  │     live deployment: <url>/greenlight.json = {commit, environment}
@@ -35,9 +35,11 @@ developer's repo (Claude Code works here)          Greenlight server (container 
 | `src/hook/` | Claude Code Stop hook: when to verify, three-attempt fix limit, locking, state |
 | `src/runs/` | Run history and record re-verification |
 | `src/server/` | API, server-side approval, certification jobs, permanent verification records |
+| `src/server/supabase/` | Production persistence: service-role RPC client, Supabase repository, evidence in private Storage, file → Supabase migration |
+| `supabase/migrations/` | Schema `greenlight` (tables, constraints, immutability triggers, RLS), service-role-only RPC functions, private evidence bucket |
 | `src/cli/` | Commands, `--json` output, stable error codes (`errors.js`) |
 
-There are no runtime dependencies. Node ≥ 20 only.
+There are no runtime dependencies (Node ≥ 20). The only dev dependency is PGlite, which runs the real Supabase migrations in-process for the tests.
 
 ## Setup
 
@@ -48,7 +50,7 @@ Developer machine (where Claude Code works on the application):
 3. In the application repository: install Greenlight, copy `skills/greenlight` to `.claude/skills/greenlight`, and register the Stop hook (`bin/greenlight-stop-hook.js`, with `"timeout": 3600`) as described in [skills/README.md](skills/README.md).
 4. The deployed application must serve `/greenlight.json`: `{"commit": "<full git sha>", "environment": "preview|production"}`, written at build time from the deployed commit.
 
-Server (certification): a container or dedicated host with Chrome and an authenticated `kane-cli` 0.10.6. Not a serverless function. Run `GREENLIGHT_DATA_DIR=/var/lib/greenlight GREENLIGHT_API_TOKENS='[…]' node bin/greenlight-server.js` behind a TLS reverse proxy. See [docs/API.md](docs/API.md).
+Server (certification): a container or dedicated host with Chrome and an authenticated `kane-cli` 0.10.6. Not a serverless function. It persists to Supabase: apply `supabase/migrations/`, then run `SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node bin/greenlight-server.js` behind a TLS reverse proxy, and issue tokens with `greenlight-admin`. See [docs/SUPABASE.md](docs/SUPABASE.md) and [docs/API.md](docs/API.md).
 
 ## CLI
 
@@ -78,7 +80,8 @@ Every command accepts `--json` (one `greenlight.cli-result/v1` document on stdou
 | `GREENLIGHT_CONFIRM_SPEND` | Stop hook | Relayed mode: the spend a person approved for this one invocation |
 | `GREENLIGHT_API_URL`, `GREENLIGHT_API_TOKEN` | `publish` | Server URL and an **owner** token |
 | `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `AI_AGENT`, `CI`, `GITHUB_ACTIONS`, `GREENLIGHT_AGENT` | CLI | Detected as an agent/CI: approval, spend confirmation and publish are refused |
-| `GREENLIGHT_DATA_DIR`, `GREENLIGHT_API_TOKENS`, `GREENLIGHT_PORT`, `GREENLIGHT_HOST`, `GREENLIGHT_PUBLIC_BASE_URL`, `GREENLIGHT_MAX_CONCURRENT_JOBS`, `GREENLIGHT_MAX_QUEUED_JOBS`, `GREENLIGHT_MAX_CREDITS_PER_RUN`, `GREENLIGHT_CREDIT_RESERVE`, `GREENLIGHT_RATE_LIMIT_PER_MINUTE`, `GREENLIGHT_KANE_TIMEOUT_MINUTES`, `GREENLIGHT_DEPLOY_TIMEOUT_SECONDS` | server | See `src/server/config.js` |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (secret), `GREENLIGHT_EVIDENCE_BUCKET`, `GREENLIGHT_WORK_DIR` | server, admin, migration | Production persistence ([docs/SUPABASE.md](docs/SUPABASE.md)) |
+| `GREENLIGHT_API_TOKENS`, `GREENLIGHT_PORT`, `GREENLIGHT_HOST`, `GREENLIGHT_PUBLIC_BASE_URL`, `GREENLIGHT_MAX_CONCURRENT_JOBS`, `GREENLIGHT_MAX_QUEUED_JOBS`, `GREENLIGHT_MAX_CREDITS_PER_RUN`, `GREENLIGHT_CREDIT_RESERVE`, `GREENLIGHT_RATE_LIMIT_PER_MINUTE`, `GREENLIGHT_KANE_TIMEOUT_MINUTES`, `GREENLIGHT_DEPLOY_TIMEOUT_SECONDS` | server | See `src/server/config.js` |
 
 ## Verification lifecycle (developer side)
 
@@ -104,7 +107,7 @@ Every command accepts `--json` (one `greenlight.cli-result/v1` document on stdou
 - **Kane 0.10.6 keeps no recordings in local mode.** Greenlight never enables Test Manager uploads, and in `--local` Kane writes the replayable `execution.json` only through its upload pipeline, which needs a Test Manager test id. So every run authors every test afresh (≈ 37 credits per test of up to 3 steps, +20 per run; E1 actually cost 76.64 for two tests), cross-run replay is impossible, and a `recording_not_retained` warning is raised. Because fresh authoring needs explicit spend confirmation, **the Stop-hook fix loop cannot run unattended** except in relayed mode with a per-invocation `GREENLIGHT_CONFIRM_SPEND`. Lifting this needs a Kane release that persists recordings under `--local`, or a decision to allow uploads (see `src/kane/capabilities.js`).
 - Local approval, state and run records are guardrails, not security: someone with write access to the checkout can forge them. Certification does not depend on any of them; the server is the authority.
 - Kane's own session logs undercount spend (E1: 61.70 logged vs 76.64 by balance); the balance difference is the only actual spend and the discrepancy is always recorded.
-- The server is a single process with file storage, fixed-window rate limiting and token auth from the environment; it has not yet run against real Kane, a real deployment or real credits. Requirement analysis by AI (brief §3) is done by Claude writing `greenlight.yaml`; there is no server-side analysis.
+- Supabase persistence is implemented and tested against the real migrations on PGlite with a mocked Data API and Storage, but **no Supabase project has the schema yet** (see [docs/SUPABASE.md](docs/SUPABASE.md)). Rate limits and the job concurrency limit are per server process. The server has not yet run against real Kane, a real deployment or real credits. Requirement analysis by AI (brief §3) is done by Claude writing `greenlight.yaml`; there is no server-side analysis.
 - Certification runs are not retried automatically (each attempt spends credits); a person starts another.
 
 ## Development

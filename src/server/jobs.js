@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { GreenlightError, errorBody } from "../cli/errors.js";
 import { JOB_STATUS, SCHEMAS } from "./models.js";
-import { runCertification } from "./certify.js";
+import { runCertification, certificationRunId } from "./certify.js";
 
 export class JobRunner {
   constructor({ store, config, deps, log = () => {} }) {
@@ -19,13 +19,29 @@ export class JobRunner {
     this.idleWaiters = [];
   }
 
-  /** Mark jobs left running/queued by a previous process as failed. */
+  /**
+   * Jobs a previous process left queued or running. If the run's record was
+   * already committed (crash between the record and the job update), the job is
+   * completed from it; otherwise it is marked failed. Nothing is re-run.
+   */
   async recover() {
-    for (const j of await this.store.listJobs()) {
-      if (j.status === JOB_STATUS.RUNNING || j.status === JOB_STATUS.QUEUED) {
-        await this.store.putJob({ ...j, status: JOB_STATUS.FAILED, finishedAt: this.deps.now().toISOString(), error: errorBody("interrupted", "The server stopped while this job was pending or running; it was not re-run.") });
+    for (const j of await this.store.listJobs({ statuses: [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING] })) {
+      if (j.status !== JOB_STATUS.RUNNING && j.status !== JOB_STATUS.QUEUED) continue;
+      const finishedAt = this.deps.now().toISOString();
+      const record = j.status === JOB_STATUS.RUNNING ? await this.#recordForJob(j) : null;
+      if (record) {
+        await this.store.putJob({ ...j, status: JOB_STATUS.SUCCEEDED, recordId: record.id, outcome: record.certified ? "certified" : `not_certified:${record.status}`, finishedAt });
+      } else {
+        await this.store.putJob({ ...j, status: JOB_STATUS.FAILED, finishedAt, error: errorBody("interrupted", "The server stopped while this job was pending or running; it was not re-run.") });
       }
     }
+  }
+
+  async #recordForJob(job) {
+    for (const r of await this.store.listRecords(job.projectId)) {
+      if (r.execution?.runId === certificationRunId(job.id)) return r;
+    }
+    return null;
   }
 
   activeFor(projectId) {
