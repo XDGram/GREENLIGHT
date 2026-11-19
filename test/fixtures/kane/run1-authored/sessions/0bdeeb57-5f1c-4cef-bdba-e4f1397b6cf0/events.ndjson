@@ -1,0 +1,4 @@
+{"type":"run_end","status":"passed","reason":"Objective completed","credits_consumed":6.849505000000001,"v":1,"ts":"2026-11-19T10:19:11.337Z","per_flow_metadata":[{"credits_consumed":6.849505000000001}]}
+{"type":"run_end","status":"passed","reason":"Objective completed","credits_consumed":11.023482499999998,"v":1,"ts":"2026-11-19T10:19:33.361Z","per_flow_metadata":[{"credits_consumed":11.023482499999998}]}
+{"type":"run_end","status":"passed","reason":"Objective completed","credits_consumed":13.805924999999998,"v":1,"ts":"2026-11-19T10:19:47.294Z","per_flow_metadata":[{"credits_consumed":13.805924999999998}]}
+{"type":"test_md_done","overall_status":"passed","duration_s":67,"v":1,"ts":"2026-11-19T10:19:55.392Z"}

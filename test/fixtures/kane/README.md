@@ -27,3 +27,16 @@ Each directory holds `stdout.ndjson` (Kane's `--agent` stream), `stderr.txt` and
 
 To also run the collector against the original packs, put them in a directory and set
 `GREENLIGHT_REAL_EVIDENCE_DIR` to it; that test is skipped otherwise.
+
+## Credits
+
+- `balance_before.txt` / `balance_after.txt`: the real `kane-cli balance` output
+  captured immediately before and after that run (Run 1: 11200 → 11090.8815;
+  Run 2: 11090.8815 → 11076.5779).
+- `sessions/<session_id>/events.ndjson`: the run's real Kane session logs, reduced
+  to their `run_end` and `test_md_done` events and to the fields the credit
+  accountant reads (`type`, `status`, `reason`, `credits_consumed`,
+  `per_flow_metadata[].credits_consumed`, `verdict.credits_consumed`, `duration_s`,
+  `overall_status`, `v`, `ts`). All other fields, including Test Manager share
+  links, are dropped. The credit values are unchanged.
+- `fake-kane-balance.mjs`: stand-in for `kane-cli balance` used by the tests.

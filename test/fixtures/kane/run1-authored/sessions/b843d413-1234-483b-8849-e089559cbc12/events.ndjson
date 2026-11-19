@@ -1,0 +1,4 @@
+{"type":"run_end","status":"passed","reason":"Objective completed","credits_consumed":1.4656950000000002,"v":1,"ts":"2026-11-19T10:20:11.456Z","per_flow_metadata":[{"credits_consumed":1.4656950000000002}]}
+{"type":"run_end","status":"passed","reason":"Objective completed","credits_consumed":11.365269999999999,"v":1,"ts":"2026-11-19T10:20:33.647Z","per_flow_metadata":[{"credits_consumed":11.365269999999999}]}
+{"type":"run_end","status":"failed","reason":"Final verification failed: \"the page shows the message \"Thanks for subscribing, smoke@example.com!\"\"","credits_consumed":11.89576,"v":1,"ts":"2026-11-19T10:20:59.503Z","per_flow_metadata":[{"credits_consumed":11.89576}],"verdict":{"credits_consumed":2.46425}}
+{"type":"test_md_done","overall_status":"failed","duration_s":64,"v":1,"ts":"2026-11-19T10:21:01.565Z"}
