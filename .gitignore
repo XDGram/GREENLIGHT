@@ -1,3 +1,4 @@
 node_modules/
 .greenlight/runs/
 .testmuai/
+.greenlight/reports/
