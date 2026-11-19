@@ -29,6 +29,7 @@ import { verifyDeployment, requireReady } from "../deploy/check.js";
 import { buildFailureReport, renderMarkdown, writeFailureReport, catalogFromSpec, REPORTS_DIR } from "../report/failure-report.js";
 import { redactUrl, redactText } from "../report/redact.js";
 import { readFile } from "node:fs/promises";
+import { ensureGreenlightGitignore } from "../hook/state.js";
 
 export const EXIT = Object.freeze({ OK: 0, FAILED: 1, USAGE: 2, COULDNT_VERIFY: 3, BLOCKED: 4, INTERRUPTED: 130 });
 
@@ -203,6 +204,7 @@ async function loadOrReport(ctx) {
 async function cmdGenerate(ctx) {
   if (!(await loadOrReport(ctx))) return EXIT.BLOCKED;
   const r = await writeGenerated(ctx.cwd);
+  if (await ensureGreenlightGitignore(ctx.cwd)) ctx.out("created   .greenlight/.gitignore (keeps local state, reports and recordings out of git)");
   for (const g of r.project.rendered) {
     const state = r.written.includes(g.file) ? "wrote    " : "unchanged";
     ctx.out(`${state} ${path.posix.join(".greenlight/tests", g.file)}  [${g.claims.join(", ")}]`);
