@@ -269,6 +269,7 @@ export function assessCompleteness(s, proc) {
   const reasons = [];
   if (proc.spawnError) reasons.push("spawn_failed");
   if (proc.timedOut) reasons.push("timed_out");
+  if (proc.aborted) reasons.push("aborted");
   if (proc.versionMismatch) reasons.push("version_mismatch");
   if (proc.exitCode === null) reasons.push("no_exit_code");
   if (!s.streamStart) reasons.push("missing_stream_start");

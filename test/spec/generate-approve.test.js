@@ -194,10 +194,10 @@ test("this very process (an AI agent's shell) cannot approve via the CLI", async
   const root = await project();
   await writeGenerated(root);
   const r = spawnSync(process.execPath, [BIN, "approve"], { cwd: root, env: { ...process.env, CLAUDECODE: "1" }, encoding: "utf8" });
-  assert.equal(r.status, 1);
+  assert.equal(r.status, 4, "Step 8 CLI: blocked");
   assert.match(r.stdout, /Approval refused: this looks like an AI agent or CI/);
   const r2 = spawnSync(process.execPath, [BIN, "approve"], { cwd: root, env: HUMAN_ENV, encoding: "utf8" });
-  assert.equal(r2.status, 1);
+  assert.equal(r2.status, 4);
   assert.match(r2.stdout, /needs an interactive terminal/, "piped stdin is refused even without agent markers");
   assert.equal(existsSync(path.join(root, APPROVAL_FILE)), false);
 });
@@ -229,7 +229,8 @@ test("generating and checking never create an approval", async () => {
   assert.equal((await checkApproval(root)).status, "not_approved");
   const r = spawnSync(process.execPath, [BIN, "generate"], { cwd: root, env: HUMAN_ENV, encoding: "utf8" });
   assert.equal(r.status, 0, r.stderr);
-  assert.match(r.stdout, /approved-test hash \(not yet approved\): 07bc6327/);
+  assert.match(r.stdout, /Specification hash: 07bc6327/);
+  assert.match(r.stdout, /Not approved\./);
   assert.equal(existsSync(path.join(root, APPROVAL_FILE)), false);
 });
 
@@ -327,11 +328,11 @@ test("CLI status reports approval and invalidation", async () => {
   const root = await approvedProject();
   let r = spawnSync(process.execPath, [BIN, "status"], { cwd: root, env: HUMAN_ENV, encoding: "utf8" });
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /status: approved/);
+  assert.match(r.stdout, /Approval: approved/);
   await writeFile(path.join(testsDir(root), "cart-add-two_test.md"), "x");
   r = spawnSync(process.execPath, [BIN, "status"], { cwd: root, env: HUMAN_ENV, encoding: "utf8" });
-  assert.equal(r.status, 1);
-  assert.match(r.stdout, /status: invalidated\n.*\n.*\n  - generated_tests_modified/);
+  assert.equal(r.status, 4);
+  assert.match(r.stdout, /Approval: invalidated\n.*\n  - generated_tests_modified/);
   r = spawnSync(process.execPath, [BIN, "bogus"], { cwd: root, env: HUMAN_ENV, encoding: "utf8" });
   assert.equal(r.status, 2);
 });

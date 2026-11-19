@@ -90,6 +90,7 @@ function normaliseCommand(command) {
  * @param {string|null} [opts.expectedVersion]  Pinned Kane version; null disables the check.
  * @param {boolean} [opts.abortOnVersionMismatch]  Stop the run (SIGINT) if stream_start reports another version.
  * @param {(event: object) => void} [opts.onEvent]  Called for every parsed event, as it arrives.
+ * @param {AbortSignal} [opts.abortSignal]  Aborting stops Kane like a timeout (SIGINT, then SIGKILL).
  * @returns {Promise<KaneRunResult>}
  */
 export function runKane({
@@ -102,6 +103,7 @@ export function runKane({
   expectedVersion = KANE_CLI_VERSION,
   abortOnVersionMismatch = true,
   onEvent = () => {},
+  abortSignal,
 } = {}) {
   if (!Array.isArray(args)) throw new TypeError("runKane: args must be an array");
   const { bin, prefix } = normaliseCommand(command);
@@ -113,6 +115,7 @@ export function runKane({
   const stderrChunks = [];
   const signalsSent = [];
   let timedOut = false;
+  let aborted = false;
   let versionMismatch = false;
   let spawnError = null;
   let callbackErrors = 0;
@@ -176,7 +179,8 @@ export function runKane({
       decoder.end();
       const endedAtMs = Date.now();
       const snapshot = stream.snapshot();
-      const proc = { exitCode, signal, timedOut, versionMismatch, spawnError };
+      abortSignal?.removeEventListener?.("abort", onAbort);
+      const proc = { exitCode, signal, timedOut, versionMismatch, spawnError, aborted };
       resolve({
         kaneVersionPinned: expectedVersion,
         command: [bin, ...fullArgs],
@@ -188,6 +192,7 @@ export function runKane({
         signal,
         spawnError,
         timedOut,
+        aborted,
         versionMismatch,
         signalsSent,
         stdout: Buffer.concat(stdoutChunks).toString("utf8"),
@@ -198,6 +203,17 @@ export function runKane({
         completeness: assessCompleteness(snapshot, proc),
       });
     };
+
+    function onAbort() {
+      aborted = true;
+      stop("aborted");
+    }
+    if (abortSignal?.aborted) {
+      aborted = true;
+      finish(null, null); // never started
+      return;
+    }
+    abortSignal?.addEventListener?.("abort", onAbort, { once: true });
 
     try {
       child = spawn(bin, fullArgs, {
@@ -246,6 +262,7 @@ export function runKane({
  * @property {string|null} signal
  * @property {string|null} spawnError
  * @property {boolean} timedOut
+ * @property {boolean} aborted        stopped through abortSignal (e.g. Ctrl-C in the CLI)
  * @property {boolean} versionMismatch
  * @property {{signal: string, reason: string, atMs: number}[]} signalsSent
  * @property {string} stdout             raw, byte-for-byte as received (UTF-8 decoded)
