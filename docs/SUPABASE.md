@@ -2,27 +2,40 @@
 
 Supabase is Greenlight's production persistence: Postgres for every record, Storage for evidence. The server (`bin/greenlight-server.js`) refuses to start without it. The file-backed store is kept only for automated tests and as the source of a migration.
 
-## Status of the connected Supabase organisation
+## Where Greenlight lives: the Ceaser project
 
-| | |
-|---|---|
-| Organisation | `Z3r0_K3rneL` (`jluughszqtsrtvblcail`), **free plan** |
-| Existing projects | `sentinel` and `ceaser` (active, other applications); `AetherClock`, `DEFI SCOUT`, `zecrow` (paused) |
-| Greenlight project | **not created yet.** `create_project` was refused: the free plan allows 2 active projects per admin, and both slots are in use |
-| Migrations applied remotely | **none.** Nothing has been written to any Supabase project |
+Greenlight shares the existing Supabase project **`ceaser`** (`ncbrsrklofofdqdftwjw`, `eu-west-1`) with the Ceaser community-feed application. The organisation's free plan allows no further active project, and the owner chose this option. Greenlight is kept fully separate:
 
-To finish, a person must choose one of these:
+| Greenlight adds | Purpose | Reachable by Ceaser's keys? |
+|---|---|---|
+| schema `greenlight` | all 11 tables (RLS on, no policies) and 2 trigger functions | no: no USAGE for `anon`/`authenticated` |
+| schema `greenlight_api` | the 20 RPC functions | no: no USAGE and no EXECUTE for `anon`/`authenticated`; only `service_role` |
+| bucket `greenlight-evidence` | private evidence, no storage policies | no: only the service role |
 
-- **Free a slot and create a `greenlight` project** in `eu-west-1`: pause or delete `sentinel` or `ceaser`, or upgrade the organisation. Then apply the three migrations. This is the recommended option.
-- **Use an existing active project.** The migrations only create the private `greenlight` schema, `public.greenlight_*` functions and the `greenlight-evidence` bucket, so they do not touch other tables. It still shares one database, one service key and one backup policy with another application.
+Greenlight creates **nothing in `public`** and alters no existing object, policy, grant, setting or row. This is enforced by a test that snapshots a Ceaser-like `public` schema (tables, RLS flags, ACLs, policies, function definitions and ACLs, views, triggers, default privileges, data and other buckets) before and after the migrations and requires them to be identical. Because no Greenlight function lives in `public`, Ceaser's default privileges on `public`, or a future `grant … on all functions in schema public to anon`, can never reach Greenlight. Another test runs exactly that grant and proves Ceaser's anon key still gets `permission denied`.
 
-Apply the migrations in order, with the Supabase CLI (`supabase db push`) from this repository or the dashboard's SQL editor:
+The two applications still share one database, one service-role key, one backup policy and one set of project settings. Anyone holding Ceaser's service-role key can also read Greenlight's data. Keep that key server-side for both.
+
+### One dashboard setting: expose `greenlight_api`
+
+The server calls its functions through the Supabase Data API with `Content-Profile: greenlight_api`. The Data API only serves schemas listed under **Exposed schemas**. Exposing `greenlight_api` grants nothing by itself: database permissions still decide, and only `service_role` has any.
+
+1. Open the Supabase dashboard and select the project **ceaser**.
+2. Go to **Project Settings → Data API** (also labelled **API → Data API settings** in some dashboard versions).
+3. In **Exposed schemas**, keep everything already listed (normally `public` and `graphql_public`). **Add** `greenlight_api`, and nothing else. Do **not** add `greenlight`: the tables stay unexposed.
+4. Leave **Extra search path** and **Max rows** unchanged. Click **Save**.
+
+Without this, every server call fails with `server_not_configured`: "Supabase does not expose the greenlight_api schema …".
+
+### Applying the migrations
+
+Apply in order, with the Supabase CLI (`supabase db push`) or the dashboard's SQL editor:
 
 1. `supabase/migrations/20261119140000_greenlight_schema.sql`
 2. `supabase/migrations/20261119140100_greenlight_rpc.sql`
 3. `supabase/migrations/20261119140200_greenlight_evidence_bucket.sql`
 
-All three run unchanged in the test suite on real PostgreSQL (PGlite). They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
+All three run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
 
 ## Configuration (server environment only)
 
@@ -37,7 +50,7 @@ The key is stored as a non-enumerable config property, so serialised config, log
 
 ## Data model
 
-Every table is in the private schema `greenlight`. The schema is not exposed through the Supabase Data API, `anon` and `authenticated` have no privileges on it, and RLS is enabled on every table with no policies (deny all).
+Every table is in the private schema `greenlight`. It is not exposed through the Supabase Data API, `anon` and `authenticated` have no privileges on it, and RLS is enabled on every table with no policies (deny all).
 
 | Table | Holds | Notes |
 |---|---|---|
@@ -55,7 +68,7 @@ Every table is in the private schema `greenlight`. The schema is not exposed thr
 
 Immutability is enforced by triggers (UPDATE, DELETE and TRUNCATE are refused with SQLSTATE `GLIMM`), not by application code.
 
-Access goes only through `public.greenlight_*` functions: `SECURITY DEFINER`, `search_path = ''`, and `EXECUTE` granted to `service_role` only. Each function is one transaction. Several safeguards are enforced by the database, independently of the server:
+Access goes only through the `greenlight_api.greenlight_*` functions: `SECURITY DEFINER`, `search_path = ''`, `EXECUTE` granted to `service_role` only, and the schema itself usable only by `service_role`. Default privileges in both schemas revoke `EXECUTE` from `PUBLIC`, so no future function starts out callable. Each function is one transaction. Several safeguards are enforced by the database, independently of the server:
 
 - An approval is refused unless its hash equals the version's (`GLHSH`) and it is a certifiable owner approval.
 - `greenlight_put_record` writes the run, record, claims and test results together. It refuses `certified = true` unless the status is `passed`, the run and manifest are `certification` runs, the evidence was `stored`, and a valid approval for exactly that hash exists (`GLCRT`).

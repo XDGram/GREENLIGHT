@@ -1,15 +1,34 @@
 -- Greenlight persistence (2/3): the only way in. Service-role-only RPC functions.
 --
--- Every function is SECURITY DEFINER with an empty search_path, runs as one
--- transaction, and can be executed ONLY by service_role (the Greenlight server).
--- anon and authenticated (anything holding the public anon key) cannot call them.
--- Errors use stable SQLSTATEs the server maps to API error codes:
+-- The functions live in their own schema, greenlight_api, never in public:
+-- nothing Greenlight owns is added to the schema an existing application's
+-- frontend credentials (anon / authenticated) talk to, and that application's
+-- default privileges or grants on public can never reach Greenlight.
+--
+-- greenlight_api must be added to the project's Data API "Exposed schemas" so the
+-- server can call it (PostgREST, Content-Profile: greenlight_api). Exposing it
+-- grants nothing: only service_role has USAGE on the schema and EXECUTE on its
+-- functions; anon and authenticated have neither.
+--
+-- Every function is SECURITY DEFINER with an empty search_path and runs as one
+-- transaction. Errors use stable SQLSTATEs the server maps to API error codes:
 --   GLNFD not found · GLCON conflict/exists · GLLIM job limit · GLINV invalid
 --   GLHSH approval hash mismatch · GLCRT certification rule violated · GLIMM immutable
 
+create schema if not exists greenlight_api;
+revoke all on schema greenlight_api from public;
+do $$ begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then execute 'revoke all on schema greenlight_api from anon'; end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then execute 'revoke all on schema greenlight_api from authenticated'; end if;
+  if exists (select 1 from pg_roles where rolname = 'service_role') then execute 'grant usage on schema greenlight_api to service_role'; end if;
+end $$;
+-- Functions created later in these schemas never start out executable by PUBLIC.
+alter default privileges in schema greenlight_api revoke execute on functions from public;
+alter default privileges in schema greenlight revoke execute on functions from public;
+
 -- ---------------------------------------------------------------- accounts, users, tokens (admin)
 
-create or replace function public.greenlight_ensure_account(p_slug text) returns jsonb
+create or replace function greenlight_api.greenlight_ensure_account(p_slug text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v greenlight.accounts;
 begin
@@ -18,7 +37,7 @@ begin
   return jsonb_build_object('id', v.id, 'slug', v.slug, 'createdAt', v.created_at);
 end $$;
 
-create or replace function public.greenlight_create_user(p_account text, p_name text, p_role text) returns jsonb
+create or replace function greenlight_api.greenlight_create_user(p_account text, p_name text, p_role text) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v_account uuid; v greenlight.users;
 begin
@@ -30,7 +49,7 @@ exception when unique_violation then
   raise exception 'greenlight: user exists' using errcode = 'GLCON';
 end $$;
 
-create or replace function public.greenlight_add_token(p_account text, p_user text, p_token_sha256 text, p_label text default null) returns jsonb
+create or replace function greenlight_api.greenlight_add_token(p_account text, p_user text, p_token_sha256 text, p_label text default null) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v_user uuid;
 begin
@@ -42,7 +61,7 @@ exception when unique_violation then
   raise exception 'greenlight: token exists' using errcode = 'GLCON';
 end $$;
 
-create or replace function public.greenlight_revoke_token(p_token_sha256 text) returns boolean
+create or replace function greenlight_api.greenlight_revoke_token(p_token_sha256 text) returns boolean
 language plpgsql security definer set search_path = '' as $$
 begin
   update greenlight.api_tokens set revoked_at = now() where token_sha256 = p_token_sha256 and revoked_at is null;
@@ -50,7 +69,7 @@ begin
 end $$;
 
 -- Token hash -> principal. The account comes from the token, never from the client.
-create or replace function public.greenlight_authenticate(p_token_sha256 text) returns jsonb
+create or replace function greenlight_api.greenlight_authenticate(p_token_sha256 text) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select jsonb_build_object('name', u.name, 'role', u.role, 'account', a.slug)
   from greenlight.api_tokens t
@@ -61,7 +80,7 @@ $$;
 
 -- ---------------------------------------------------------------- projects
 
-create or replace function public.greenlight_create_project(p_doc jsonb) returns jsonb
+create or replace function greenlight_api.greenlight_create_project(p_doc jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v_account uuid;
 begin
@@ -75,7 +94,7 @@ exception when unique_violation then
 end $$;
 
 -- p_account null = no scoping (server-internal use only, e.g. job execution).
-create or replace function public.greenlight_get_project(p_id text, p_account text default null) returns jsonb
+create or replace function greenlight_api.greenlight_get_project(p_id text, p_account text default null) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare v jsonb;
 begin
@@ -85,7 +104,7 @@ begin
   return v;
 end $$;
 
-create or replace function public.greenlight_list_projects(p_account text) returns jsonb
+create or replace function greenlight_api.greenlight_list_projects(p_account text) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select coalesce(jsonb_agg(p.doc order by p.created_at, p.id), '[]'::jsonb)
   from greenlight.projects p join greenlight.accounts a on a.id = p.account_id
@@ -95,7 +114,7 @@ $$;
 -- ---------------------------------------------------------------- test versions
 
 -- Atomic numbering: the project row is locked, so concurrent proposals get 1, 2, 3 …
-create or replace function public.greenlight_add_version(p_project_id text, p_doc jsonb) returns jsonb
+create or replace function greenlight_api.greenlight_add_version(p_project_id text, p_doc jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v_n integer; v_doc jsonb;
 begin
@@ -109,7 +128,7 @@ begin
   return v_doc;
 end $$;
 
-create or replace function public.greenlight_get_version(p_project_id text, p_version integer) returns jsonb
+create or replace function greenlight_api.greenlight_get_version(p_project_id text, p_version integer) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare v jsonb;
 begin
@@ -118,14 +137,14 @@ begin
   return v;
 end $$;
 
-create or replace function public.greenlight_list_versions(p_project_id text) returns jsonb
+create or replace function greenlight_api.greenlight_list_versions(p_project_id text) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select coalesce(jsonb_agg(doc order by version), '[]'::jsonb) from greenlight.test_versions where project_id = p_project_id
 $$;
 
 -- ---------------------------------------------------------------- approvals (write-once)
 
-create or replace function public.greenlight_put_approval(p_doc jsonb) returns jsonb
+create or replace function greenlight_api.greenlight_put_approval(p_doc jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v_hash text;
 begin
@@ -145,14 +164,14 @@ exception when unique_violation then
   raise exception 'greenlight: this version is already approved; approvals are write-once' using errcode = 'GLCON';
 end $$;
 
-create or replace function public.greenlight_get_approval(p_project_id text, p_version integer) returns jsonb
+create or replace function greenlight_api.greenlight_get_approval(p_project_id text, p_version integer) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select doc from greenlight.approvals where project_id = p_project_id and version = p_version
 $$;
 
 -- ---------------------------------------------------------------- jobs
 
-create or replace function public.greenlight_put_job(p_doc jsonb) returns jsonb
+create or replace function greenlight_api.greenlight_put_job(p_doc jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare v_status text := p_doc ->> 'status'; v_record text := p_doc ->> 'recordId';
 begin
@@ -172,7 +191,7 @@ exception when unique_violation then
   raise exception 'greenlight: a certification for this project is already queued or running' using errcode = 'GLLIM';
 end $$;
 
-create or replace function public.greenlight_get_job(p_id text) returns jsonb
+create or replace function greenlight_api.greenlight_get_job(p_id text) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare v jsonb;
 begin
@@ -181,7 +200,7 @@ begin
   return v;
 end $$;
 
-create or replace function public.greenlight_list_jobs(p_statuses text[] default null) returns jsonb
+create or replace function greenlight_api.greenlight_list_jobs(p_statuses text[] default null) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select coalesce(jsonb_agg(doc order by created_at, id), '[]'::jsonb) from greenlight.jobs
   where p_statuses is null or status = any (p_statuses)
@@ -189,7 +208,7 @@ $$;
 
 -- ---------------------------------------------------------------- runs and certification records (write-once, one transaction)
 
-create or replace function public.greenlight_put_record(p_record jsonb, p_run jsonb) returns jsonb
+create or replace function greenlight_api.greenlight_put_record(p_record jsonb, p_run jsonb) returns jsonb
 language plpgsql security definer set search_path = '' as $$
 declare
   v_job greenlight.jobs;
@@ -242,7 +261,7 @@ exception when unique_violation then
   raise exception 'greenlight: that record or run already exists and is immutable' using errcode = 'GLCON';
 end $$;
 
-create or replace function public.greenlight_get_record(p_id text) returns jsonb
+create or replace function greenlight_api.greenlight_get_record(p_id text) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare v jsonb;
 begin
@@ -251,13 +270,13 @@ begin
   return v;
 end $$;
 
-create or replace function public.greenlight_list_records(p_project_id text) returns jsonb
+create or replace function greenlight_api.greenlight_list_records(p_project_id text) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select coalesce(jsonb_agg(doc order by created_at, id), '[]'::jsonb) from greenlight.certification_records where project_id = p_project_id
 $$;
 
 -- Private run row (storage prefix, file hashes) for evidence integrity checks. Never public.
-create or replace function public.greenlight_get_run(p_run_id text) returns jsonb
+create or replace function greenlight_api.greenlight_get_run(p_run_id text) returns jsonb
 language plpgsql stable security definer set search_path = '' as $$
 declare v greenlight.runs;
 begin
@@ -272,13 +291,16 @@ end $$;
 do $$
 declare f record;
 begin
+  -- Revoke everything from PUBLIC/anon/authenticated on every Greenlight function
+  -- (including the trigger functions in "greenlight"); grant EXECUTE to
+  -- service_role on the RPC functions in "greenlight_api" only.
   for f in
-    select p.oid::regprocedure as sig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname = 'public' and p.proname like 'greenlight\_%'
+    select p.oid::regprocedure as sig, n.nspname as schema from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('greenlight_api', 'greenlight')
   loop
     execute format('revoke all on function %s from public', f.sig);
     if exists (select 1 from pg_roles where rolname = 'anon') then execute format('revoke all on function %s from anon', f.sig); end if;
     if exists (select 1 from pg_roles where rolname = 'authenticated') then execute format('revoke all on function %s from authenticated', f.sig); end if;
-    if exists (select 1 from pg_roles where rolname = 'service_role') then execute format('grant execute on function %s to service_role', f.sig); end if;
+    if f.schema = 'greenlight_api' and exists (select 1 from pg_roles where rolname = 'service_role') then execute format('grant execute on function %s to service_role', f.sig); end if;
   end loop;
 end $$;

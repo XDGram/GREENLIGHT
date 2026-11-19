@@ -112,15 +112,29 @@ test("migrations: private schema, RLS on every table, anon/authenticated locked 
   const tables = await fake.sql("select c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'greenlight' and c.relkind = 'r' order by 1");
   assert.deepEqual(tables.map((t) => t.relname), ["accounts", "api_tokens", "approvals", "certification_records", "jobs", "projects", "record_claims", "record_tests", "runs", "test_versions", "users"]);
   assert.ok(tables.every((t) => t.relrowsecurity), "RLS enabled everywhere");
-  for (const role of ["anon", "authenticated"]) {
-    assert.deepEqual(await fake.sql("select has_schema_privilege($1, 'greenlight', 'usage') as u", [role]), [{ u: false }], role);
-    const fns = await fake.sql("select p.oid::regprocedure::text as sig, has_function_privilege($1, p.oid, 'execute') as x from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'greenlight\\_%'", [role]);
-    assert.ok(fns.length >= 19);
-    assert.deepEqual(fns.filter((f) => f.x), [], `${role} can execute no Greenlight function`);
-    await assert.rejects(fake.sql("select * from greenlight.projects", [], { role }), /permission denied/);
+  // All 20 RPC functions live in greenlight_api; nothing Greenlight owns is in public.
+  const rpcs = await fake.sql("select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'greenlight_api' order by 1");
+  assert.equal(rpcs.length, 20);
+  assert.ok(rpcs.every((r) => r.proname.startsWith("greenlight_")));
+  assert.deepEqual(await fake.sql("select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'greenlight%'"), []);
+  assert.deepEqual(await fake.sql("select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'greenlight%'"), []);
+  const fnPriv = "select p.oid::regprocedure::text as sig, has_function_privilege($1, p.oid, 'execute') as x from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname in ('greenlight_api', 'greenlight')";
+  for (const role of ["anon", "authenticated", "public"]) {
+    if (role !== "public") {
+      for (const schema of ["greenlight", "greenlight_api"]) {
+        assert.deepEqual(await fake.sql("select has_schema_privilege($1, $2, 'usage') as u", [role, schema]), [{ u: false }], `${role} ${schema}`);
+      }
+      const fns = await fake.sql(fnPriv, [role]);
+      assert.ok(fns.length >= 22, "20 RPCs + 2 trigger functions");
+      assert.deepEqual(fns.filter((f) => f.x), [], `${role} can execute no Greenlight function`);
+      await assert.rejects(fake.sql("select * from greenlight.projects", [], { role }), /permission denied/);
+      await assert.rejects(fake.sql("select greenlight_api.greenlight_list_projects('acme')", [], { role }), /permission denied/);
+    }
   }
-  const svc = await fake.sql("select bool_and(has_function_privilege('service_role', p.oid, 'execute')) as ok from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'greenlight\\_%'");
-  assert.deepEqual(svc, [{ ok: true }]);
+  const svc = await fake.sql("select bool_and(has_function_privilege('service_role', p.oid, 'execute')) as ok, bool_and(has_schema_privilege('service_role', 'greenlight_api', 'usage')) as usage from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'greenlight_api'");
+  assert.deepEqual(svc, [{ ok: true, usage: true }]);
+  // Trigger functions are not callable by anyone but their owner.
+  assert.deepEqual(await fake.sql("select bool_or(has_function_privilege('service_role', p.oid, 'execute')) as x from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'greenlight'"), [{ x: false }]);
   assert.deepEqual(await fake.sql("select id, public from storage.buckets"), [{ id: "greenlight-evidence", public: false }]);
 });
 
@@ -353,4 +367,64 @@ test("evidence objects are never overwritten", async () => {
   await assert.rejects(client.storage.upload("greenlight-evidence", "projects/p1/runs/r1/manifest.json", Buffer.from('{"forged":true}')), (e) => e.code === "conflict");
   assert.equal(fake.objects.get("greenlight-evidence/projects/p1/runs/r1/manifest.json").toString(), "{}");
   await assert.rejects(client.storage.upload("greenlight-evidence", "projects/../secrets", Buffer.from("x")), /unsafe storage path/);
+});
+
+// ---------------------------------------------------------------- coexistence with an existing application (Ceaser)
+
+const CEASER_SNAPSHOT = `
+  select 'rel' as k, c.relname || ':' || c.relkind::text || ':rls=' || c.relrowsecurity || ':acl=' || coalesce(array_to_string(c.relacl, ','), '') as v
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public'
+  union all select 'policy', tablename || ':' || policyname || ':' || cmd || ':' || coalesce(qual, '') || ':' || coalesce(with_check, '') from pg_policies where schemaname = 'public'
+  union all select 'fn', p.oid::regprocedure::text || ':acl=' || coalesce(array_to_string(p.proacl, ','), '') || ':' || md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public'
+  union all select 'view', viewname || ':' || md5(definition) from pg_views where schemaname = 'public'
+  union all select 'trigger', tgrelid::regclass::text || ':' || tgname from pg_trigger t join pg_class c on c.oid = t.tgrelid join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and not tgisinternal
+  union all select 'default_acl', defaclobjtype::text || ':' || array_to_string(defaclacl, ',') from pg_default_acl d join pg_namespace n on n.oid = d.defaclnamespace where n.nspname = 'public'
+  union all select 'schema_acl', coalesce(array_to_string(nspacl, ','), '') from pg_namespace where nspname = 'public'
+  union all select 'rows', 'communities=' || (select count(*) from public.communities) || ' posts=' || (select count(*) from public.posts) || ' sum=' || (select md5(string_agg(body, '|' order by id)) from public.posts)
+  union all select 'bucket', id || ':' || public::text from storage.buckets where id <> 'greenlight-evidence'
+  order by 1, 2`;
+
+test("applying the migrations next to an existing app (Ceaser) changes none of its objects, policies, grants or data", async () => {
+  const fake = await createFakeSupabase({ withCeaser: true, migrate: false });
+  fakes.push(fake);
+  const before = await fake.sql(CEASER_SNAPSHOT);
+  assert.ok(before.length > 10);
+  await fake.applyMigrations();
+  const after = await fake.sql(CEASER_SNAPSHOT);
+  assert.deepEqual(after, before);
+  // Greenlight added exactly: schemas greenlight + greenlight_api and one private bucket.
+  const added = await fake.sql("select nspname from pg_namespace where nspname like 'greenlight%' order by 1");
+  assert.deepEqual(added.map((r) => r.nspname), ["greenlight", "greenlight_api"]);
+  assert.deepEqual(await fake.sql("select id, public from storage.buckets order by id"), [{ id: "avatars", public: true }, { id: "greenlight-evidence", public: false }]);
+});
+
+test("Ceaser's credentials reach nothing of Greenlight, even after broad grants on public; Ceaser keeps working", async () => {
+  const fake = await createFakeSupabase({ withCeaser: true });
+  fakes.push(fake);
+  // A future Ceaser migration being careless with public cannot reach Greenlight.
+  await fake.sql("grant execute on all functions in schema public to anon, authenticated");
+  await fake.sql("grant select, insert, update, delete on all tables in schema public to anon, authenticated");
+  const anon = createSupabaseClient({ url: fake.url, serviceRoleKey: fake.anonKey, fetchImpl: fake.fetch });
+  for (const [fn, args] of [["greenlight_list_projects", { p_account: "acme" }], ["greenlight_authenticate", { p_token_sha256: "a".repeat(64) }], ["greenlight_get_record", { p_id: `vr_${"a".repeat(32)}` }]]) {
+    await assert.rejects(anon.rpc(fn, args), (e) => e instanceof GreenlightError && /permission denied/.test(e.message), fn);
+  }
+  for (const role of ["anon", "authenticated"]) {
+    await assert.rejects(fake.sql("select * from greenlight.certification_records", [], { role }), /permission denied/);
+    await assert.rejects(fake.sql("select greenlight_api.greenlight_list_jobs()", [], { role }), /permission denied/);
+  }
+  // Ceaser's own anon access is unchanged.
+  const res = await fake.fetch(`${fake.url}/rest/v1/rpc/post_count`, { method: "POST", headers: { apikey: fake.anonKey, authorization: `Bearer ${fake.anonKey}`, "content-type": "application/json" }, body: "{}" });
+  assert.deepEqual([res.status, await res.json()], [200, 3]);
+  // Storage: Ceaser's keys cannot read the evidence bucket.
+  const s = await fake.fetch(`${fake.url}/storage/v1/object/authenticated/greenlight-evidence/projects/x/runs/y/manifest.json`, { headers: { apikey: fake.anonKey, authorization: `Bearer ${fake.anonKey}` } });
+  assert.equal(s.status, 403);
+});
+
+test("if greenlight_api is not exposed in the Data API, the server reports exactly what to configure", async () => {
+  const fake = await createFakeSupabase({ exposedSchemas: ["public", "graphql_public"] });
+  fakes.push(fake);
+  const client = createSupabaseClient({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, fetchImpl: fake.fetch });
+  await assert.rejects(client.rpc("greenlight_list_projects", { p_account: "acme" }), (e) => e.code === "server_not_configured" && /Exposed schemas/.test(e.message) && /greenlight_api/.test(e.message));
+  assert.throws(() => createSupabaseClient({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, schema: "public" }), /never public/);
+  assert.ok(fake.calls.every((c) => c.profile === "greenlight_api"), "every RPC targets greenlight_api");
 });

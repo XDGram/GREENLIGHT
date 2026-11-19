@@ -20,6 +20,9 @@ const DB_ERRORS = Object.freeze({
 
 const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
+/** The dedicated schema holding Greenlight's RPC functions (never "public"). */
+export const RPC_SCHEMA = "greenlight_api";
+
 /** Validate a storage object path made of safe segments (no traversal, no empty parts). */
 export function assertObjectPath(p) {
   const parts = String(p).split("/");
@@ -34,7 +37,8 @@ export function assertObjectPath(p) {
  * @param {typeof fetch} [p.fetchImpl]
  * @param {number} [p.timeoutMs]
  */
-export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) => globalThis.fetch(...a), timeoutMs = 30_000 }) {
+export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) => globalThis.fetch(...a), timeoutMs = 30_000, schema = RPC_SCHEMA }) {
+  if (schema === "public" || !/^[a-z_][a-z0-9_]{0,62}$/.test(schema)) throw new Error("the Greenlight RPC schema must be a dedicated schema, never public");
   let base;
   try {
     base = new URL(url);
@@ -60,12 +64,12 @@ export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) =
   }
 
   return {
-    /** Call a public.greenlight_* function. Returns its JSON result (null for SQL NULL). */
+    /** Call greenlight_api.greenlight_* (PostgREST profile headers select the schema). Returns JSON (null for SQL NULL). */
     async rpc(fn, args = {}) {
       if (!/^greenlight_[a-z_]+$/.test(fn)) throw new TypeError(`not a Greenlight RPC: ${fn}`);
       const res = await request(`/rest/v1/rpc/${fn}`, {
         method: "POST",
-        headers: { ...auth, "content-type": "application/json", accept: "application/json" },
+        headers: { ...auth, "content-type": "application/json", accept: "application/json", "content-profile": schema, "accept-profile": schema },
         body: JSON.stringify(args),
       }, `rpc ${fn}`);
       const text = await res.text();
@@ -76,6 +80,9 @@ export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) =
         /* non-JSON */
       }
       if (!res.ok) {
+        if (body?.code === "PGRST106") {
+          throw new GreenlightError("server_not_configured", `Supabase does not expose the ${schema} schema: add it under Project Settings -> API -> Exposed schemas (see docs/SUPABASE.md).`);
+        }
         const code = DB_ERRORS[body?.code] ?? "internal_error";
         const message = scrub(String(body?.message ?? `HTTP ${res.status}`).replace(/^greenlight:\s*/, ""));
         throw new GreenlightError(code, code === "internal_error" ? `Database error in ${fn}: ${message}` : `${message.charAt(0).toUpperCase()}${message.slice(1)}.`);
