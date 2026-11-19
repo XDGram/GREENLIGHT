@@ -11,3 +11,19 @@ they never execute Kane or spend credits.
 
 Each directory holds `stdout.ndjson` (Kane's `--agent` stream), `stderr.txt` and
 `exit_code.txt`. `smoke@example.com` is test input, not a real address.
+
+## Evidence
+
+- `evidence-validate.json`: the real output of `kane-cli evidence validate <pack> --json`
+  for that run's pack (Run 1: valid with 2 warnings; Run 2: valid, no diagnostics).
+- `pack.sanitized.evidence`: a **sanitised** copy of that run's real evidence pack.
+  The real packs contain the Kane account's username and email, Test Manager share
+  links and account IDs, so they are not committed. The sanitised copy keeps the
+  real zip structure and text records (`run.yaml`, `failure.yaml`, each test's
+  `result.yaml`, `test.md`, `steps/*/step.json`, `steps/*/failure.yaml`, `meta/`,
+  `coverage/`) with personal fields replaced by `REDACTED`, and drops screenshots,
+  logs and network captures. Its hash therefore differs from the original.
+- `fake-kane-validate.mjs`: stand-in for `kane-cli evidence validate` used by the tests.
+
+To also run the collector against the original packs, put them in a directory and set
+`GREENLIGHT_REAL_EVIDENCE_DIR` to it; that test is skipped otherwise.
