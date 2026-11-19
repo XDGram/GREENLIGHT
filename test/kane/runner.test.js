@@ -161,9 +161,13 @@ test("buildTestrunArgs: defaults include --agent --headless --no-adaptive-heal -
   );
 });
 
-test("buildTestrunArgs: safeguards can only be turned off explicitly", () => {
-  const args = buildTestrunArgs({ testFiles: ["a_test.md"], local: false, noAdaptiveHeal: false, headless: false });
-  assert.deepEqual(args, ["testrun", "run", "a_test.md", "--agent"]);
+test("buildTestrunArgs: --local and --no-adaptive-heal cannot be turned off; upload options are refused", () => {
+  assert.deepEqual(buildTestrunArgs({ testFiles: ["a_test.md"], headless: false }), ["testrun", "run", "a_test.md", "--agent", "--no-adaptive-heal", "--local"]);
+  assert.throws(() => buildTestrunArgs({ testFiles: ["a_test.md"], local: false }), /--local is mandatory/);
+  assert.throws(() => buildTestrunArgs({ testFiles: ["a_test.md"], noAdaptiveHeal: false }), /--no-adaptive-heal is mandatory/);
+  for (const bad of ["--push", "--author", "--remote", "--remote=lt", "--code-export", "--evidence-publish"]) {
+    assert.throws(() => buildTestrunArgs({ testFiles: ["a_test.md"], extraArgs: [bad] }), /forbidden Kane option/, bad);
+  }
 });
 
 test("buildTestrunArgs: validates inputs", () => {

@@ -18,7 +18,7 @@
 import path from "node:path";
 import { mkdir, writeFile, rename } from "node:fs/promises";
 import { openZip } from "./zip-read.js";
-import { redactText, redactUrl } from "./redact.js";
+import { redactText, redactUrl, redactPublicDeep } from "./redact.js";
 
 export const REPORT_SCHEMA = "greenlight.failure-report/v1";
 export const FAILURE_TYPE = Object.freeze({ APP_FAILURE: "app_failure", COULDNT_VERIFY: "couldnt_verify" });
@@ -172,10 +172,11 @@ async function readEvidence({ manifest, runDir, kane, stepIndex, problems }) {
  * @param {string[]} [p.secrets]     exact strings to redact everywhere
  * @param {object} [p.credits]       credits/usage.js creditRecord() (defaults to manifest.credits)
  * @param {object[]} [p.warnings]    run warnings (defaults to manifest.warnings)
+ * @param {object[]} [p.attempts]   every attempt of this verification ({runId, project, actualSpend}); >1 after a retry
  * @param {boolean} [p.always]       also build a report for a passing run
  * @param {() => Date} [p.now]
  */
-export async function buildFailureReport({ evaluation, catalog, manifest, runDir, deployment, secrets = [], credits, warnings, always = false, now = () => new Date() }) {
+export async function buildFailureReport({ evaluation, catalog, manifest, runDir, deployment, secrets = [], credits, warnings, attempts, always = false, now = () => new Date() }) {
   if (!evaluation?.project || !Array.isArray(evaluation.tests)) throw new TypeError("evaluation must be a Step 2 evaluateRun() result");
   if (!catalog || !Array.isArray(catalog.claims) || !Array.isArray(catalog.tests)) throw new TypeError("catalog with claims and tests is required");
   if (evaluation.project.status === "passed" && !always) return null;
@@ -239,6 +240,10 @@ export async function buildFailureReport({ evaluation, catalog, manifest, runDir
     schema: REPORT_SCHEMA,
     generatedAt: now().toISOString(),
     runId: manifest?.runId ?? null,
+    runKind: manifest?.runKind ?? "iteration",
+    // A developer-side report is never a certification (brief §11).
+    certification: false,
+    attempts: attempts ?? (manifest?.runId ? [{ runId: manifest.runId, project: evaluation.project.status, actualSpend: credits?.actualSpend ?? manifest?.credits?.actualSpend ?? null }] : []),
     executionId: manifest?.evidence?.executionId ?? manifest?.kane?.executionId ?? null,
     kind: failures.length === 0 ? "passed" : appFailures && unverified ? "mixed" : appFailures ? FAILURE_TYPE.APP_FAILURE : FAILURE_TYPE.COULDNT_VERIFY,
     project: {
@@ -259,13 +264,19 @@ export async function buildFailureReport({ evaluation, catalog, manifest, runDir
   };
 }
 
-/** Copy of the report without any local file paths. */
+/**
+ * Copy of the report safe to share: no private evidence references, no local
+ * filesystem paths, no email addresses, no credit balances (account data); every
+ * string passes the public redaction rules.
+ */
 export function toPublicReport(report) {
   if (!report) return null;
-  return {
+  const { balanceBefore, balanceAfter, ...creditsPublic } = report.credits ?? {};
+  return redactPublicDeep({
     ...report,
+    credits: report.credits ? creditsPublic : null,
     failures: report.failures.map((f) => ({ ...f, evidence: f.evidence ? { public: f.evidence.public } : null })),
-  };
+  });
 }
 
 const q = (s) => `"${s}"`;
@@ -280,6 +291,7 @@ export function renderMarkdown(report) {
   L.push("");
   L.push(`Project: **${report.project.status}**. ${report.counts.appFailures} app failure(s), ${report.counts.couldntVerify} could not be verified.`);
   if (report.run.usable === false) L.push(`Run problem: ${report.run.reasons.join(", ")}. Results from this run are not trusted.`);
+  if ((report.attempts ?? []).length > 1) L.push(`Attempts: ${report.attempts.map((a) => `${a.runId} (${a.project})`).join(" -> ")}; infrastructure failures are retried once.`);
 
   const apps = report.failures.filter((f) => f.type === "app_failure");
   const cvs = report.failures.filter((f) => f.type === "couldnt_verify");

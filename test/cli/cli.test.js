@@ -139,7 +139,11 @@ const kaneCalled = (calls) => calls.some((c) => c.name === "runKane");
 // ---------------------------------------------------------------- arguments
 
 test("argument parsing: commands, options, values and errors", () => {
-  assert.deepEqual(parseArgs(["verify", "--url", PREVIEW, "--max-credits=10"]), { command: "verify", options: { url: PREVIEW, "max-credits": 10 } });
+  assert.deepEqual(parseArgs(["verify", "--url", PREVIEW, "--max-credits=10"]), { command: "verify", options: { url: PREVIEW, "max-credits": 10 }, args: [] });
+  assert.deepEqual(parseArgs(["status", "--json"]), { command: "status", options: { json: true }, args: [] });
+  assert.deepEqual(parseArgs(["check-run", "gl-1"]), { command: "check-run", options: {}, args: ["gl-1"] });
+  assert.throws(() => parseArgs(["check-run"]), /needs 1 argument/);
+  assert.throws(() => parseArgs(["status", "extra"]), /unexpected argument/);
   assert.throws(() => parseArgs(["deploy"]), UsageError);
   assert.throws(() => parseArgs(["verify", "--yes"]), /unknown option/);
   assert.throws(() => parseArgs(["init", "--url", "x"]), /unknown option/);

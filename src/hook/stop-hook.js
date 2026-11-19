@@ -23,7 +23,7 @@ import { checkGit } from "../deploy/git.js";
 import { checkApproval } from "../spec/approval.js";
 import { REPORTS_DIR } from "../report/failure-report.js";
 import { redactText } from "../report/redact.js";
-import { loadState, saveState, acquireLock, ensureGreenlightGitignore, MAX_FIX_ATTEMPTS } from "./state.js";
+import { loadState, saveState, acquireLock, ensureGreenlightGitignore, deriveFixAttempts, MAX_FIX_ATTEMPTS } from "./state.js";
 
 export const HOOK_EXIT = Object.freeze({ ALLOW: 0, BLOCKER: 1, BLOCK: 2 });
 const CLI = fileURLToPath(new URL("../../bin/greenlight.js", import.meta.url));
@@ -152,6 +152,16 @@ export async function runStopHook({
   return { ...outcome, state };
 
   async function decide() {
+    // A state file that exists but cannot be read (corrupt, unknown schema) could
+    // only have been damaged or edited: fail closed, never start a fresh streak.
+    if (problem) {
+      state.humanNeeded = true;
+      state.lastBlock = { commit: null, reason: problem, at: at() };
+      return result(HOOK_EXIT.BLOCKER, "state_unreadable", {
+        stderr: `Greenlight: .greenlight/state.json is unreadable (${problem}), so the automatic fix-attempt count cannot be trusted. Automatic verification is stopped until a person reviews it and runs greenlight-stop-hook reset.`,
+      });
+    }
+
     // Approved tests changed by a human: start a new streak.
     const approval = await checkApproval(cwd);
     if (approval.status === "approved" && approval.approvedHash !== state.approvedHash) {
@@ -199,7 +209,15 @@ export async function runStopHook({
       });
     }
 
-    // 5. Fix-attempt limit reached in this streak.
+    // 5. Fix-attempt limit reached in this streak. The count can never be lower than
+    // what the immutable run records show (deleting state.json does not reset it).
+    if (approval.status === "approved") {
+      const derived = await deriveFixAttempts(cwd, { approvedHash: approval.approvedHash, since: state.resetAt });
+      if (derived.failedCommits > state.fixAttempts) state.fixAttempts = derived.failedCommits;
+      // Same rule as a live failure below: the third fix is still verified; a failed
+      // commit beyond the limit (failedCommits > max) means a person is needed.
+      if (derived.failedCommits > maxFixAttempts) state.humanNeeded = true;
+    }
     if (state.humanNeeded) {
       return result(HOOK_EXIT.BLOCKER, "human_needed", {
         stderr: `Greenlight stopped automatic fixing after ${state.maxFixAttempts} attempts. A person needs to review .greenlight/reports/latest.md. Run greenlight-stop-hook reset after reviewing to re-enable it.`,
@@ -288,6 +306,7 @@ export async function resetStreak({ cwd = process.cwd(), now = () => new Date() 
     state.humanNeeded = false;
     state.lastRun = null;
     state.lastBlock = null;
+    state.resetAt = now().toISOString();
     await saveState(cwd, state, now());
     return { ok: true };
   } finally {

@@ -18,7 +18,7 @@
 
 import path from "node:path";
 import { constants as fsc } from "node:fs";
-import { mkdir, writeFile, copyFile, rename, rm, lstat, chmod, readFile, stat } from "node:fs/promises";
+import { mkdir, writeFile, copyFile, rename, rm, lstat, chmod, readFile } from "node:fs/promises";
 import { sha256File, sha256Bytes, canonicalJson } from "./hash.js";
 import { checkZipStructure } from "./zip-check.js";
 import { kaneEvidenceValidator, interpretValidation } from "./validate.js";
@@ -111,6 +111,9 @@ async function writePrivate(filePath, data) {
  * @param {{method: string, certifiable: boolean}} [p.approval]  how the tests were approved
  * @param {object} [p.credits]            credits/usage.js creditRecord(): actual spend from the balance difference
  * @param {object[]} [p.warnings]         run warnings, e.g. recording_not_retained
+ * @param {"iteration"|"certification"} [p.runKind]  only the server's certification runs may say "certification"
+ * @param {number} [p.attempt]              1, or 2 for the one infrastructure retry
+ * @param {string|null} [p.previousRunId]   the attempt this one retried
  * @param {() => Date} [p.now]
  */
 export async function collectEvidence({
@@ -126,8 +129,12 @@ export async function collectEvidence({
   approval,
   credits,
   warnings,
+  runKind = "iteration",
+  attempt = 1,
+  previousRunId = null,
   now = () => new Date(),
 }) {
+  if (runKind !== "iteration" && runKind !== "certification") throw new TypeError(`invalid runKind: ${runKind}`);
   validateInputs({ runId, approvedTestHash, deployedCommit, runResult });
   const startUrlInfo = describeStartUrl(startUrl);
 
@@ -150,6 +157,11 @@ export async function collectEvidence({
     private: true,
     publication: "never_publish_raw_evidence_or_this_record",
     runId,
+    // "iteration" records are developer-side and can never be certifications (brief §11).
+    runKind,
+    certification: false,
+    attempt,
+    previousRunId,
     createdAt: now().toISOString(),
     approvedTestHash,
     deployedCommit,
@@ -280,6 +292,7 @@ export async function verifyRunRecord(runDir) {
   } catch {
     return { ok: false, problems: ["manifest_unreadable"], manifest: null };
   }
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) return { ok: false, problems: ["manifest_unreadable"], manifest: null };
   if (manifest.schema !== MANIFEST_SCHEMA) problems.push("unknown_schema");
   if (recordHash(manifest) !== manifest.recordSha256) problems.push("record_hash_mismatch");
   try {
@@ -290,10 +303,12 @@ export async function verifyRunRecord(runDir) {
   }
 
   const checkFile = async (label, rel, expected, expectedBytes) => {
+    if (typeof rel !== "string" || rel === "" || path.isAbsolute(rel) || typeof expected !== "string") return problems.push(`${label}_reference_invalid`);
     const full = path.join(runDir, rel);
-    if (path.relative(runDir, full).startsWith("..")) return problems.push(`${label}_path_outside_run`);
+    const relative = path.relative(runDir, full);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return problems.push(`${label}_path_outside_run`);
     try {
-      const st = await stat(full);
+      const st = await lstat(full); // a symlink could point anywhere: never followed
       if (!st.isFile()) return problems.push(`${label}_not_a_file`);
       const h = await sha256File(full);
       if (h.sha256 !== expected) problems.push(`${label}_hash_mismatch`);

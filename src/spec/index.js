@@ -5,6 +5,7 @@ export {
   renderAll,
   bundleHash,
   loadProject,
+  projectFromText,
   writeGenerated,
   checkGenerated,
   toApprovedTests,

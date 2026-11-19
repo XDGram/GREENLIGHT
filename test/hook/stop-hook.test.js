@@ -427,12 +427,18 @@ test("the lock and state are saved even when verification throws", async () => {
   assert.equal((await state(root)).currentCommit, C(1));
 });
 
-test("corrupt state is replaced by a fresh one; git failures are a blocker", async () => {
+test("corrupt state fails closed until a person resets it; git failures are a blocker", async () => {
   const root = await project();
   await mkdir(path.join(root, ".greenlight"), { recursive: true });
   await writeFile(path.join(root, STATE_FILE), "{not json");
   assert.equal((await loadState(root)).problem, "state_unreadable");
-  assert.equal((await hook(root, repo(), verifier([0]))).decision, "verified");
+  const v = verifier([0]);
+  const blocked = await hook(root, repo(), v);
+  assert.deepEqual([blocked.exitCode, blocked.decision], [1, "state_unreadable"]);
+  assert.match(blocked.stderr, /greenlight-stop-hook reset/);
+  assert.equal(v.calls, 0, "never verifies on an untrusted attempt count");
+  assert.equal((await resetStreak({ cwd: root, now: () => new Date("2026-11-19T11:00:00Z") })).ok, true);
+  assert.equal((await hook(root, repo(), v)).decision, "verified");
   const broken = { runGit: async () => ({ code: 128, stdout: "", stderr: "not a git repository" }) };
   const out = await hook(root, broken, verifier([]));
   assert.deepEqual([out.exitCode, out.decision], [1, "git_unavailable"]);

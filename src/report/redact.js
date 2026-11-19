@@ -46,3 +46,28 @@ export function redactText(value, extraSecrets = []) {
   for (const [re, rep] of RULES) out = out.replace(re, rep);
   return out;
 }
+
+// Public outputs (latest.public.json, certification records) must not reveal the
+// machine they ran on or who ran them: local paths and email addresses are
+// removed on top of the secret rules above.
+const PATH_RE = /(?:[A-Za-z]:\\[^\s"'<>|]+|(?<![\w.:/])\/(?:home|Users|root|tmp|var|private|opt|mnt|srv|etc|usr|run|workspace|github|builds?)\/[^\s"'<>)\]]*)/g;
+const EMAIL_RE = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
+
+/** redactText() plus local filesystem paths and email addresses. */
+export function redactPublicText(value, extraSecrets = []) {
+  if (value === null || value === undefined) return value;
+  return redactText(value, extraSecrets)
+    .replace(PATH_RE, (m) => {
+      const trail = /[.,;:!?]+$/.exec(m)?.[0] ?? "";
+      return `<local-path>${trail}`;
+    })
+    .replace(EMAIL_RE, "REDACTED_EMAIL");
+}
+
+/** Apply redactPublicText to every string in a JSON-like value (keys untouched). */
+export function redactPublicDeep(value, extraSecrets = []) {
+  if (typeof value === "string") return redactPublicText(value, extraSecrets);
+  if (Array.isArray(value)) return value.map((v) => redactPublicDeep(v, extraSecrets));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, redactPublicDeep(v, extraSecrets)]));
+  return value;
+}

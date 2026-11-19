@@ -24,10 +24,15 @@ export const KANE_NPM_PACKAGE = "@testmuai/kane-cli";
 export const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 export const DEFAULT_KILL_GRACE_MS = 15 * 1000;
 
+// Kane options that write to Test Manager / the cloud, re-author approved tests,
+// or move execution off this machine. Greenlight never passes them.
+export const FORBIDDEN_KANE_ARGS = Object.freeze(["--push", "--author", "--remote", "--code-export", "--evidence-publish"]);
+
 /**
  * Build the argument list for a Greenlight verification run.
- * Defaults follow the revised plan: always --local (no Test Manager upload) and
- * --no-adaptive-heal (no silent test rewrites).
+ * --local (no Test Manager upload) and --no-adaptive-heal (no silent test
+ * rewrites) are mandatory: asking to turn either off throws, as does any
+ * upload/re-author option in extraArgs.
  */
 export function buildTestrunArgs({
   testFiles,
@@ -46,6 +51,11 @@ export function buildTestrunArgs({
       throw new TypeError(`buildTestrunArgs: not a *_test.md file: ${f}`);
     }
   }
+  if (local !== true) throw new TypeError("buildTestrunArgs: --local is mandatory (Test Manager uploads are never enabled)");
+  if (noAdaptiveHeal !== true) throw new TypeError("buildTestrunArgs: --no-adaptive-heal is mandatory (approved tests must not be rewritten)");
+  if (!Array.isArray(extraArgs) || extraArgs.some((a) => typeof a !== "string")) throw new TypeError("buildTestrunArgs: extraArgs must be strings");
+  const forbidden = extraArgs.filter((a) => FORBIDDEN_KANE_ARGS.includes(a.split("=")[0]));
+  if (forbidden.length) throw new TypeError(`buildTestrunArgs: forbidden Kane option(s): ${forbidden.join(", ")}`);
   const args = ["testrun", "run", ...testFiles, "--agent"];
   if (headless) args.push("--headless");
   if (noAdaptiveHeal) args.push("--no-adaptive-heal");

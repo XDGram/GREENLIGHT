@@ -7,4 +7,6 @@ export {
   KANE_NPM_PACKAGE,
   DEFAULT_TIMEOUT_MS,
   DEFAULT_KILL_GRACE_MS,
+  FORBIDDEN_KANE_ARGS,
 } from "./runner.js";
+export { KANE_CAPABILITIES, KANE_LIMITATIONS, recordingRetentionNote } from "./capabilities.js";

@@ -9,5 +9,5 @@ export {
   FAILURE_TYPE,
   REPORTS_DIR,
 } from "./failure-report.js";
-export { redactText, redactUrl } from "./redact.js";
+export { redactText, redactUrl, redactPublicText, redactPublicDeep } from "./redact.js";
 export { openZip, ZipReadError } from "./zip-read.js";

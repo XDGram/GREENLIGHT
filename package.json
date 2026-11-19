@@ -6,12 +6,14 @@
   "type": "module",
   "bin": {
     "greenlight": "bin/greenlight.js",
-    "greenlight-stop-hook": "bin/greenlight-stop-hook.js"
+    "greenlight-stop-hook": "bin/greenlight-stop-hook.js",
+    "greenlight-server": "bin/greenlight-server.js"
   },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "server": "node bin/greenlight-server.js"
   }
 }

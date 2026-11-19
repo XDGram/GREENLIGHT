@@ -18,6 +18,7 @@
 
 import { checkGit, gitRunner } from "./git.js";
 import { endpointFor, redactUrl, redactText } from "./url.js";
+import { assertPublicHost } from "./host.js";
 
 export const DEPLOY_STATE = Object.freeze({
   READY: "ready",
@@ -215,6 +216,67 @@ export async function verifyDeployment({
     if (a.outcome === "fatal") return result(DEPLOY_STATE.COULDNT_VERIFY, [a.reason], extra);
     if (clock() + intervalMs > deadline) {
       if (last.outcome === "stale") return result(DEPLOY_STATE.STALE, ["commit_mismatch", "timed_out"], extra);
+      return result(DEPLOY_STATE.COULDNT_VERIFY, [a.reason, "timed_out"], extra);
+    }
+    await sleep(intervalMs);
+  }
+}
+
+/**
+ * Server-side deployment check: there is no git checkout on the server, so the
+ * expected commit comes from the request and only the live /greenlight.json is
+ * polled. The host must be public: it is resolved first and refused if any
+ * address is loopback, private, link-local (cloud metadata) or reserved.
+ * Same states as verifyDeployment().
+ * @param {object} p
+ * @param {string} p.url
+ * @param {string} p.expectedCommit           full commit hash (required)
+ * @param {string} [p.expectedEnvironment]
+ * @param {(host: string) => Promise<{ok: boolean, reason?: string}>} [p.checkHost]
+ */
+export async function verifyLiveDeployment({
+  url,
+  expectedCommit,
+  expectedEnvironment,
+  allowedEnvironments = DEFAULT_ALLOWED_ENVIRONMENTS,
+  intervalMs = 10_000,
+  timeoutMs = 10 * 60_000,
+  requestTimeoutMs = 15_000,
+  fetchImpl = globalThis.fetch,
+  sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+  clock = Date.now,
+  checkHost = (host) => assertPublicHost(host),
+}) {
+  if (typeof expectedCommit !== "string" || !SHA.test(expectedCommit)) throw new TypeError("expectedCommit must be a full lowercase commit hash");
+  const started = clock();
+  const display = redactUrl(url);
+  const result = (state, reasons, extra = {}) => ({
+    state,
+    reasons,
+    safeToRunKane: state === DEPLOY_STATE.READY,
+    url: display,
+    endpoint: extra.endpoint ?? null,
+    expectedCommit,
+    deployedCommit: extra.deployedCommit ?? null,
+    environment: extra.environment ?? null,
+    git: null,
+    attempts: extra.attempts ?? [],
+    elapsedMs: clock() - started,
+  });
+  const endpoint = endpointFor(url);
+  if (!endpoint.ok) return result(DEPLOY_STATE.COULDNT_VERIFY, [endpoint.reason]);
+  const host = await checkHost(new URL(url).hostname);
+  if (!host.ok) return result(DEPLOY_STATE.COULDNT_VERIFY, [host.reason ?? "host_not_public"]);
+  const attempts = [];
+  const deadline = started + timeoutMs;
+  for (let n = 1; ; n++) {
+    const a = await checkOnce({ endpoint, expectedCommit, expectedEnvironment, allowedEnvironments, fetchImpl, requestTimeoutMs, baseUrl: url });
+    attempts.push({ n, atMs: clock() - started, reason: a.reason, httpStatus: a.httpStatus ?? null, deployedCommit: a.deployedCommit ?? null, environment: a.environment ?? null });
+    const extra = { endpoint: endpoint.display, attempts, deployedCommit: a.deployedCommit, environment: a.environment };
+    if (a.outcome === "ready") return result(DEPLOY_STATE.READY, [], extra);
+    if (a.outcome === "fatal") return result(DEPLOY_STATE.COULDNT_VERIFY, [a.reason], extra);
+    if (clock() + intervalMs > deadline) {
+      if (a.outcome === "stale") return result(DEPLOY_STATE.STALE, ["commit_mismatch", "timed_out"], extra);
       return result(DEPLOY_STATE.COULDNT_VERIFY, [a.reason, "timed_out"], extra);
     }
     await sleep(intervalMs);

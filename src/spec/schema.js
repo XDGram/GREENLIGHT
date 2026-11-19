@@ -27,6 +27,7 @@
 // `do` steps may not verify anything; visual-only checks are rejected.
 
 import { parseYamlSubset, YamlSubsetError } from "./yaml-subset.js";
+import { isLocalOrPrivateHost } from "../deploy/host.js";
 
 export const SPEC_VERSION = 1;
 export const CLAIM_ID = /^CLM-\d{3,}$/;
@@ -78,8 +79,8 @@ function checkBaseUrl(url, errors) {
     return null;
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") errors.push("project.url: must be http or https");
-  if (u.hostname === "localhost" || u.hostname === "127.0.0.1" || u.hostname === "::1" || u.hostname === "[::1]") {
-    errors.push("project.url: must be a deployed URL, not localhost");
+  if (isLocalOrPrivateHost(u.hostname)) {
+    errors.push("project.url: must be a deployed URL, not localhost or a private/local address");
   }
   if (u.username || u.password) errors.push("project.url: must not contain credentials");
   if (u.search || u.hash) errors.push("project.url: must not contain a query string or fragment (they can carry secrets)");
@@ -138,6 +139,8 @@ export function validateSpec(doc) {
       else if (claimIds.has(c.id)) errors.push(`${where}.id: duplicate claim id ${c.id}`);
       else claimIds.add(c.id);
       if (!isText(c.text) || !oneLine(c.text)) errors.push(`${where}.text: required single-line text`);
+      // Claim text is written into an HTML comment in every generated test file.
+      else if (c.text.includes("-->") || c.text.includes("<!--")) errors.push(`${where}.text: must not contain "<!--" or "-->"`);
       if (c.requirement !== undefined && c.requirement !== null && typeof c.requirement !== "string") {
         errors.push(`${where}.requirement: must be text`);
       }

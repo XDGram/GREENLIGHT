@@ -2,7 +2,7 @@
 // Logs and reports never contain credentials, query strings or fragments:
 // a query can carry a deployment-protection bypass token.
 
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]", "0.0.0.0"]);
+import { isLocalOrPrivateHost } from "./host.js";
 
 /** origin + path, with "?REDACTED" when a query was present. Never throws. */
 export function redactUrl(input) {
@@ -46,7 +46,7 @@ export function endpointFor(baseUrl) {
     return { ok: false, reason: "invalid_url" };
   }
   if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, reason: "url_not_http" };
-  if (LOCAL_HOSTS.has(u.hostname) || u.hostname.endsWith(".localhost")) return { ok: false, reason: "localhost_not_allowed" };
+  if (isLocalOrPrivateHost(u.hostname)) return { ok: false, reason: "localhost_not_allowed" };
   const headers = { accept: "application/json", "cache-control": "no-cache", pragma: "no-cache" };
   if (u.username || u.password) {
     headers.authorization = `Basic ${Buffer.from(`${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`).toString("base64")}`;

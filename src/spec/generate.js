@@ -10,7 +10,7 @@
 // project field, claim, test, step or generated file does.
 
 import path from "node:path";
-import { readFile, writeFile, mkdir, readdir } from "node:fs/promises";
+import { readFile, writeFile, mkdir, readdir, lstat } from "node:fs/promises";
 import { parseSpec } from "./schema.js";
 import { sha256Bytes, canonicalJson } from "../evidence/hash.js";
 
@@ -79,31 +79,49 @@ export function bundleHash(spec, rendered) {
   );
 }
 
+/**
+ * Parse and render spec text with no filesystem access (the server re-derives the
+ * approved-test hash this way; it never trusts a submitted hash).
+ * Throws SpecError for an invalid spec.
+ */
+export function projectFromText(specText) {
+  if (typeof specText !== "string") throw new TypeError("specText must be a string");
+  const spec = parseSpec(specText);
+  const rendered = renderAll(spec);
+  return { spec, rendered, hash: bundleHash(spec, rendered), specFileSha256: sha256Bytes(specText) };
+}
+
 /** Load and render the project's spec. Throws SpecError for an invalid spec. */
 export async function loadProject(root) {
   const specPath = path.join(root, SPEC_FILE);
   const specText = await readFile(specPath, "utf8");
-  const spec = parseSpec(specText);
-  const rendered = renderAll(spec);
-  return {
-    root,
-    specPath,
-    testsDir: path.join(root, TESTS_DIR),
-    spec,
-    rendered,
-    hash: bundleHash(spec, rendered),
-    specFileSha256: sha256Bytes(specText),
-  };
+  return { root, specPath, testsDir: path.join(root, TESTS_DIR), ...projectFromText(specText) };
+}
+
+/** Refuse to write through a symlink or into something that is not a plain file. */
+async function assertWritableTarget(full, { dir = false } = {}) {
+  let st;
+  try {
+    st = await lstat(full);
+  } catch (err) {
+    if (err.code === "ENOENT") return;
+    throw err;
+  }
+  if (st.isSymbolicLink()) throw new Error(`refusing to write through a symbolic link: ${full}`);
+  if (dir ? !st.isDirectory() : !st.isFile()) throw new Error(`refusing to overwrite ${dir ? "non-directory" : "non-file"}: ${full}`);
 }
 
 /** Write generated tests (only files whose content differs). Never deletes anything. */
 export async function writeGenerated(root) {
   const p = await loadProject(root);
+  await assertWritableTarget(path.join(root, ".greenlight"), { dir: true });
+  await assertWritableTarget(p.testsDir, { dir: true });
   await mkdir(p.testsDir, { recursive: true });
   const written = [];
   const unchanged = [];
   for (const r of p.rendered) {
     const full = path.join(p.testsDir, r.file);
+    await assertWritableTarget(full);
     let current = null;
     try {
       current = await readFile(full, "utf8");

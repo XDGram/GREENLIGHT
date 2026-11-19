@@ -81,7 +81,20 @@ test("every `greenlight <command …>` in the Skill is a real command with real 
 test("every --option named in the Skill is a real verify option, and every verify option is documented", () => {
   const named = new Set([...ALL.matchAll(/`(--[a-z-]+)(?: <[a-z]+>)?`/g)].map((m) => m[1]));
   named.delete("--no-adaptive-heal");
-  for (const opt of named) assert.doesNotThrow(() => parseArgs(["verify", opt, "1"]), opt);
+  named.delete("--json"); // global flag, takes no value
+  assert.deepEqual(parseArgs(["status", "--json"]).options, { json: true });
+  // Each documented option must be a real option of some command (verify, approve or publish).
+  for (const opt of named) {
+    const accepted = ["verify", "approve", "publish"].some((cmd) => {
+      try {
+        parseArgs([cmd, opt, "1"]);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    assert.ok(accepted, opt);
+  }
   assert.ok(SKILL.includes("`greenlight approve --relayed <hash>`"), "relayed approval documented");
   const real = [...SRC.cli.matchAll(/^\s+"(--[a-z-]+)": "(?:string|number)",$/gm)].map((m) => m[1]);
   assert.ok(real.length >= 8);
@@ -222,7 +235,7 @@ test("the Skill states every required rule", () => {
     /\*\*Never weaken approved tests\.\*\*/,
     /\*\*Never bypass the gates\.\*\*/,
     /\*\*Never run Kane yourself\.\*\*/,
-    /\*\*Never publish certification\.\*\*/,
+    /\*\*Never publish or certify\.\*\*/,
     /\*\*Never claim success without a Greenlight pass\.\*\*/,
     /propose the exact change for a person to approve/,
     /Do \*\*not\*\* run verification after every small edit/,
@@ -235,9 +248,12 @@ test("the Skill states every required rule", () => {
 test("Kane, approval bypasses and publishing appear only as prohibitions", () => {
   for (const line of ALL.split("\n")) {
     if (/kane-cli/.test(line)) assert.match(line, /\b(never|not|don't|do not)\b/i, `kane-cli outside a prohibition: ${line}`);
-    if (/publish/i.test(line)) assert.match(line, /\b(never|not|no|nothing)\b/i, `publish outside a prohibition: ${line}`);
+    // Publishing exists now, but only as a person's action: every mention is a prohibition for Claude or says a person does it.
+    if (/publish/i.test(line)) assert.match(line, /\b(never|not|no|nothing)\b|\bperson\b/i, `publish outside a prohibition: ${line}`);
     assert.equal(/unset CLAUDECODE|CLAUDECODE=0|script -q|--yes\b/.test(line), false, `bypass suggested: ${line}`);
   }
-  assert.equal(/`greenlight publish`/.test(ALL), false);
+  for (const line of ALL.split("\n").filter((l) => l.includes("`greenlight publish`"))) {
+    assert.match(line, /\bperson\b/i, `greenlight publish must be described as a person's action: ${line}`);
+  }
   assert.equal(/approval\.json`?\s*(?:edit|write)/i.test(ALL), false);
 });
