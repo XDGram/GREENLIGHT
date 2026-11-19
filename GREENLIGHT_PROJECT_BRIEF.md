@@ -219,3 +219,68 @@ Example:
   "environment": "preview"
 }
 ```
+
+---
+
+## 6. KANE EXECUTION AND RESULT HANDLING
+
+Invoke Kane CLI as a subprocess.
+
+Capture:
+- Standard output.
+- Standard error.
+- Exit code.
+- Execution duration.
+- Structured test results.
+- Evidence file references.
+
+Kane exit codes:
+
+| Exit code | Meaning | Greenlight classification |
+|---|---|---|
+| 0 | Passed | passed |
+| 1 | Executed but failed | app_failure |
+| 2 | Execution or infrastructure error | couldnt_verify |
+| 3 | Timeout or cancellation | couldnt_verify |
+
+These mappings must remain authoritative.
+
+Do not use an LLM to decide whether Kane passed or failed.
+
+For infrastructure failures:
+- Retry once.
+- If the retry also fails, classify as `couldnt_verify`.
+- Do not send infrastructure failures into the automatic code-fixing loop.
+
+---
+
+## 7. FAILURE REPORTING
+
+When Kane identifies an application failure, Greenlight generates a compact structured report.
+
+Each failure should contain:
+- Claim ID.
+- Original claim.
+- Failed test step.
+- Expected behaviour.
+- Actual observed behaviour.
+- Kane's execution notes.
+- Screenshot path.
+- Failure category.
+
+Example:
+
+```json
+{
+  "claim_id": "CLM-002",
+  "claim": "Users can withdraw their balance",
+  "status": "failed",
+  "category": "app_failure",
+  "failed_step": "Submit withdrawal",
+  "expected": "Withdrawal completes successfully",
+  "actual": "Transaction rejected",
+  "evidence": {
+    "screenshot": "evidence/CLM-002.png"
+  }
+}
+```
