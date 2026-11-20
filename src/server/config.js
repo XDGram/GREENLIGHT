@@ -27,6 +27,9 @@
 //   GREENLIGHT_DEPLOY_TIMEOUT_SECONDS default 600 (300 in sandbox mode)
 //   GREENLIGHT_SANDBOX_TIMEOUT_MINUTES sandbox mode: sandbox lifetime, default 45 (Vercel Hobby's maximum)
 //   GREENLIGHT_SANDBOX_MAX_MINUTES   sandbox mode: the plan's limit, default 45 (Hobby); Pro allows 1440
+//   GREENLIGHT_VERCEL_APP_CLIENT_ID  enables browser approval (Sign in with Vercel) at /approve/...
+//   GREENLIGHT_APPROVERS             JSON [{"vercelSub","account","user"}]: who may approve, as which owner
+//   GREENLIGHT_VERCEL_APP_CLIENT_SECRET optional secret; default is the deployment's OIDC client assertion
 //   GREENLIGHT_KANE_BIN              Kane CLI binary, default kane-cli
 //   GREENLIGHT_KANE_REMOTE           "hyper": Kane runs the browser on TestMu HyperExecute (--remote hyper)
 //   GREENLIGHT_EXECUTION             "local" (default: jobs run in this process) | "sandbox" (each job
@@ -155,8 +158,29 @@ export function loadConfig(env = process.env) {
     const needMs = SANDBOX_OVERHEAD_MS + deployTimeoutMs + kaneTimeoutMs;
     if (needMs > sandboxTimeoutMs) throw new Error(`a job can take ${Math.ceil(needMs / 60_000)} min (setup and upload ${SANDBOX_OVERHEAD_MS / 60_000} + deployment wait + Kane timeout), more than the sandbox's ${sandboxTimeoutMs / 60_000} min; lower GREENLIGHT_KANE_TIMEOUT_MINUTES or GREENLIGHT_DEPLOY_TIMEOUT_SECONDS`);
   }
+  // Browser approval with Sign in with Vercel (src/server/approval-web.js): enabled by a Vercel app
+  // client id; only the listed Vercel subjects may approve, each for its own Greenlight owner.
+  let webApproval = null;
+  if (env.GREENLIGHT_VERCEL_APP_CLIENT_ID) {
+    if (!supabase) throw new Error("browser approval needs Supabase persistence");
+    assertPublicBaseUrl(env.GREENLIGHT_PUBLIC_BASE_URL);
+    let approvers;
+    try {
+      approvers = JSON.parse(env.GREENLIGHT_APPROVERS ?? "");
+    } catch {
+      throw new Error("GREENLIGHT_APPROVERS must be a JSON array of {vercelSub, account, user}");
+    }
+    if (!Array.isArray(approvers) || !approvers.length || approvers.some((a) => !a || typeof a.vercelSub !== "string" || !a.vercelSub || typeof a.account !== "string" || !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(a.account) || typeof a.user !== "string" || !a.user)) {
+      throw new Error("GREENLIGHT_APPROVERS must be a JSON array of {vercelSub, account, user}");
+    }
+    webApproval = { clientId: String(env.GREENLIGHT_VERCEL_APP_CLIENT_ID), approvers: Object.freeze(approvers.map((a) => Object.freeze({ vercelSub: a.vercelSub, account: a.account, user: a.user }))) };
+    // Optional: a client secret instead of the deployment's OIDC client assertion. Never serialised.
+    Object.defineProperty(webApproval, "clientSecret", { value: env.GREENLIGHT_VERCEL_APP_CLIENT_SECRET || null, enumerable: false });
+    Object.freeze(webApproval);
+  }
   const cfg = {
     store: supabase ? "supabase" : "file",
+    webApproval,
     supabase,
     dataDir,
     workDir,

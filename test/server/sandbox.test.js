@@ -275,14 +275,14 @@ test("vercel.json routes /v1 to the function, bundles the files the sandbox need
   const v = JSON.parse(readFileSync(path.join(ROOT, "vercel.json"), "utf8"));
   assert.equal(v.functions["api/index.js"].includeFiles, "{src,bin}/**");
   assert.ok(v.functions["api/index.js"].maxDuration <= 300);
-  assert.deepEqual(v.rewrites, [{ source: "/v1/:path*", destination: "/api" }]);
+  assert.deepEqual(v.rewrites, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }]);
   // Static files come only from public/, which holds nothing but .gitkeep: no source, docs or
   // config of the repository is ever served.
   assert.equal(v.outputDirectory, "public");
   const { readdirSync } = await import("node:fs");
   assert.deepEqual(readdirSync(path.join(ROOT, "public")), [".gitkeep"]);
   assert.equal(readFileSync(path.join(ROOT, "public/.gitkeep"), "utf8"), "");
-  assert.ok(!v.rewrites.some((r) => !r.source.startsWith("/v1/")), "only /v1/* is routed, and only to the function");
+  assert.ok(v.rewrites.every((r) => /^\/(v1|approve)(\/|$)/.test(r.source) && r.destination === "/api"), "only /v1/* and /approve* are routed, and only to the function");
   assert.equal(v.cleanUrls ?? false, false);
   assert.equal(v.routes, undefined, "no legacy routes that could expose files");
   const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));

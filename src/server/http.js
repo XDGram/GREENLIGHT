@@ -22,6 +22,7 @@
 // Every error body: {"error": {"code", "message", "action", "details"?}}.
 
 import http from "node:http";
+import { createApprovalWeb } from "./approval-web.js";
 import { GreenlightError, errorBody, httpFor } from "../cli/errors.js";
 import { SpecError } from "../spec/schema.js";
 import { projectFromText } from "../spec/generate.js";
@@ -103,8 +104,9 @@ const versionView = (v, { withContent = false } = {}) => ({
  * @param {import("./jobs.js").JobRunner} p.jobs
  * @param {() => Date} p.now
  */
-export function createApp({ config, store, jobs, now = () => new Date(), log = () => {}, runtime = null }) {
+export function createApp({ config, store, jobs, now = () => new Date(), log = () => {}, runtime = null, approvalDeps = {} }) {
   const limiter = new RateLimiter({ perMinute: config.rateLimitPerMinute });
+  const approvalWeb = createApprovalWeb({ config, store, now, log, ...approvalDeps });
 
   const routes = [
     ["GET", /^\/v1\/health$/, null, async () => [200, { ok: true, schema: "greenlight.health/v1" }]],
@@ -283,6 +285,11 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       res.setHeader("retry-after", String(rl.retryAfterS));
       return fail(res, "rate_limited", "Too many requests.");
     }
+    // Browser approval pages (HTML, own session); everything else is the JSON API below.
+    if (await approvalWeb(req, res, url)) {
+      log({ event: "request", method: req.method, path: url.pathname, status: res.statusCode, ms: Date.now() - started, principal: null });
+      return;
+    }
     const match = routes.find(([method, re]) => re.test(url.pathname) && method === req.method);
     if (!match) {
       const pathExists = routes.some(([, re]) => re.test(url.pathname));
@@ -310,8 +317,8 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
 }
 
 /** Start an HTTP server (bin/greenlight-server.js). */
-export function startServer({ config, store, jobs, now, log, runtime }) {
-  const server = http.createServer(createApp({ config, store, jobs, now, log, runtime }));
+export function startServer({ config, store, jobs, now, log, runtime, approvalDeps }) {
+  const server = http.createServer(createApp({ config, store, jobs, now, log, runtime, approvalDeps }));
   server.requestTimeout = 30_000;
   server.headersTimeout = 15_000;
   return new Promise((resolve) => server.listen(config.port, config.host, () => resolve(server)));

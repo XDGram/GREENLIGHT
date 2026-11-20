@@ -11,6 +11,7 @@
 import { checkApproval, detectAgentEnvironment, RELAYED_METHOD } from "../spec/approval.js";
 import { checkGit, gitRunner } from "../deploy/git.js";
 import { EXIT } from "./errors.js";
+import { webApprovalValidFor } from "../server/models.js";
 import { readServerLink, SERVER_LINK_FILE } from "./server-link.js";
 
 export const PUBLISH_OPTIONS = Object.freeze({
@@ -60,9 +61,20 @@ export async function cmdPublish(ctx) {
   o.version ??= link?.version;
   if (!o.project || !o.version || !o["confirm-spend"]) return ctx.fail("usage_error", `publish needs --confirm-spend <credits>, and --project <id> --version <n> unless ${SERVER_LINK_FILE} has them (greenlight submit).`);
 
+  // Which human approval vouches for the local tests:
+  //  - a local terminal approval (greenlight approve), or
+  //  - when there is no local approval at all, the server's browser approval by a verified person
+  //    (Sign in with Vercel), whose confirmed test-specification hash must equal the local one.
+  // A relayed (agent) approval is never accepted, and never silently replaced.
   const approval = await checkApproval(ctx.cwd);
-  if (approval.status !== "approved") return ctx.fail("tests_not_approved", `Local tests are not approved (${approval.status}); publish the version a person approved.`);
   if (approval.method === RELAYED_METHOD) return ctx.fail("approval_not_certifiable", "These tests have a relayed approval, which can never be published or certified.");
+  let localHash;
+  let viaServer = false;
+  if (approval.status === "approved") localHash = approval.approvedHash;
+  else if (approval.status === "not_approved" && approval.generated?.clean) {
+    localHash = approval.currentHash;
+    viaServer = true;
+  } else return ctx.fail("tests_not_approved", `Local tests are not approved (${approval.status}); publish the version a person approved.`);
 
   const git = await checkGit({ runGit: ctx.deps.runGit ?? gitRunner(ctx.cwd) });
   if (!git.ok) return ctx.fail("deployment_not_ready", `Commit and push first (${git.reasons.join(", ")}).`, { reasons: git.reasons });
@@ -71,15 +83,19 @@ export async function cmdPublish(ctx) {
   const v = await api(ctx, "GET", `/v1/projects/${encodeURIComponent(o.project)}/versions/${o.version}`);
   if (!v.ok) return ctx.fail(v.error.code in { not_found: 1, unauthorized: 1, forbidden: 1, server_unreachable: 1 } ? v.error.code : "internal_error", v.error.message);
   if (v.body.status !== "approved") return ctx.fail("approval_not_certifiable", `Server test version ${o.version} is not approved by a person on the server.`);
-  if (v.body.approvedTestHash !== approval.approvedHash) {
-    return ctx.fail("approval_hash_mismatch", `Server version ${o.version} (${v.body.approvedTestHash.slice(0, 12)}…) is not the local approved tests (${approval.approvedHash.slice(0, 12)}…).`);
+  if (v.body.approvedTestHash !== localHash) {
+    return ctx.fail("approval_hash_mismatch", `Server version ${o.version} (${v.body.approvedTestHash.slice(0, 12)}…) is not the local approved tests (${localHash.slice(0, 12)}…).`);
   }
+  if (viaServer && !webApprovalValidFor(v.body.approval, localHash)) {
+    return ctx.fail("tests_not_approved", "Local tests have no terminal approval, and the server version has no verified browser approval (Sign in with Vercel) of exactly these tests.");
+  }
+  if (viaServer) ctx.out(`Approved in the browser by ${v.body.approval.approvedBy} (Vercel subject ${v.body.approval.identity.subject}) for exactly these tests.`);
 
   const started = await api(ctx, "POST", `/v1/projects/${encodeURIComponent(o.project)}/certifications`, {
     version: o.version,
     commit: git.head,
     confirmSpend: o["confirm-spend"],
-    approvedTestHash: approval.approvedHash,
+    approvedTestHash: localHash,
     ...(o.url ? { url: o.url } : {}),
     ...(o.environment ? { environment: o.environment } : {}),
   });

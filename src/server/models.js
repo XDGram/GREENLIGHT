@@ -37,6 +37,8 @@ export const SCHEMAS = Object.freeze({
 });
 
 export const SERVER_APPROVAL_METHOD = "server-owner";
+/** Server approvals given in the browser after Sign in with Vercel (src/server/approval-web.js). */
+export const WEB_APPROVAL_CHANNEL = "web-sign-in-with-vercel";
 export const JOB_STATUS = Object.freeze({ QUEUED: "queued", RUNNING: "running", SUCCEEDED: "succeeded", FAILED: "failed" });
 
 /** Hash of a JSON object without its own `recordSha256`. */
@@ -45,8 +47,9 @@ export function selfHash(obj) {
   return sha256Bytes(canonicalJson(rest));
 }
 
-export function buildApproval({ projectId, version, approvedBy, now }) {
+export function buildApproval({ projectId, version, approvedBy, now, extra = {} }) {
   const a = {
+    ...extra,
     schema: SCHEMAS.approval,
     projectId,
     version: version.version,
@@ -69,6 +72,24 @@ export function approvalValidFor(approval, approvedTestHash) {
       approval.certifiable === true &&
       approval.approvedTestHash === approvedTestHash &&
       selfHash(approval) === approval.recordSha256,
+  );
+}
+
+/**
+ * A server approval given in the browser by a verified human (Sign in with Vercel), with both
+ * exact hashes confirmed separately, test specification first. Intact and for exactly `hash`.
+ */
+export function webApprovalValidFor(approval, hash) {
+  const id = approval?.identity;
+  const c = approval?.confirmations;
+  const t = Date.parse(c?.testSpecification?.confirmedAt ?? "");
+  const v = Date.parse(c?.serverVersion?.confirmedAt ?? "");
+  return Boolean(
+    approvalValidFor(approval, hash) &&
+      approval.channel === WEB_APPROVAL_CHANNEL &&
+      id?.provider === "vercel" && id.issuer === "https://vercel.com" && typeof id.subject === "string" && id.subject.length > 0 &&
+      c?.testSpecification?.hash === hash && c?.serverVersion?.hash === hash &&
+      Number.isFinite(t) && Number.isFinite(v) && t <= v,
   );
 }
 
