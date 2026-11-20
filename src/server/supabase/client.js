@@ -13,6 +13,7 @@ const DB_ERRORS = Object.freeze({
   GLCON: "conflict",
   GLIMM: "conflict",
   GLLIM: "job_limit_reached",
+  GLQTA: "guest_limit_reached",
   GLHSH: "approval_hash_mismatch",
   GLINV: "internal_error",
   GLCRT: "internal_error",

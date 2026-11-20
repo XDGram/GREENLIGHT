@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { GreenlightError, errorBody } from "../cli/errors.js";
 import { JOB_STATUS, SCHEMAS } from "./models.js";
 import { runCertification, certificationRunId } from "./certify.js";
+import { runGuestRun } from "./guest-run.js";
 
 export class JobRunner {
   constructor({ store, config, deps, log = () => {} }) {
@@ -103,6 +104,20 @@ export class JobRunner {
     }
     await this.store.putJob(current);
     return current;
+  }
+
+  /**
+   * Run a queued guest demo run in this process (local execution). The limits were checked and
+   * the run recorded by the database before this is called; it never runs twice.
+   */
+  async startGuestRun(runId) {
+    const p = runGuestRun({ store: this.store, runId, config: this.config, deps: this.deps, log: this.log })
+      .catch((err) => this.log({ event: "guest_run_error", runId, error: String(err?.stack ?? err) }))
+      .finally(() => {
+        this.running.delete(p);
+        if (!this.running.size && !this.queue.length) for (const w of this.idleWaiters.splice(0)) w();
+      });
+    this.running.add(p);
   }
 
   /** Resolves when no job is queued or running (tests, graceful shutdown). */

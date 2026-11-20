@@ -7,10 +7,11 @@
 import { loadConfig, createStore, serverDeps, JobRunner, checkRuntime } from "../src/server/index.js";
 import { errorBody } from "../src/cli/errors.js";
 import { finishedSignature } from "../src/server/sandbox.js";
+import { runGuestRun } from "../src/server/guest-run.js";
 
 const log = (entry) => process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 const args = process.argv.slice(2);
-const ID = /^job_[0-9a-f]{32}$/;
+const ID = /^(job|grn)_[0-9a-f]{32}$/;
 
 let config;
 try {
@@ -45,9 +46,16 @@ async function reportFinished(jobId) {
 if (args[0] === "--fail") {
   const [, jobId, reason = "setup"] = args;
   if (!ID.test(jobId ?? "")) process.exit(2);
-  const job = await store.getJob(jobId).catch(() => null);
-  if (job && (job.status === "queued" || job.status === "running")) {
-    await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: errorBody("sandbox_setup_failed", `Sandbox setup failed (${String(reason).replace(/[^a-z_]/g, "").slice(0, 40)}); Kane did not run.`) });
+  const why = `Sandbox setup failed (${String(reason).replace(/[^a-z_]/g, "").slice(0, 40)}); Kane did not run.`;
+  if (jobId.startsWith("grn_")) {
+    // Guest demo run: failed before Kane started, so it is refunded.
+    const run = await store.guestGetRun(jobId).catch(() => null);
+    if (run && (run.status === "queued" || run.status === "running")) await store.guestUpdateRun(jobId, "failed", { error: errorBody("sandbox_setup_failed", why) }, { refund: true }).catch(() => {});
+  } else {
+    const job = await store.getJob(jobId).catch(() => null);
+    if (job && (job.status === "queued" || job.status === "running")) {
+      await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: errorBody("sandbox_setup_failed", why) });
+    }
   }
   log({ event: "worker_setup_failed", jobId, reason });
   await reportFinished(jobId);
@@ -62,10 +70,23 @@ if (!ID.test(jobId ?? "")) {
 const runtime = await checkRuntime({ kaneBin: config.kaneBin, requireChrome: !config.kaneRemote });
 if (!runtime.ok) {
   log({ event: "worker_not_ready", kane: runtime.kane, chrome: runtime.chrome });
-  const job = await store.getJob(jobId).catch(() => null);
-  if (job?.status === "queued") await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: errorBody("sandbox_setup_failed", `Kane is not usable in the sandbox (${runtime.kane}).`) });
+  const why = errorBody("sandbox_setup_failed", `Kane is not usable in the sandbox (${runtime.kane}).`);
+  if (jobId.startsWith("grn_")) {
+    const run = await store.guestGetRun(jobId).catch(() => null);
+    if (run?.status === "queued") await store.guestUpdateRun(jobId, "failed", { error: why }, { refund: true }).catch(() => {});
+  } else {
+    const job = await store.getJob(jobId).catch(() => null);
+    if (job?.status === "queued") await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: why });
+  }
   await reportFinished(jobId);
   process.exit(1);
+}
+if (jobId.startsWith("grn_")) {
+  // Guest demo run: its own pipeline and tables; never a certification.
+  const done = await runGuestRun({ store, runId: jobId, config, deps: serverDeps(config), log });
+  log({ event: "worker_done", runId: jobId, status: done.status, error: done.error?.code ?? null });
+  await reportFinished(jobId);
+  process.exit(done.status === "succeeded" ? 0 : 1);
 }
 const job = await store.getJob(jobId);
 if (job.status !== "queued") {

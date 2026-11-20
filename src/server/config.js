@@ -189,8 +189,31 @@ export function loadConfig(env = process.env) {
   const listed = (env.GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS ?? "xdgram").split(",").map((x) => x.trim()).filter(Boolean);
   if (listed.some((a) => !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(a))) throw new Error("GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS must be a comma-separated list of account slugs");
   const browserApprovalAccounts = Object.freeze([...new Set([...listed, ...(webApproval?.approvers.map((a) => a.account) ?? [])])].sort());
+  // Guest demo mode (GREENLIGHT_GUEST_MODE=on): no sign-up, a signed browser cookie, its own
+  // tables, and hard limits on real runs. Needs Supabase (limits are enforced in the database).
+  let guest = null;
+  if (env.GREENLIGHT_GUEST_MODE === "on") {
+    if (!supabase) throw new Error("guest mode needs Supabase (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)");
+    if (!env.GREENLIGHT_PUBLIC_BASE_URL || !/^https:\/\//.test(env.GREENLIGHT_PUBLIC_BASE_URL)) throw new Error("guest mode needs GREENLIGHT_PUBLIC_BASE_URL (https)");
+    const sample = env.GREENLIGHT_GUEST_SAMPLE_PROJECT || null;
+    if (sample && !/^prj_[0-9a-f]{32}$/.test(sample)) throw new Error("GREENLIGHT_GUEST_SAMPLE_PROJECT must be a project id (prj_...)");
+    guest = {
+      runsPerGuest: num(env.GREENLIGHT_GUEST_RUNS_PER_GUEST, 1),
+      runsPerDay: num(env.GREENLIGHT_GUEST_RUNS_PER_DAY, 3),
+      maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, 150), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150)),
+      projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
+      aiPerGuest: num(env.GREENLIGHT_GUEST_AI_PER_GUEST, 8),
+      sessionsPerIpHour: num(env.GREENLIGHT_GUEST_SESSIONS_PER_IP_HOUR, 20, { min: 1 }),
+      sampleProjectId: sample,
+      aiModel: env.GREENLIGHT_GUEST_AI_MODEL || "claude-opus-5-5",
+    };
+    // The Anthropic API key (AI test generation): non-enumerable, never serialised or logged.
+    Object.defineProperty(guest, "anthropicApiKey", { value: env.ANTHROPIC_API_KEY || null, enumerable: false });
+    Object.freeze(guest);
+  }
   const cfg = {
     store: supabase ? "supabase" : "file",
+    guest,
     webApproval,
     browserApprovalAccounts,
     supabase,

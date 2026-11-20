@@ -176,4 +176,52 @@ export class SupabaseStore {
   async listRecords(projectId) {
     return this.db.rpc("greenlight_list_records", { p_project_id: assertId("project", projectId) });
   }
+
+  // ---- guest demo (separate tables; never certification data)
+  async guestCreate(id, ipHash, maxPerIpHour) {
+    return this.db.rpc("greenlight_guest_create", { p_id: guestId("gst", id), p_ip_hash: ipHash, p_max_per_ip_hour: maxPerIpHour });
+  }
+  async guestGet(id) {
+    return this.db.rpc("greenlight_guest_get", { p_id: guestId("gst", id) });
+  }
+  async guestUseAi(id, max) {
+    return this.db.rpc("greenlight_guest_use_ai", { p_id: guestId("gst", id), p_max: max });
+  }
+  async guestCreateProject(doc, maxProjects) {
+    guestId("gpj", doc.id);
+    guestId("gst", doc.guestId);
+    return this.db.rpc("greenlight_guest_create_project", { p_doc: doc, p_max_projects: maxProjects });
+  }
+  async guestListProjects(guest) {
+    return this.db.rpc("greenlight_guest_list_projects", { p_guest: guestId("gst", guest) });
+  }
+  /** guest null: any guest's project (the worker, for a run it was given). */
+  async guestGetProject(id, guest) {
+    return this.db.rpc("greenlight_guest_get_project", { p_id: guestId("gpj", id), p_guest: guest === null ? null : guestId("gst", guest) });
+  }
+  async guestApprove(id, guest, hash) {
+    return this.db.rpc("greenlight_guest_approve", { p_id: guestId("gpj", id), p_guest: guestId("gst", guest), p_hash: hash });
+  }
+  async guestStartRun(doc, perGuest, perDay) {
+    guestId("grn", doc.id);
+    return this.db.rpc("greenlight_guest_start_run", { p_doc: doc, p_per_guest: perGuest, p_per_day: perDay });
+  }
+  async guestUpdateRun(id, status, doc = {}, { refund = false } = {}) {
+    return this.db.rpc("greenlight_guest_update_run", { p_id: guestId("grn", id), p_status: status, p_doc: doc, p_refund: refund });
+  }
+  async guestGetRun(id) {
+    return this.db.rpc("greenlight_guest_get_run", { p_id: guestId("grn", id) });
+  }
+  async guestListRuns(projectId) {
+    return this.db.rpc("greenlight_guest_list_runs", { p_project_id: guestId("gpj", projectId) });
+  }
+  async guestRunsToday() {
+    return this.db.rpc("greenlight_guest_runs_today", {});
+  }
+}
+
+/** Guest ids: gst_ (session), gpj_ (project), grn_ (run) + 32 hex. */
+export function guestId(prefix, id) {
+  if (!new RegExp(`^${prefix}_[0-9a-f]{32}$`).test(String(id ?? ""))) throw new GreenlightError("not_found", "Not found.");
+  return id;
 }

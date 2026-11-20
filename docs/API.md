@@ -236,6 +236,9 @@ Every command accepts `--json` and then writes exactly one document to stdout:
 | `rate_limited` | 429 | 4 | Slow down and retry later. |
 | `payload_too_large` | 413 | 2 | Send a smaller request. |
 | `job_limit_reached` | 429 | 4 | Wait for running verifications to finish. |
+| `guest_limit_reached` | 429 | 4 | The demo's limit is reached; explore the sample project, or try again tomorrow. |
+| `ai_unavailable` | 503 | 4 | AI test generation is not configured on this server; write the tests with the form instead. |
+| `ai_failed` | 502 | 3 | The AI could not write tests for this description; shorten or clarify it, or use the form. |
 | `server_not_configured` | 503 | 4 | Set GREENLIGHT_API_URL and GREENLIGHT_API_TOKEN (CLI) or the server's environment. |
 | `server_unreachable` | 503 | 3 | Check GREENLIGHT_API_URL and the network. |
 | `sandbox_dispatch_failed` | 503 | 3 | The job's Vercel Sandbox could not be started; check the Vercel project's Sandbox access and limits, then submit again. |

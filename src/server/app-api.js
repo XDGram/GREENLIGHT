@@ -136,6 +136,27 @@ async function summary(config, store, project, jobs) {
   };
 }
 
+/** One project with its versions (claims, tests, estimate, approval), jobs and records. */
+export async function projectDetail(config, store, project, { publicView = false } = {}) {
+  const jobs = await projectJobs(store, [project.id]);
+  const versions = [];
+  for (const v of (await store.listVersions(project.id)).sort((x, y) => y.version - x.version)) {
+    const view = versionView(config, project, v, await store.getApproval(project.id, v.version));
+    if (publicView) {
+      view.approveUrl = null;
+      if (view.approval) view.approval = { ...view.approval, identity: null, recordSha256: null };
+    }
+    versions.push(view);
+  }
+  const records = (await store.listRecords(project.id)).map((r) => recordView(r, config)).sort((x, y) => String(y.startedAt ?? "").localeCompare(String(x.startedAt ?? "")));
+  return {
+    project: { id: project.id, name: project.name, url: project.url, createdAt: project.createdAt, createdBy: project.createdBy },
+    versions,
+    jobs: jobs.map(jobView),
+    records,
+  };
+}
+
 /**
  * Handle an /app/api/ request for a verified session `s` (null when signed out).
  * @returns {Promise<void>}
@@ -165,16 +186,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
     const m = PROJECT.exec(path);
     if (m) {
       const project = await store.getProject(m[1], s.account); // other accounts: not_found
-      const jobs = await projectJobs(store, [project.id]);
-      const versions = [];
-      for (const v of (await store.listVersions(project.id)).sort((x, y) => y.version - x.version)) versions.push(versionView(config, project, v, await store.getApproval(project.id, v.version)));
-      const records = (await store.listRecords(project.id)).map((r) => recordView(r, config)).sort((x, y) => String(y.startedAt ?? "").localeCompare(String(x.startedAt ?? "")));
-      return sendJson(res, 200, {
-        project: { id: project.id, name: project.name, url: project.url, createdAt: project.createdAt, createdBy: project.createdBy },
-        versions,
-        jobs: jobs.map(jobView),
-        records,
-      });
+      return sendJson(res, 200, await projectDetail(config, store, project));
     }
     return sendJson(res, 404, { error: { code: "not_found", message: "Not found." } });
   } catch (err) {

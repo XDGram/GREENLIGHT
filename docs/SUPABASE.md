@@ -8,8 +8,8 @@ Greenlight shares the existing Supabase project **`ceaser`** (`ncbrsrklofofdqdft
 
 | Greenlight adds | Purpose | Reachable by Ceaser's keys? |
 |---|---|---|
-| schema `greenlight` | all 11 tables (RLS on, no policies) and 2 trigger functions | no: no USAGE for `anon`/`authenticated` |
-| schema `greenlight_api` | the 20 RPC functions | no: no USAGE and no EXECUTE for `anon`/`authenticated`; only `service_role` |
+| schema `greenlight` | all 14 tables (RLS on, no policies), 2 trigger functions and 3 guest view helpers | no: no USAGE for `anon`/`authenticated` |
+| schema `greenlight_api` | the 32 RPC functions (20 core, 12 guest demo) | no: no USAGE and no EXECUTE for `anon`/`authenticated`; only `service_role` |
 | bucket `greenlight-evidence` | private evidence, no storage policies | no: only the service role |
 
 Greenlight creates **nothing in `public`** and alters no existing object, policy, grant, setting or row. This is enforced by a test that snapshots a Ceaser-like `public` schema (tables, RLS flags, ACLs, policies, function definitions and ACLs, views, triggers, default privileges, data and other buckets) before and after the migrations and requires them to be identical. Because no Greenlight function lives in `public`, Ceaser's default privileges on `public`, or a future `grant … on all functions in schema public to anon`, can never reach Greenlight. Another test runs exactly that grant and proves Ceaser's anon key still gets `permission denied`.
@@ -34,8 +34,9 @@ Apply in order, with the Supabase CLI (`supabase db push`) or the dashboard's SQ
 1. `supabase/migrations/20261119140000_greenlight_schema.sql`
 2. `supabase/migrations/20261119140100_greenlight_rpc.sql`
 3. `supabase/migrations/20261119140200_greenlight_evidence_bucket.sql`
+4. `supabase/migrations/20261120190000_greenlight_guest.sql` (guest demo: three new tables, additive; nothing existing changes)
 
-All three run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
+All four run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
 
 ## Configuration (server environment only)
 
@@ -81,6 +82,9 @@ Every table is in the private schema `greenlight`. It is not exposed through the
 | `certification_records` | permanent verification records (`doc` is the API document) | **write-once**; `certified ⇒ status = 'passed'` |
 | `record_claims` | per-record claim results | **immutable** |
 | `record_tests` | per-record, per-claim test results | **immutable** |
+| `guest_sessions` | guest demo sessions: id (in a signed cookie), hashed network address, runs and AI uses | limits enforced in the RPCs under an advisory lock |
+| `guest_projects` | a guest's app: url, spec text, hash, the guest's own approval | **never** used for certification; approval write-once |
+| `guest_runs` | a guest's real Kane runs and their results | forward-only status; per-guest and 24-hour caps; refunded when Kane never started |
 
 Immutability is enforced by triggers (UPDATE, DELETE and TRUNCATE are refused with SQLSTATE `GLIMM`), not by application code.
 
@@ -96,6 +100,7 @@ Access goes only through the `greenlight_api.greenlight_*` functions: `SECURITY 
 | `GLCON`, `GLIMM` | `conflict` |
 | `GLLIM` | `job_limit_reached` |
 | `GLHSH` | `approval_hash_mismatch` |
+| `GLQTA` | `guest_limit_reached` |
 | `GLINV`, `GLCRT`, other | `internal_error` |
 
 ## Evidence in Supabase Storage

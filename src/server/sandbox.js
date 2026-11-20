@@ -20,7 +20,7 @@ export const SANDBOX_APP_DIR = "/vercel/sandbox/greenlight";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** Settings the worker needs, copied from the API's environment (secrets marked). */
-const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID"];
+const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID", "GREENLIGHT_GUEST_MODE", "GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN", "GREENLIGHT_GUEST_SAMPLE_PROJECT"];
 const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME", "GREENLIGHT_KANE_ACCESS_KEY"];
 
 /** Sandbox lifetime (validated in loadConfig to fit the job and the plan's limit). */
@@ -138,10 +138,11 @@ export class SandboxJobRunner extends JobRunner {
 
   /** The sandbox's own "job settled" report: verify, check the database, then stop it. */
   async onSandboxFinished({ jobId, signature }) {
-    if (!/^job_[0-9a-f]{32}$/.test(jobId ?? "") || !/^[0-9a-f]{64}$/.test(signature ?? "")) throw new GreenlightError("invalid_request", "jobId and signature are required.");
+    if (!/^(job|grn)_[0-9a-f]{32}$/.test(jobId ?? "") || !/^[0-9a-f]{64}$/.test(signature ?? "")) throw new GreenlightError("invalid_request", "jobId and signature are required.");
     const want = Buffer.from(finishedSignature(this.config.supabase.serviceRoleKey, jobId), "hex");
     if (!timingSafeEqual(want, Buffer.from(signature, "hex"))) throw new GreenlightError("unauthorized", "Invalid signature.");
-    const job = await this.store.getJob(jobId);
+    // A guest demo run (grn_) or a certification job (job_): stop its sandbox once it is settled.
+    const job = jobId.startsWith("grn_") ? await this.store.guestGetRun(jobId) : await this.store.getJob(jobId);
     if (![JOB_STATUS.SUCCEEDED, JOB_STATUS.FAILED].includes(job.status)) throw new GreenlightError("conflict", "The job is not finished.");
     (this.stopped ??= new Set()).add(jobId);
     return { jobId, stopped: (await this.dispatcher.stop?.(jobId)) === true };
@@ -154,6 +155,11 @@ export class SandboxJobRunner extends JobRunner {
   async recover() {
     const settled = await super.recover({ olderThanMs: this.staleAfterMs() });
     for (const id of settled ?? []) await this.dispatcher.stop?.(id);
+  }
+
+  /** A guest demo run gets its own sandbox, like a job; the worker sees the grn_ id. */
+  async startGuestRun(runId) {
+    await this.dispatcher.dispatch({ id: runId });
   }
 
   /** Persist, dispatch, and only then answer (a function may be frozen after it responds). */
