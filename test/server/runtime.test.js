@@ -132,3 +132,12 @@ test("container files: pinned Kane, Chromium, no secrets in the image, readiness
   const example = readFileSync(path.join(ROOT, ".env.example"), "utf8");
   assert.match(example, /^SUPABASE_SERVICE_ROLE_KEY=$/m, "the example never carries a secret value");
 });
+
+test("CI builds the image for amd64 and arm64 and never pushes it", () => {
+  const wf = readFileSync(path.join(ROOT, ".github/workflows/docker-build.yml"), "utf8");
+  assert.match(wf, /platforms: linux\/amd64,linux\/arm64/);
+  assert.equal((wf.match(/push: true/g) ?? []).length, 0);
+  assert.ok((wf.match(/push: false/g) ?? []).length >= 2);
+  assert.doesNotMatch(wf, /docker\/login-action|secrets\./, "no registry login, no secrets");
+  assert.match(wf, /permissions:\n {2}contents: read/);
+});
