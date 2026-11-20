@@ -382,3 +382,15 @@ test("certified can only be true for a passing certification run with stored evi
   assert.equal(verifyRecordIntegrity(r).ok, true);
   assert.equal(verifyRecordIntegrity({ ...r, certified: false }).ok, false);
 });
+
+test("the server key must be a secret or service_role key: publishable and anon keys are refused, without echoing them", async () => {
+  const { assertServerKey } = await import("../../src/server/config.js");
+  const pub = "sb_publishable_O3ev7dyTwadU-uAlsB-2Mw_3Y6SFuV7";
+  const jwt = (role) => `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${Buffer.from(JSON.stringify({ iss: "supabase", role })).toString("base64url")}.c2ln`;
+  for (const bad of [pub, "sb_unknown_abc", jwt("anon"), jwt("authenticated")]) {
+    assert.throws(() => loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: bad }), (e) => !e.message.includes(bad) && /SUPABASE_SERVICE_ROLE_KEY/.test(e.message), bad.slice(0, 20));
+  }
+  assert.doesNotThrow(() => assertServerKey(`sb_secret_${"k".repeat(22)}_abcdefgh`));
+  assert.doesNotThrow(() => assertServerKey(jwt("service_role")));
+  assert.equal(loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: `sb_secret_${"k".repeat(22)}_abcdefgh` }).store, "supabase");
+});

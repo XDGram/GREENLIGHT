@@ -2,7 +2,10 @@
 //
 // Production persistence (required by bin/greenlight-server.js):
 //   SUPABASE_URL                     https://<project-ref>.supabase.co
-//   SUPABASE_SERVICE_ROLE_KEY        server-side secret; never logged, never sent to clients
+//   SUPABASE_SERVICE_ROLE_KEY        server-side secret: sb_secret_... (or legacy service_role JWT);
+//                                    never logged, never sent to clients. A publishable/anon key is refused.
+//   SUPABASE_PUBLISHABLE_KEY         NOT used by the server (public, no Greenlight access); only the
+//                                    live denial tests read it
 //   GREENLIGHT_EVIDENCE_BUCKET       private Storage bucket, default greenlight-evidence
 //   GREENLIGHT_WORK_DIR              local scratch for Kane workspaces, default <tmp>/greenlight-work
 // Tests / migration source only:
@@ -41,6 +44,27 @@ const num = (v, d, { min = 0 } = {}) => {
   return n;
 };
 
+/**
+ * The server key must be a server-side key: a secret key (sb_secret_...) or a legacy
+ * service_role JWT. A publishable key (sb_publishable_...) or an anon JWT is public, has no
+ * access to Greenlight, and is refused here so it is never mistaken for the secret.
+ * Error messages never contain the key.
+ */
+export function assertServerKey(key) {
+  const k = String(key ?? "");
+  if (k.startsWith("sb_publishable_")) throw new Error("SUPABASE_SERVICE_ROLE_KEY holds a publishable key (sb_publishable_...); the server needs the project's secret key (sb_secret_...)");
+  if (k.startsWith("sb_") && !k.startsWith("sb_secret_")) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not a Supabase secret key (sb_secret_...)");
+  if (/^eyJ[\w-]*\.[\w-]+\.[\w-]*$/.test(k)) {
+    let role = null;
+    try {
+      role = JSON.parse(Buffer.from(k.split(".")[1], "base64url").toString("utf8")).role ?? null;
+    } catch {
+      /* not decodable */
+    }
+    if (role !== "service_role") throw new Error(`SUPABASE_SERVICE_ROLE_KEY is a JWT for role ${role ?? "unknown"}; the server needs the secret key (sb_secret_...) or the service_role key`);
+  }
+}
+
 export const sha256Hex = (s) => createHash("sha256").update(String(s)).digest("hex");
 
 export function loadConfig(env = process.env) {
@@ -54,6 +78,7 @@ export function loadConfig(env = process.env) {
       throw new Error("SUPABASE_URL is not a valid URL");
     }
     if (u.protocol !== "https:") throw new Error("SUPABASE_URL must use https");
+    assertServerKey(env.SUPABASE_SERVICE_ROLE_KEY);
     const bucket = env.GREENLIGHT_EVIDENCE_BUCKET || "greenlight-evidence";
     if (!/^[a-z0-9][a-z0-9_-]{1,62}$/.test(bucket)) throw new Error("GREENLIGHT_EVIDENCE_BUCKET is not a valid bucket name");
     supabase = { url: u.href.replace(/\/+$/, ""), bucket };

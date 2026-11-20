@@ -46,6 +46,12 @@ All three run unchanged in the test suite on real PostgreSQL (PGlite), next to a
 | `GREENLIGHT_EVIDENCE_BUCKET` | optional, default `greenlight-evidence` |
 | `GREENLIGHT_WORK_DIR` | optional local scratch for Kane workspaces and in-flight evidence, default `<tmp>/greenlight-work` |
 
+**Which key.** The server needs the project's **secret** key. In the Supabase dashboard: project
+`ceaser` → **Project Settings** → **API Keys** → **Secret keys** (`sb_secret_…`; reveal the default key or
+create one named e.g. `greenlight-server` so it can be rotated on its own). The **publishable** key
+(`sb_publishable_…`, same page) is public and has no access to Greenlight; the server refuses it, and an
+anon JWT, as `SUPABASE_SERVICE_ROLE_KEY`. `.env.example` lists the variable names.
+
 Header handling follows the key type: a `sb_secret_…` key is not a JWT, so it is sent only in the `apikey`
 header (Supabase rejects it as a `Bearer` token); a legacy `service_role` JWT is sent in `apikey` and
 `Authorization`. Where an egress proxy injects the key into the `apikey` header for the Supabase host, set
@@ -146,13 +152,21 @@ greenlight-migrate-to-supabase --from /var/lib/greenlight --apply    # imports; 
 
 ## Testing against the real project
 
-`test/server/supabase-live.test.js` runs the real server (HTTP API, job runner, certification pipeline,
+Two live suites, both skipped unless `GREENLIGHT_LIVE_SUPABASE=1`:
+
+- `test/server/supabase-anon-live.test.js` needs only `SUPABASE_URL` and the **publishable** key
+  (`SUPABASE_PUBLISHABLE_KEY`, public). Over the real Data API and Storage API it proves that the public key
+  reaches nothing of Greenlight's: every `greenlight_api` RPC → `42501`, the `greenlight` schema → `PGRST106`
+  (not exposed), no Greenlight function in `public`, the evidence bucket → not found (info, list, public URL,
+  upload). It also checks that the server refuses a publishable or anon key as `SUPABASE_SERVICE_ROLE_KEY`.
+  **Passed against Ceaser on 2026-11-20.**
+- `test/server/supabase-live.test.js` needs the **secret** key and runs the real server (HTTP API, job runner, certification pipeline,
 `SupabaseStore`) against the real RPCs and the real private bucket. Kane, the credit balance, the
 evidence validator and the deployment check are fakes, so no Kane run and no credits. It is skipped unless
 the key is present:
 
 ```sh
-GREENLIGHT_LIVE_SUPABASE=1 SUPABASE_URL=https://<ref>.supabase.co SUPABASE_SERVICE_ROLE_KEY=<secret key> npm run test:live
+SUPABASE_URL=https://<ref>.supabase.co SUPABASE_PUBLISHABLE_KEY=sb_publishable_... SUPABASE_SERVICE_ROLE_KEY=<secret key> npm run test:live
 ```
 
 It writes only to the dedicated accounts `greenlight-e2e-a` and `greenlight-e2e-b` (rows are permanent: the

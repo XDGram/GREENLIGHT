@@ -2,3 +2,8 @@ node_modules/
 .greenlight/runs/
 .testmuai/
 .greenlight/reports/
+
+# Local secrets (never commit)
+.env
+.env.*
+!.env.example
