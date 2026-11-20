@@ -64,7 +64,9 @@ Server (certification): a container or dedicated host with Chrome and an authent
 | `greenlight verify` | Gates → deployment → credits → Kane → classification → evidence → report | 0 pass, 1 app failures, 3 could not verify, 4 blocked, 130 interrupted |
 | `greenlight runs` | Run history with every record's integrity re-checked | 0, 3 |
 | `greenlight check-run <run-id>` | Re-check one run record and its files against their hashes | 0, 3, 4 |
-| `greenlight publish --project <id> --version <n> --confirm-spend <credits>` | **A person** asks the server for a fresh certification run. Refused for agents/CI and relayed approvals. | 0 certified, 1 not certified, 3, 4 |
+| `greenlight submit` | Propose `greenlight.yaml` as a server test version (agent or owner token); creates the server project once and records it in `.greenlight/server.json` | 0, 3, 4 |
+| `greenlight server-approve` | **A person** reviews the server version's tests and types the full hash back to approve it on the server (owner token). Refused for agents/CI | 0, 4 |
+| `greenlight publish --confirm-spend <credits>` (`--project`/`--version` default to `.greenlight/server.json`) | **A person** asks the server for a fresh certification run. Refused for agents/CI and relayed approvals. | 0 certified, 1 not certified, 3, 4 |
 
 Every command accepts `--json` (one `greenlight.cli-result/v1` document on stdout; human lines on stderr). Errors carry stable codes; see [docs/API.md](docs/API.md#error-codes).
 

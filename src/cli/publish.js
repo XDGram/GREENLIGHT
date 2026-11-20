@@ -11,6 +11,7 @@
 import { checkApproval, detectAgentEnvironment, RELAYED_METHOD } from "../spec/approval.js";
 import { checkGit, gitRunner } from "../deploy/git.js";
 import { EXIT } from "./errors.js";
+import { readServerLink, SERVER_LINK_FILE } from "./server-link.js";
 
 export const PUBLISH_OPTIONS = Object.freeze({
   "--project": "string",
@@ -23,7 +24,7 @@ export const PUBLISH_OPTIONS = Object.freeze({
 
 const TERMINAL = new Set(["succeeded", "failed"]);
 
-async function api(ctx, method, path, body) {
+export async function api(ctx, method, path, body) {
   const base = ctx.env.GREENLIGHT_API_URL.replace(/\/+$/, "");
   let res;
   try {
@@ -54,7 +55,10 @@ export async function cmdPublish(ctx) {
     return ctx.fail("forbidden", `Publishing creates a permanent public record and spends credits, so a person must start it from their own terminal (${markers.join(", ")} set). Tell the user to run greenlight publish.`);
   }
   if (!ctx.env.GREENLIGHT_API_URL || !ctx.env.GREENLIGHT_API_TOKEN) return ctx.fail("server_not_configured", "Set GREENLIGHT_API_URL and GREENLIGHT_API_TOKEN (an owner token) to publish.");
-  if (!o.project || !o.version || !o["confirm-spend"]) return ctx.fail("usage_error", "publish needs --project <id> --version <n> --confirm-spend <credits>.");
+  const link = await readServerLink(ctx.cwd);
+  o.project ??= link?.projectId;
+  o.version ??= link?.version;
+  if (!o.project || !o.version || !o["confirm-spend"]) return ctx.fail("usage_error", `publish needs --confirm-spend <credits>, and --project <id> --version <n> unless ${SERVER_LINK_FILE} has them (greenlight submit).`);
 
   const approval = await checkApproval(ctx.cwd);
   if (approval.status !== "approved") return ctx.fail("tests_not_approved", `Local tests are not approved (${approval.status}); publish the version a person approved.`);

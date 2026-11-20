@@ -113,13 +113,13 @@ test("the exit-code table matches the CLI exactly", () => {
 test("every .greenlight path in the Skill is one the implementation uses", () => {
   const known = [
     ".greenlight/tests/", ".greenlight/approval.json", ".greenlight/reports/latest.md", ".greenlight/reports/latest.json",
-    ".greenlight/runs/", ".greenlight/state.json", ".greenlight/.gitignore", ".greenlight/recordings.json",
+    ".greenlight/runs/", ".greenlight/state.json", ".greenlight/.gitignore", ".greenlight/recordings.json", ".greenlight/server.json",
   ];
   const paths = new Set([...ALL.matchAll(/\.greenlight\/[A-Za-z0-9_.*<>/-]*/g)].map((m) => m[0].replace(/[.,]$/, "")));
   for (const p of paths) assert.ok(known.some((k) => p === k || p.startsWith(k) || k.startsWith(p)), `unknown path ${p}`);
   // Committed vs local files agree with the .gitignore Greenlight writes.
   for (const local of ["state.json", "runs/", "reports/", "tests/output-*/"]) assert.ok(GITIGNORE_CONTENT.includes(local), local);
-  for (const committed of ["approval.json", "greenlight.yaml"]) assert.equal(GITIGNORE_CONTENT.includes(committed), false);
+  for (const committed of ["approval.json", "greenlight.yaml", "server.json"]) assert.equal(GITIGNORE_CONTENT.includes(committed), false);
 });
 
 test("approval rules in the Skill match the gate", () => {

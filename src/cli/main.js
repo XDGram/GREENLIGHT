@@ -35,6 +35,7 @@ import { EXIT, ERRORS, errorBody, exitFor, GreenlightError } from "./errors.js";
 import { KANE_CAPABILITIES, KANE_LIMITATIONS } from "../kane/capabilities.js";
 import { listRuns, checkRun } from "../runs/history.js";
 import { cmdPublish, PUBLISH_OPTIONS } from "./publish.js";
+import { cmdSubmit, cmdServerApprove } from "./server-link.js";
 
 export { EXIT, ERRORS };
 export const CLI_RESULT_SCHEMA = "greenlight.cli-result/v1";
@@ -57,6 +58,8 @@ Commands
   verify      Check the live deployment, then run the approved tests with Kane
   runs        List this project's run history (.greenlight/runs/)
   check-run   Re-check one run record's hashes: greenlight check-run <run-id>
+  submit      Propose greenlight.yaml as a server test version (creates the server project once)
+  server-approve  A person approves the submitted version on the server (owner token)
   publish     Ask the Greenlight server for a fresh certification run (server-side)
 
 Every command accepts --json: one greenlight.cli-result/v1 document on stdout
@@ -101,6 +104,8 @@ const OPTIONS = {
   runs: {},
   "check-run": {},
   publish: PUBLISH_OPTIONS,
+  submit: { "--project": "string" },
+  "server-approve": { "--project": "string", "--version": "number" },
 };
 // Commands that take positional arguments (e.g. check-run <run-id>).
 const POSITIONAL = { "check-run": 1 };
@@ -613,7 +618,7 @@ async function cmdCheckRun(ctx) {
   return EXIT.OK;
 }
 
-const COMMANDS = { init: cmdInit, generate: cmdGenerate, approve: cmdApprove, status: cmdStatus, verify: cmdVerify, runs: cmdRuns, "check-run": cmdCheckRun, publish: cmdPublish };
+const COMMANDS = { init: cmdInit, generate: cmdGenerate, approve: cmdApprove, status: cmdStatus, verify: cmdVerify, runs: cmdRuns, "check-run": cmdCheckRun, publish: cmdPublish, submit: cmdSubmit, "server-approve": cmdServerApprove };
 
 /**
  * Run the CLI. Never calls process.exit; returns the exit code.
