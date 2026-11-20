@@ -1,0 +1,11 @@
+.git
+node_modules
+test
+docs
+skills
+supabase
+.greenlight
+.testmuai
+.env
+.env.*
+*.md

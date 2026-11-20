@@ -5,7 +5,7 @@
 // tests only and is refused here. It needs Chrome and an authenticated kane-cli
 // on this machine, and must not run as a serverless function (brief §13).
 
-import { loadConfig, createServerContext, createStore, startServer } from "../src/server/index.js";
+import { loadConfig, createServerContext, createStore, startServer, checkRuntime } from "../src/server/index.js";
 
 const log = (entry) => process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 
@@ -34,9 +34,15 @@ if (!ready.ok) {
   log({ event: "not_ready", database: ready.database, storage: ready.storage, help: "docs/SUPABASE.md#troubleshooting" });
   process.exit(2);
 }
+// The execution host must have the pinned Kane CLI and a Chrome it can launch (brief §13).
+const runtime = await checkRuntime({ kaneBin: config.kaneBin });
+if (!runtime.ok) {
+  log({ event: "not_ready", kane: runtime.kane, kaneVersion: runtime.kaneVersion, chrome: runtime.chrome, help: "Install @testmuai/kane-cli@0.10.6 and Chrome/Chromium (see Dockerfile), or set GREENLIGHT_KANE_BIN / KANE_CLI_CHROME_PATH" });
+  process.exit(2);
+}
 const { jobs, deps } = await createServerContext({ config, log, store });
-const server = await startServer({ config, store, jobs, now: deps.now, log });
-log({ event: "listening", host: config.host, port: server.address().port, store: config.store, supabase: config.supabase.url, bucket: config.supabase.bucket });
+const server = await startServer({ config, store, jobs, now: deps.now, log, runtime });
+log({ event: "listening", host: config.host, port: server.address().port, store: config.store, supabase: config.supabase.url, bucket: config.supabase.bucket, kane: runtime.kaneVersion, chrome: runtime.chromePath });
 
 let stopping = false;
 for (const sig of ["SIGINT", "SIGTERM"]) {

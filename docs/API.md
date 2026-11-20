@@ -31,7 +31,7 @@ Rate limit: `GREENLIGHT_RATE_LIMIT_PER_MINUTE` per token, per client IP for anon
 | Method and path | Permission | Request body | Success |
 |---|---|---|---|
 | `GET /v1/health` | none | | `200 {ok: true}` (liveness: the process answers) |
-| `GET /v1/ready` | none | | `200 {ok: true, store, database: "ok", storage: "ok"}` when the database API and the private evidence bucket work with the server key; otherwise `503` with codes only (`unauthorized`, `schema_not_exposed`, `unreachable`, `bucket_missing`, `bucket_public`). Never URLs, keys or paths |
+| `GET /v1/ready` | none | | `200 {ok: true, store, database: "ok", storage: "ok"}` when the database API and the private evidence bucket work with the server key, plus `kane` and `chrome` (`ok`, or `kane_not_installed`, `kane_version_mismatch`, `kane_not_runnable`, `chrome_not_found`) from the startup runtime check; otherwise `503` with codes only (`unauthorized`, `schema_not_exposed`, `unreachable`, `bucket_missing`, `bucket_public`). Never URLs, keys or paths |
 | `POST /v1/projects` | propose | `{name, url}` | `201` Project |
 | `GET /v1/projects` | read | | `200 {projects: Project[]}` |
 | `GET /v1/projects/:projectId` | read | | `200` Project |

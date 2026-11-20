@@ -102,7 +102,7 @@ const versionView = (v, { withContent = false } = {}) => ({
  * @param {import("./jobs.js").JobRunner} p.jobs
  * @param {() => Date} p.now
  */
-export function createApp({ config, store, jobs, now = () => new Date(), log = () => {} }) {
+export function createApp({ config, store, jobs, now = () => new Date(), log = () => {}, runtime = null }) {
   const limiter = new RateLimiter({ perMinute: config.rateLimitPerMinute });
 
   const routes = [
@@ -117,7 +117,10 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       } catch {
         h = { ok: false, database: "unreachable", storage: "unreachable" };
       }
-      return [h.ok ? 200 : 503, { schema: "greenlight.ready/v1", ok: Boolean(h.ok), store: store.kind ?? h.store ?? null, database: h.database, storage: h.storage }];
+      // runtime: Kane CLI + Chrome, checked once at startup (absent in tests that do not run Kane).
+      const rt = runtime ? { kane: runtime.kane, chrome: runtime.chrome } : {};
+      const ok = Boolean(h.ok) && (!runtime || runtime.ok);
+      return [ok ? 200 : 503, { schema: "greenlight.ready/v1", ok, store: store.kind ?? h.store ?? null, database: h.database, storage: h.storage, ...rt }];
     }],
 
     ["POST", /^\/v1\/projects$/, "propose", async ({ principal, body }) => {
@@ -298,8 +301,8 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
 }
 
 /** Start an HTTP server (bin/greenlight-server.js). */
-export function startServer({ config, store, jobs, now, log }) {
-  const server = http.createServer(createApp({ config, store, jobs, now, log }));
+export function startServer({ config, store, jobs, now, log, runtime }) {
+  const server = http.createServer(createApp({ config, store, jobs, now, log, runtime }));
   server.requestTimeout = 30_000;
   server.headersTimeout = 15_000;
   return new Promise((resolve) => server.listen(config.port, config.host, () => resolve(server)));

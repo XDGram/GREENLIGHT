@@ -50,7 +50,7 @@ Developer machine (where Claude Code works on the application):
 3. In the application repository: install Greenlight, copy `skills/greenlight` to `.claude/skills/greenlight`, and register the Stop hook (`bin/greenlight-stop-hook.js`, with `"timeout": 3600`) as described in [skills/README.md](skills/README.md).
 4. The deployed application must serve `/greenlight.json`: `{"commit": "<full git sha>", "environment": "preview|production"}`, written at build time from the deployed commit.
 
-Server (certification): a container or dedicated host with Chrome and an authenticated `kane-cli` 0.10.6. Not a serverless function. It persists to Supabase: apply `supabase/migrations/`, then run `SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node bin/greenlight-server.js` behind a TLS reverse proxy, and issue tokens with `greenlight-admin`. See [docs/SUPABASE.md](docs/SUPABASE.md) and [docs/API.md](docs/API.md).
+Server (certification): a container or dedicated host with Chrome and an authenticated `kane-cli` 0.10.6. Not a serverless function. It persists to Supabase: apply `supabase/migrations/`, then run `SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node bin/greenlight-server.js` behind a TLS reverse proxy, and issue tokens with `greenlight-admin`. See [docs/SUPABASE.md](docs/SUPABASE.md) and [docs/API.md](docs/API.md). Container image and hosting: `Dockerfile`, `compose.yaml`, [docs/HOSTING.md](docs/HOSTING.md).
 
 ## CLI
 
