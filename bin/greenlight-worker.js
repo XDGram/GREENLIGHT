@@ -6,6 +6,7 @@
 
 import { loadConfig, createStore, serverDeps, JobRunner, checkRuntime } from "../src/server/index.js";
 import { errorBody } from "../src/cli/errors.js";
+import { finishedSignature } from "../src/server/sandbox.js";
 
 const log = (entry) => process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 const args = process.argv.slice(2);
@@ -24,6 +25,23 @@ if (config.store !== "supabase") {
 }
 const store = createStore(config);
 
+/** Tell the API the job is settled so it stops this sandbox (it may stop us mid-request: fine). */
+async function reportFinished(jobId) {
+  const url = process.env.GREENLIGHT_SANDBOX_FINISHED_URL;
+  if (!url) return;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jobId, signature: finishedSignature(config.supabase.serviceRoleKey, jobId) }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    log({ event: "sandbox_finished_reported", jobId, status: res.status });
+  } catch (err) {
+    log({ event: "sandbox_finished_report_failed", jobId, error: String(err?.name ?? "error") });
+  }
+}
+
 if (args[0] === "--fail") {
   const [, jobId, reason = "setup"] = args;
   if (!ID.test(jobId ?? "")) process.exit(2);
@@ -32,6 +50,7 @@ if (args[0] === "--fail") {
     await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: errorBody("sandbox_setup_failed", `Sandbox setup failed (${String(reason).replace(/[^a-z_]/g, "").slice(0, 40)}); Kane did not run.`) });
   }
   log({ event: "worker_setup_failed", jobId, reason });
+  await reportFinished(jobId);
   process.exit(1);
 }
 
@@ -45,14 +64,17 @@ if (!runtime.ok) {
   log({ event: "worker_not_ready", kane: runtime.kane, chrome: runtime.chrome });
   const job = await store.getJob(jobId).catch(() => null);
   if (job?.status === "queued") await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: errorBody("sandbox_setup_failed", `Kane is not usable in the sandbox (${runtime.kane}).`) });
+  await reportFinished(jobId);
   process.exit(1);
 }
 const job = await store.getJob(jobId);
 if (job.status !== "queued") {
   log({ event: "worker_skip", jobId, status: job.status });
+  await reportFinished(jobId);
   process.exit(0);
 }
 const runner = new JobRunner({ store, config, deps: serverDeps(config), log });
 const done = await runner.execute(job);
 log({ event: "worker_done", jobId, status: done.status, outcome: done.outcome ?? null, error: done.error?.code ?? null });
+await reportFinished(jobId);
 process.exit(done.status === "succeeded" ? 0 : 1);

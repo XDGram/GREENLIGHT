@@ -123,6 +123,8 @@ export function loadConfig(env = process.env) {
     if (!supabase) throw new Error("sandbox execution needs Supabase persistence");
     if (kaneRemote !== "hyper") throw new Error("sandbox execution needs GREENLIGHT_KANE_REMOTE=hyper (no Chrome in the sandbox)");
     if (!env.GREENLIGHT_KANE_USERNAME || !env.GREENLIGHT_KANE_ACCESS_KEY) throw new Error("sandbox execution needs GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY");
+    // The sandbox reports "job settled" to this URL so the API can stop it (no Vercel credential inside).
+    if (!/^https:\/\//.test(env.GREENLIGHT_PUBLIC_BASE_URL ?? "")) throw new Error("sandbox execution needs GREENLIGHT_PUBLIC_BASE_URL (https), where sandboxes report finished jobs");
   }
   // Sandbox mode defaults fit Vercel Hobby: a sandbox lives at most 45 minutes there. The whole
   // job (setup + deployment wait + Kane + evidence upload) must fit inside the sandbox.

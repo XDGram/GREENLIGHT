@@ -26,6 +26,7 @@ export class JobRunner {
    */
   async recover({ olderThanMs = null } = {}) {
     const cutoff = olderThanMs === null ? null : this.deps.now().getTime() - olderThanMs;
+    const settled = [];
     for (const j of await this.store.listJobs({ statuses: [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING] })) {
       if (j.status !== JOB_STATUS.RUNNING && j.status !== JOB_STATUS.QUEUED) continue;
       if (cutoff !== null && Date.parse(j.createdAt) > cutoff) continue; // may still be running elsewhere
@@ -36,7 +37,9 @@ export class JobRunner {
       } else {
         await this.store.putJob({ ...j, status: JOB_STATUS.FAILED, finishedAt, error: errorBody("interrupted", "The server stopped while this job was pending or running; it was not re-run.") });
       }
+      settled.push(j.id);
     }
+    return settled;
   }
 
   async #recordForJob(job) {

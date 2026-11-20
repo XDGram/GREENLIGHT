@@ -6,7 +6,7 @@ export { createSupabaseClient } from "./supabase/client.js";
 export { JobRunner } from "./jobs.js";
 export { createApp, startServer, RateLimiter } from "./http.js";
 export { checkRuntime, findChrome, CHROME_PATHS } from "./runtime.js";
-export { SandboxJobRunner, createSandboxDispatcher, sandboxFiles, sandboxTimeoutMs, sandboxName, SANDBOX_APP_DIR, BOOTSTRAP } from "./sandbox.js";
+export { SandboxJobRunner, createSandboxDispatcher, sandboxFiles, sandboxTimeoutMs, sandboxName, finishedSignature, SANDBOX_FINISHED_PATH, SANDBOX_APP_DIR, BOOTSTRAP } from "./sandbox.js";
 export { prepareCertification, runCertification } from "./certify.js";
 export { SCHEMAS, JOB_STATUS, SERVER_APPROVAL_METHOD, buildApproval, approvalValidFor, buildVerificationRecord, publicRecord, publicHash, verifyRecordIntegrity, selfHash } from "./models.js";
 

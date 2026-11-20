@@ -8,6 +8,7 @@
 // environment, never into files, sandbox defaults, logs or the job document.
 
 import path from "node:path";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { errorBody, GreenlightError } from "../cli/errors.js";
@@ -24,6 +25,14 @@ const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME",
 
 /** Sandbox lifetime (validated in loadConfig to fit the job and the plan's limit). */
 export const sandboxTimeoutMs = (config) => config.sandboxTimeoutMs;
+/**
+ * Signature a sandbox sends with "job settled" for one job: HMAC-SHA256 of the job id keyed with
+ * the Supabase server key the sandbox already holds. It authorises nothing but stopping that
+ * job's sandbox, and only once the database says the job is finished.
+ */
+export const finishedSignature = (serverKey, jobId) => createHmac("sha256", String(serverKey)).update(`greenlight-sandbox-finished:${jobId}`).digest("hex");
+export const SANDBOX_FINISHED_PATH = "/v1/sandbox/finished";
+
 /** Each job's sandbox is named after it, so the API can find and stop it. */
 export const sandboxName = (jobId) => `greenlight-${jobId.replace(/_/g, "-")}`;
 
@@ -32,10 +41,7 @@ export const BOOTSTRAP = `#!/bin/bash
 set -euo pipefail
 JOB="$1"
 cd ${SANDBOX_APP_DIR}
-fail() { unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY; node bin/greenlight-worker.js --fail "$JOB" "$1" || true; off; exit 1; }
-# Stop this sandbox's VM as soon as the job is settled (best effort; the API also stops it, and
-# its timeout is the hard limit).
-off() { sudo -n poweroff >/dev/null 2>&1 || true; }
+fail() { unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY; node bin/greenlight-worker.js --fail "$JOB" "$1" || true; exit 1; }
 trap 'fail setup' ERR
 npm install --no-save --no-audit --no-fund --loglevel=error @testmuai/kane-cli@${KANE_CLI_VERSION} >/dev/null
 export GREENLIGHT_KANE_BIN="$PWD/node_modules/.bin/kane-cli"
@@ -47,10 +53,7 @@ LOGIN=(login --username "$GREENLIGHT_KANE_USERNAME" --access-key "$GREENLIGHT_KA
 "$GREENLIGHT_KANE_BIN" "\${LOGIN[@]}" </dev/null >/dev/null 2>&1 || fail kane_login
 unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY LOGIN
 trap - ERR
-code=0
-node bin/greenlight-worker.js "$JOB" || code=$?
-off
-exit $code
+exec node bin/greenlight-worker.js "$JOB"
 `;
 
 async function listJs(dir) {
@@ -86,7 +89,7 @@ export function createSandboxDispatcher({ config, env = process.env, Sandbox, ro
   return {
     async dispatch(job) {
       const SandboxClass = Sandbox ?? (await import("@vercel/sandbox")).Sandbox;
-      const commandEnv = { GREENLIGHT_KANE_REMOTE: "hyper", GREENLIGHT_WORK_DIR: "/tmp/greenlight-work" };
+      const commandEnv = { GREENLIGHT_KANE_REMOTE: "hyper", GREENLIGHT_WORK_DIR: "/tmp/greenlight-work", GREENLIGHT_SANDBOX_FINISHED_URL: `${config.publicBaseUrl.replace(/\/+$/, "")}${SANDBOX_FINISHED_PATH}` };
       for (const k of [...FORWARD, ...SECRET_FORWARD]) if (env[k]) commandEnv[k] = env[k];
       // Outside Vercel (no OIDC token), the SDK reads VERCEL_TOKEN / VERCEL_TEAM_ID / VERCEL_PROJECT_ID.
       const sbx = await SandboxClass.create({ name: sandboxName(job.id), persistent: false, runtime: "node22", timeout: sandboxTimeoutMs(config), resources: { vcpus: 2 } });
@@ -133,12 +136,24 @@ export class SandboxJobRunner extends JobRunner {
     await this.dispatcher.stop?.(job.id);
   }
 
+  /** The sandbox's own "job settled" report: verify, check the database, then stop it. */
+  async onSandboxFinished({ jobId, signature }) {
+    if (!/^job_[0-9a-f]{32}$/.test(jobId ?? "") || !/^[0-9a-f]{64}$/.test(signature ?? "")) throw new GreenlightError("invalid_request", "jobId and signature are required.");
+    const want = Buffer.from(finishedSignature(this.config.supabase.serviceRoleKey, jobId), "hex");
+    if (!timingSafeEqual(want, Buffer.from(signature, "hex"))) throw new GreenlightError("unauthorized", "Invalid signature.");
+    const job = await this.store.getJob(jobId);
+    if (![JOB_STATUS.SUCCEEDED, JOB_STATUS.FAILED].includes(job.status)) throw new GreenlightError("conflict", "The job is not finished.");
+    (this.stopped ??= new Set()).add(jobId);
+    return { jobId, stopped: (await this.dispatcher.stop?.(jobId)) === true };
+  }
+
   staleAfterMs() {
     return sandboxTimeoutMs(this.config) + 5 * 60_000;
   }
 
-  recover() {
-    return super.recover({ olderThanMs: this.staleAfterMs() });
+  async recover() {
+    const settled = await super.recover({ olderThanMs: this.staleAfterMs() });
+    for (const id of settled ?? []) await this.dispatcher.stop?.(id);
   }
 
   /** Persist, dispatch, and only then answer (a function may be frozen after it responds). */

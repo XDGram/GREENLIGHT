@@ -76,9 +76,14 @@ host's container sandbox settings.
 - If setup fails (install, plugin, login), the job is marked `failed` with `sandbox_setup_failed`
   and Kane does not run. If the sandbox cannot start, `sandbox_dispatch_failed`. A job whose
   sandbox disappeared is settled as `interrupted` once it is older than a sandbox's lifetime.
-- Stopping: when the job ends the sandbox powers its VM off (best effort), and the API stops the
-  job's sandbox by name as soon as it returns the finished job (`greenlight publish` polls every
-  10 s). The sandbox timeout is the hard limit.
+- Stopping: Vercel documents only `stop()` (SDK/API/CLI) and the timeout as ways a sandbox ends,
+  so Greenlight does not rely on the VM shutting itself down. When the job is settled, the worker
+  POSTs `/v1/sandbox/finished` with an HMAC of the job id (keyed with the Supabase server key the
+  sandbox already has; no Vercel credential is ever in the sandbox); the API checks the job is
+  finished in the database and calls `Sandbox.get({ name }).stop()` with its own OIDC token.
+  Backups: the API also stops a finished job's sandbox when it returns the job (publish polls every
+  10 s), stale-job recovery stops the sandboxes of jobs it settles, and the timeout is the hard
+  limit. `GREENLIGHT_PUBLIC_BASE_URL` (https, reachable from the sandbox) is required.
 - Vercel Hobby (defaults in sandbox mode): sandbox 45 min (Hobby's maximum), Kane 25 min,
   deployment wait 300 s, plus 10 min reserved for setup and evidence upload = 40 min worst case.
   The configuration refuses settings that do not fit (`GREENLIGHT_SANDBOX_MAX_MINUTES`, default

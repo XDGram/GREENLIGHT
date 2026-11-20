@@ -25,7 +25,7 @@ const COMMIT = "dc6150b46a46a85efb4255113f0eddc5370621c8";
 const EXEC_ID = "0a1b2c3d-0000-4000-8000-0000000000bb";
 const KEY = `sb_secret_${"s".repeat(22)}_sandbox1`;
 const KANE = { GREENLIGHT_KANE_USERNAME: "kane-user", GREENLIGHT_KANE_ACCESS_KEY: "kane-access-key-secret" };
-const SANDBOX_ENV = { SUPABASE_URL: "https://fake-project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_EXECUTION: "sandbox", GREENLIGHT_KANE_REMOTE: "hyper", ...KANE };
+const SANDBOX_ENV = { SUPABASE_URL: "https://fake-project.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_EXECUTION: "sandbox", GREENLIGHT_KANE_REMOTE: "hyper", GREENLIGHT_PUBLIC_BASE_URL: "https://greenlight.example.com", ...KANE };
 const temps = [];
 const fakes = [];
 after(async () => {
@@ -81,6 +81,7 @@ test("config: sandbox execution needs Supabase, remote hyper and Kane credential
   assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_REMOTE: "lambdatest" }), /must be "hyper"/);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir(), GREENLIGHT_EXECUTION: "sandbox", GREENLIGHT_KANE_REMOTE: "hyper", ...KANE }), /needs Supabase/);
   assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_EXECUTION: "lambda" }), /"local" or "sandbox"/);
+  assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_PUBLIC_BASE_URL: "" }), /GREENLIGHT_PUBLIC_BASE_URL/);
   assert.equal(loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir() }).execution, "local");
 });
 
@@ -149,8 +150,11 @@ test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap writ
   assert.match(BOOTSTRAP, /@testmuai\/kane-cli@0\.10\.6/);
   assert.match(BOOTSTRAP, /plugin install remote-execution/);
   assert.match(BOOTSTRAP, /login --username "\$GREENLIGHT_KANE_USERNAME" --access-key "\$GREENLIGHT_KANE_ACCESS_KEY"/);
-  assert.ok(BOOTSTRAP.indexOf("unset GREENLIGHT_KANE_USERNAME LOGIN") < BOOTSTRAP.indexOf('node bin/greenlight-worker.js "$JOB" ||'));
-  assert.match(BOOTSTRAP, /node bin\/greenlight-worker.js "\$JOB" \|\| code=\$\?\noff\nexit \$code/, "the VM powers off when the job ends");
+  assert.ok(BOOTSTRAP.indexOf("unset GREENLIGHT_KANE_USERNAME LOGIN") < BOOTSTRAP.indexOf('exec node bin/greenlight-worker.js "$JOB"'));
+  assert.match(BOOTSTRAP, /exec node bin\/greenlight-worker.js "\$JOB"\n`?$/);
+  assert.doesNotMatch(BOOTSTRAP, /poweroff|VERCEL_/, "no self power-off, no Vercel credential in the sandbox");
+  assert.equal(cmd.env.GREENLIGHT_SANDBOX_FINISHED_URL, "https://greenlight.example.com/v1/sandbox/finished");
+  assert.ok(!Object.keys(cmd.env).some((k) => k.startsWith("VERCEL")), "no Vercel credential is forwarded");
   assert.match(BOOTSTRAP, /trap 'fail setup' ERR/);
   // A failure after create stops the sandbox.
   const bad = fakeSandbox({ failOn: "run" });
@@ -300,4 +304,38 @@ test("a finished job's sandbox is stopped when the API reads the result; running
   await h.call("GET", `/v1/jobs/${c.body.id}`);
   assert.equal(sbx.calls.filter((x) => x[0] === "get").length, 1, "stopped once");
   h.close();
+});
+
+test("the sandbox's signed 'job settled' report stops its sandbox; forged, early or unknown reports do not", async () => {
+  const { finishedSignature } = await import("../../src/server/index.js");
+  const sbx = fakeSandbox();
+  const h = await supabaseApp({ Sandbox: sbx.Sandbox });
+  const projectId = await approvedProject(h.call);
+  const c = await h.call("POST", `/v1/projects/${projectId}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 });
+  const report = (jobId, signature) => h.call("POST", "/v1/sandbox/finished", { jobId, signature });
+  const stops = () => sbx.calls.filter((x) => x[0] === "stop").length;
+  assert.equal((await report(c.body.id, "0".repeat(64))).status, 401, "forged signature");
+  assert.equal((await report(c.body.id, finishedSignature(KEY, c.body.id))).status, 409, "the job is not finished yet");
+  assert.equal((await report(`job_${"9".repeat(32)}`, finishedSignature(KEY, `job_${"9".repeat(32)}`))).status, 404);
+  assert.equal(stops(), 0);
+  const job = await h.admin.rpc("greenlight_get_job", { p_id: c.body.id });
+  await h.admin.rpc("greenlight_put_job", { p_doc: { ...job, status: "failed", finishedAt: new Date().toISOString(), error: { code: "sandbox_setup_failed", message: "x", action: "y" } } });
+  const ok = await report(c.body.id, finishedSignature(KEY, c.body.id));
+  assert.deepEqual([ok.status, ok.body], [200, { jobId: c.body.id, stopped: true }]);
+  assert.deepEqual(sbx.calls.filter((x) => x[0] === "get").at(-1), ["get", { name: `greenlight-${c.body.id.replace("_", "-")}`, resume: false }]);
+  assert.equal(stops(), 1);
+  h.close();
+});
+
+test("local execution has no sandbox report endpoint", async () => {
+  const { createApp, FileStore: FS } = await import("../../src/server/index.js");
+  const dir = await mkdtemp(path.join(os.tmpdir(), "gl-sbx-local-"));
+  temps.push(dir);
+  const config = loadConfig({ GREENLIGHT_DATA_DIR: dir });
+  const store = new FS(dir);
+  const server = http.createServer(createApp({ config, store, jobs: new JobRunner({ store, config, deps: { now: () => new Date() } }) }));
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const res = await fetch(`http://127.0.0.1:${server.address().port}/v1/sandbox/finished`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId: `job_${"1".repeat(32)}`, signature: "0".repeat(64) }) });
+  assert.equal(res.status, 404);
+  server.close();
 });

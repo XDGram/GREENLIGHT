@@ -32,6 +32,7 @@ Rate limit: `GREENLIGHT_RATE_LIMIT_PER_MINUTE` per token, per client IP for anon
 |---|---|---|---|
 | `GET /v1/health` | none | | `200 {ok: true}` (liveness: the process answers) |
 | `GET /v1/ready` | none | | `200 {ok: true, store, database: "ok", storage: "ok"}` when the database API and the private evidence bucket work with the server key, plus `kane` and `chrome` (`ok`, or `kane_not_installed`, `kane_version_mismatch`, `kane_not_runnable`, `chrome_not_found`) from the startup runtime check; otherwise `503` with codes only (`unauthorized`, `schema_not_exposed`, `unreachable`, `bucket_missing`, `bucket_public`). Never URLs, keys or paths |
+| `POST /v1/sandbox/finished` | none (signed) | `{jobId, signature}` | Sandbox mode only (404 otherwise): a job's Vercel Sandbox reports that the job is settled, signed with HMAC-SHA256 of the job id; when the database shows the job finished, the API stops that sandbox. `401` bad signature, `409` job not finished |
 | `POST /v1/projects` | propose | `{name, url}` | `201` Project |
 | `GET /v1/projects` | read | | `200 {projects: Project[]}` |
 | `GET /v1/projects/:projectId` | read | | `200` Project |

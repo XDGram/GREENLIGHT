@@ -3,6 +3,7 @@
 //
 // Authenticated (Authorization: Bearer <token>; token scoped to one account):
 //   GET  /v1/health                                         (no auth) liveness
+//   POST /v1/sandbox/finished                               (signed by the job's sandbox) sandbox mode only
 //   GET  /v1/ready                                          (no auth) readiness: database + evidence bucket, 503 if not ready
 //   POST /v1/projects                                       propose   {name, url}
 //   GET  /v1/projects                                       read
@@ -107,6 +108,13 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
 
   const routes = [
     ["GET", /^\/v1\/health$/, null, async () => [200, { ok: true, schema: "greenlight.health/v1" }]],
+
+    // Sandbox mode: a job's sandbox reports that its job is settled (signed for that job); the API
+    // then stops the sandbox with its own Vercel credentials. Not available in local execution.
+    ["POST", /^\/v1\/sandbox\/finished$/, null, async ({ body }) => {
+      if (typeof jobs.onSandboxFinished !== "function") throw new GreenlightError("not_found", "No such endpoint.");
+      return [200, await jobs.onSandboxFinished({ jobId: body.jobId, signature: body.signature })];
+    }],
 
     // Readiness: database API and private evidence bucket reachable with the server key.
     // Codes only; never URLs, keys, bucket paths or error text.
