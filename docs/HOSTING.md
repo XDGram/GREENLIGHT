@@ -100,6 +100,9 @@ Vercel project environment variables (Production; mark the secrets as sensitive)
 | `GREENLIGHT_KANE_USERNAME`, `GREENLIGHT_KANE_ACCESS_KEY` (secret) | TestMu basic-auth credentials for Kane |
 | `GREENLIGHT_KANE_PROJECT_ID`, `GREENLIGHT_KANE_FOLDER_ID` | optional: skip Kane's project/folder picker at login |
 | `GREENLIGHT_PUBLIC_BASE_URL` | the deployment's public URL |
+| `GREENLIGHT_VERCEL_APP_CLIENT_ID`, `GREENLIGHT_APPROVERS` | browser approval (Sign in with Vercel), see [APPROVAL.md](APPROVAL.md) |
+| `GREENLIGHT_APPROVAL_SIGNING_KEY` (secret, required with browser approval) | random secret (>= 32 chars) that signs approval records; server-side only |
+| `GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS` | accounts that need a signed browser approval to certify; default `xdgram` |
 
 The function authenticates to Vercel Sandbox with the deployment's OIDC token automatically.
 The secrets reach the sandbox only as the detached command's environment, never in files,

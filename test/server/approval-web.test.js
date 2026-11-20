@@ -29,6 +29,7 @@ const OTHER_SUB = "vercel_user_stranger";
 const OWNER_TOKEN = "owner-token-web-approval-0123456789";
 const OTHER_TOKEN = "other-token-web-approval-0123456789";
 const COMMIT = "dc6150b46a46a85efb4255113f0eddc5370621c8";
+const SIGNING_KEY = `approval-signing-key-${"z".repeat(40)}`;
 const EXEC_ID = "0a1b2c3d-0000-4000-8000-0000000000cc";
 const temps = [];
 const closers = [];
@@ -86,7 +87,7 @@ async function setup({ approvers = [{ vercelSub: SUB, account: "acme", user: "de
   const workDir = await mkdtemp(path.join(os.tmpdir(), "gl-web-"));
   temps.push(workDir);
   const env = { SUPABASE_URL: fake.url, SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_WORK_DIR: workDir, GREENLIGHT_PORT: "0", GREENLIGHT_PUBLIC_BASE_URL: BASE };
-  if (webEnabled) Object.assign(env, { GREENLIGHT_VERCEL_APP_CLIENT_ID: CLIENT_ID, GREENLIGHT_APPROVERS: JSON.stringify(approvers) });
+  if (webEnabled) Object.assign(env, { GREENLIGHT_VERCEL_APP_CLIENT_ID: CLIENT_ID, GREENLIGHT_APPROVERS: JSON.stringify(approvers), GREENLIGHT_APPROVAL_SIGNING_KEY: SIGNING_KEY });
   const config = loadConfig(env);
   const vercel = fakeVercel();
   const store = new SupabaseStore({ url: fake.url, serviceRoleKey: KEY, fetchImpl: fake.fetch, workRoot: workDir });
@@ -159,10 +160,15 @@ const csrfOf = (html, action) => new RegExp(`/${action}"><input type="hidden" na
 // ---------------------------------------------------------------- tests
 
 test("config: browser approval needs Supabase, an https public URL and a valid approver list; the client secret never serialises", () => {
-  const env = { SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_PUBLIC_BASE_URL: BASE, GREENLIGHT_VERCEL_APP_CLIENT_ID: CLIENT_ID, GREENLIGHT_APPROVERS: JSON.stringify([{ vercelSub: SUB, account: "acme", user: "dev" }]), GREENLIGHT_VERCEL_APP_CLIENT_SECRET: "app-secret-value" };
+  const env = { SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_PUBLIC_BASE_URL: BASE, GREENLIGHT_VERCEL_APP_CLIENT_ID: CLIENT_ID, GREENLIGHT_APPROVERS: JSON.stringify([{ vercelSub: SUB, account: "acme", user: "dev" }]), GREENLIGHT_VERCEL_APP_CLIENT_SECRET: "app-secret-value", GREENLIGHT_APPROVAL_SIGNING_KEY: SIGNING_KEY };
   const c = loadConfig(env);
   assert.deepEqual([c.webApproval.clientId, c.webApproval.approvers[0].vercelSub, c.webApproval.clientSecret], [CLIENT_ID, SUB, "app-secret-value"]);
   assert.ok(!JSON.stringify(c).includes("app-secret-value"));
+  assert.ok(!JSON.stringify(c).includes(SIGNING_KEY), "the signing key never serialises");
+  assert.equal(c.approvalSigningKey, SIGNING_KEY);
+  assert.deepEqual(c.browserApprovalAccounts, ["acme", "xdgram"], "xdgram by default, plus every approver's account");
+  for (const bad of [undefined, "", "short-key"]) assert.throws(() => loadConfig({ ...env, GREENLIGHT_APPROVAL_SIGNING_KEY: bad }), /GREENLIGHT_APPROVAL_SIGNING_KEY/);
+  assert.throws(() => loadConfig({ ...env, GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS: "Bad Slug" }), /GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS/);
   for (const bad of ["", "[]", "{}", '[{"vercelSub":"","account":"acme","user":"dev"}]', '[{"vercelSub":"s","account":"Bad Slug","user":"dev"}]', "not json"]) {
     assert.throws(() => loadConfig({ ...env, GREENLIGHT_APPROVERS: bad }), /GREENLIGHT_APPROVERS/, bad);
   }
@@ -232,7 +238,12 @@ test("full browser approval: verified identity, complete review page, two separa
   const replay = await b.go("POST", `${pagePath}/server-version`, { form: { csrf: csrfOf(page2.text, "server-version"), confirmHash: hash } });
   assert.equal(replay.status, 409);
   assert.deepEqual(await h.store.getApproval(projectId, 1), rec, "unchanged");
-  assert.equal((await h.api("POST", `/v1/projects/${projectId}/versions/1/approval`, { confirmHash: hash })).body.error.code, "conflict", "token API also sees it as approved");
+  assert.equal((await h.api("POST", `/v1/projects/${projectId}/versions/1/approval`, { confirmHash: hash })).body.error.code, "forbidden", "owner-token approvals are refused for this account");
+  // Signed with the server-only key, verified by the server.
+  assert.equal(rec.signature.alg, "HMAC-SHA256");
+  assert.ok(!JSON.stringify(rec).includes(SIGNING_KEY));
+  const view = await h.api("GET", `/v1/projects/${projectId}/versions/1`);
+  assert.deepEqual(view.body.approvalVerification, { browserApprovalRequired: true, browserApproval: true, reason: null });
 });
 
 test("identity cannot be spoofed: no session, forged headers, tampered cookies, failed sign-ins and strangers get nothing", async () => {
@@ -402,7 +413,7 @@ function passingKane() {
 
 test("publish accepts the verified browser approval only for exactly the local tests; token approvals and relayed approvals do not stand in", async () => {
   // A token (non-browser) approval and no local approval: refused before any job.
-  const t = await setup();
+  const t = await setup({ webEnabled: false });
   const tp = await proposal(t);
   await t.api("POST", `/v1/projects/${tp.projectId}/versions/1/approval`, { confirmHash: tp.hash });
   const noBrowser = await publish(t, await repo(), tp.projectId);
@@ -427,4 +438,99 @@ test("publish accepts the verified browser approval only for exactly the local t
   assert.equal(ok.code, EXIT.OK, ok.err);
   assert.match(ok.err + JSON.stringify(ok.json), /Approved in the browser by dev \(Vercel subject vercel_user_owner_1\)/);
   assert.equal(ok.json.data.record.certified, true);
+});
+
+// ---------------------------------------------------------------- server-side enforcement and signatures
+
+import { signApproval, approvalSignatureValid, keyIdOf } from "../../src/server/approval-policy.js";
+import { selfHash } from "../../src/server/models.js";
+
+const AGENT_TOKEN = "agent-token-web-approval-0123456789";
+
+/** A browser-approval record built outside the page (as an attacker with database access would). */
+async function forgedRecord(h, projectId, hash, { key = null, mutate = (r) => r } = {}) {
+  const v = await h.store.getVersion(projectId, 1);
+  const t = new Date();
+  const r = buildApproval({
+    projectId, version: v, approvedBy: "dev", now: t,
+    extra: {
+      channel: WEB_APPROVAL_CHANNEL,
+      identity: { provider: "vercel", issuer: VERCEL_ISSUER, subject: SUB, username: "sadiqyusuf1775", email: null, name: null, authenticatedAt: t.toISOString() },
+      confirmations: { testSpecification: { hash, specFileSha256: v.specFileSha256, confirmedAt: t.toISOString() }, serverVersion: { hash, confirmedAt: t.toISOString() } },
+    },
+  });
+  if (key) r.signature = signApproval(key, r);
+  mutate(r);
+  r.recordSha256 = selfHash(r);
+  return r;
+}
+
+test("xdgram (and every approver's account) needs a signed browser approval: owner-token approvals cannot certify it", async () => {
+  const h = await setup({ approvers: [{ vercelSub: SUB, account: "xdgram", user: "dev" }] });
+  // The default policy covers xdgram even before any approver is listed for it.
+  assert.ok(loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY }).browserApprovalAccounts.includes("xdgram"));
+  await h.admin.rpc("greenlight_ensure_account", { p_slug: "xdgram" });
+  await h.admin.rpc("greenlight_create_user", { p_account: "xdgram", p_name: "dev", p_role: "owner" });
+  const xTok = "owner-token-xdgram-0123456789abcdef";
+  await h.admin.rpc("greenlight_add_token", { p_account: "xdgram", p_user: "dev", p_token_sha256: sha256Hex(xTok), p_label: "t" });
+  const p = await h.api("POST", "/v1/projects", { name: "X", url: "https://gl-test.vercel.app/" }, xTok);
+  const v = await h.api("POST", `/v1/projects/${p.body.id}/versions`, { specText: E2E }, xTok);
+  // The token route is refused for this account.
+  const a = await h.api("POST", `/v1/projects/${p.body.id}/versions/1/approval`, { confirmHash: v.body.approvedTestHash }, xTok);
+  assert.deepEqual([a.status, a.body.error.code], [403, "forbidden"]);
+  // Even a token-style approval written straight into the database does not certify.
+  await h.store.putApproval(p.body.id, 1, buildApproval({ projectId: p.body.id, version: await h.store.getVersion(p.body.id, 1), approvedBy: "dev", now: new Date() }));
+  const c = await h.api("POST", `/v1/projects/${p.body.id}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 }, xTok);
+  assert.deepEqual([c.status, c.body.error.code, c.body.error.details.reason], [403, "approval_not_certifiable", "not_a_browser_approval"]);
+  assert.equal((await h.api("GET", `/v1/projects/${p.body.id}/versions/1`, undefined, xTok)).body.approvalVerification.browserApproval, false);
+});
+
+test("agent tokens can propose but never approve or certify", async () => {
+  const h = await setup({ webEnabled: false });
+  await h.admin.rpc("greenlight_create_user", { p_account: "acme", p_name: "claude", p_role: "agent" });
+  await h.admin.rpc("greenlight_add_token", { p_account: "acme", p_user: "claude", p_token_sha256: sha256Hex(AGENT_TOKEN), p_label: "submit" });
+  const p = await h.api("POST", "/v1/projects", { name: "A", url: "https://gl-test.vercel.app/" }, AGENT_TOKEN);
+  assert.equal(p.status, 201);
+  const v = await h.api("POST", `/v1/projects/${p.body.id}/versions`, { specText: E2E }, AGENT_TOKEN);
+  assert.equal(v.status, 201);
+  const a = await h.api("POST", `/v1/projects/${p.body.id}/versions/1/approval`, { confirmHash: v.body.approvedTestHash }, AGENT_TOKEN);
+  assert.deepEqual([a.status, a.body.error.code], [403, "forbidden"]);
+  await h.api("POST", `/v1/projects/${p.body.id}/versions/1/approval`, { confirmHash: v.body.approvedTestHash }); // owner (acme allows tokens here)
+  const c = await h.api("POST", `/v1/projects/${p.body.id}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 }, AGENT_TOKEN);
+  assert.deepEqual([c.status, c.body.error.code], [403, "forbidden"]);
+});
+
+test("forged, unsigned, re-signed, modified and mismatched browser records are rejected by certification and publish", async () => {
+  const cases = [
+    ["unsigned", { key: null }, "unsigned"],
+    ["signed with another key", { key: `attacker-key-${"q".repeat(40)}` }, "signature_invalid"],
+    ["signature value altered", { key: SIGNING_KEY, mutate: (r) => { r.signature.value = r.signature.value.replace(/^./, (c) => (c === "0" ? "1" : "0")); } }, "signature_invalid"],
+    ["identity changed after signing", { key: SIGNING_KEY, mutate: (r) => { r.identity.subject = OTHER_SUB; } }, "signature_invalid"],
+    ["confirmation hash changed after signing", { key: SIGNING_KEY, mutate: (r) => { r.confirmations.testSpecification.confirmedAt = new Date(0).toISOString(); } }, "signature_invalid"],
+    ["signed, but by someone who is not this account's approver", { key: SIGNING_KEY, mutate: (r) => { r.identity.subject = OTHER_SUB; r.signature = signApproval(SIGNING_KEY, r); } }, "not_an_approver_of_this_account"],
+  ];
+  for (const [why, opts, reason] of cases) {
+    const h = await setup({ kane: async () => { throw new Error("Kane must not run"); } });
+    const { projectId, hash } = await proposal(h);
+    await h.store.putApproval(projectId, 1, await forgedRecord(h, projectId, hash, opts));
+    const c = await h.api("POST", `/v1/projects/${projectId}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 });
+    assert.deepEqual([c.body.error?.code, c.body.error?.details?.reason], ["approval_not_certifiable", reason], why);
+    const view = await h.api("GET", `/v1/projects/${projectId}/versions/1`);
+    assert.equal(view.body.approvalVerification.browserApproval, false, why);
+    const pub = await publish(h, await repo(), projectId);
+    assert.equal(pub.json.error.code, "tests_not_approved", `${why}: publish refuses`);
+  }
+  // A record whose self-hash no longer matches is refused too (modified without re-sealing).
+  const h = await setup();
+  const { projectId, hash } = await proposal(h);
+  const r = await forgedRecord(h, projectId, hash, { key: SIGNING_KEY });
+  r.approvedBy = "mallory";
+  await h.store.putApproval(projectId, 1, r);
+  assert.equal((await h.api("POST", `/v1/projects/${projectId}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 })).body.error.code, "approval_not_certifiable");
+  // Signature primitives.
+  const good = await forgedRecord(h, projectId, hash, { key: SIGNING_KEY });
+  assert.equal(approvalSignatureValid(SIGNING_KEY, good), true);
+  assert.equal(approvalSignatureValid(`other-${SIGNING_KEY}`, good), false);
+  assert.equal(good.signature.keyId, keyIdOf(SIGNING_KEY));
+  assert.ok(!good.signature.keyId.includes(SIGNING_KEY.slice(0, 8)));
 });

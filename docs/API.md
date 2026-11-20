@@ -33,14 +33,14 @@ Rate limit: `GREENLIGHT_RATE_LIMIT_PER_MINUTE` per token, per client IP for anon
 | `GET /v1/health` | none | | `200 {ok: true}` (liveness: the process answers) |
 | `GET /v1/ready` | none | | `200 {ok: true, store, database: "ok", storage: "ok"}` when the database API and the private evidence bucket work with the server key, plus `kane` and `chrome` (`ok`, or `kane_not_installed`, `kane_version_mismatch`, `kane_not_runnable`, `chrome_not_found`) from the startup runtime check; otherwise `503` with codes only (`unauthorized`, `schema_not_exposed`, `unreachable`, `bucket_missing`, `bucket_public`). Never URLs, keys or paths |
 | `POST /v1/sandbox/finished` | none (signed) | `{jobId, signature}` | Sandbox mode only (404 otherwise): a job's Vercel Sandbox reports that the job is settled, signed with HMAC-SHA256 of the job id; when the database shows the job finished, the API stops that sandbox. `401` bad signature, `409` job not finished |
-| `GET /approve/<projectId>/<n>` (HTML) | Sign in with Vercel (verified ID token) | | Browser approval page: project, claims, tests, greenlight.yaml, both hashes, two separate exact-hash confirmations; records a write-once human `server-owner` approval. See [APPROVAL.md](APPROVAL.md). Off unless `GREENLIGHT_VERCEL_APP_CLIENT_ID` is set |
+| `GET /approve/<projectId>/<n>` (HTML) | Sign in with Vercel (verified ID token) | | Browser approval page: project, claims, tests, greenlight.yaml, both hashes, two separate exact-hash confirmations; records a write-once, server-signed human `server-owner` approval. See [APPROVAL.md](APPROVAL.md). Off unless `GREENLIGHT_VERCEL_APP_CLIENT_ID` is set |
 | `POST /v1/projects` | propose | `{name, url}` | `201` Project |
 | `GET /v1/projects` | read | | `200 {projects: Project[]}` |
 | `GET /v1/projects/:projectId` | read | | `200` Project |
 | `POST /v1/projects/:projectId/versions` | propose | `{specText}` | `201` TestVersion summary, `status: "pending_approval"` |
 | `GET /v1/projects/:projectId/versions` | read | | `200 {versions: [...]}` with `status` and `approval` |
-| `GET /v1/projects/:projectId/versions/:n` | read | | `200` TestVersion **with each test's full `content` and the `specText`**, for review |
-| `POST /v1/projects/:projectId/versions/:n/approval` | approve (owner) | `{confirmHash}` | `201` Approval |
+| `GET /v1/projects/:projectId/versions/:n` | read | | `200` TestVersion **with each test's full `content` and the `specText`**, for review, plus `approvalVerification: {browserApprovalRequired, browserApproval, reason}` (the server's own signature check) |
+| `POST /v1/projects/:projectId/versions/:n/approval` | approve (owner) | `{confirmHash}` | `201` Approval. `403 forbidden` for accounts that require a signed browser approval (`GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS`, default `xdgram`) |
 | `POST /v1/projects/:projectId/certifications` | certify (owner) | `{version, commit, confirmSpend, url?, environment?, approvedTestHash?}` | `202` Job |
 | `GET /v1/jobs/:jobId` | read | | `200` Job |
 | `GET /v1/projects/:projectId/records` | read | | `200 {records: VerificationRecord[]}`, each with `integrity` |

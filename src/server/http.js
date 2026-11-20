@@ -30,6 +30,7 @@ import { isLocalOrPrivateHost } from "../deploy/host.js";
 import { resolvePrincipal, can } from "./config.js";
 import { SCHEMAS, buildApproval, publicRecord, verifyRecordIntegrity } from "./models.js";
 import { prepareCertification } from "./certify.js";
+import { browserApprovalRequired, verifyBrowserApproval } from "./approval-policy.js";
 
 const json = (res, status, body, extraHeaders = {}) => {
   const text = JSON.stringify(body);
@@ -192,12 +193,18 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       const project = await store.getProject(m[1], principal.account);
       const v = await store.getVersion(project.id, m[2]);
       const a = await store.getApproval(project.id, v.version);
-      return [200, { ...versionView(v, { withContent: true }), specText: v.specText, status: a ? "approved" : "pending_approval", approval: a }];
+      // The server's own verification (it alone holds the signing key); clients rely on this.
+      const b = a ? verifyBrowserApproval(config, a, v.approvedTestHash, project.account) : { ok: false, reason: "no_approval" };
+      const approvalVerification = { browserApprovalRequired: browserApprovalRequired(config, project.account), browserApproval: b.ok, reason: b.reason };
+      return [200, { ...versionView(v, { withContent: true }), specText: v.specText, status: a ? "approved" : "pending_approval", approval: a, approvalVerification }];
     }],
 
     // Human approval: an owner token, and the full hash typed back (as at the terminal).
     ["POST", /^\/v1\/projects\/([^/]+)\/versions\/([^/]+)\/approval$/, "approve", async ({ principal, m, body }) => {
       const project = await store.getProject(m[1], principal.account);
+      if (browserApprovalRequired(config, project.account)) {
+        throw new GreenlightError("forbidden", "This account requires a signed browser approval (Sign in with Vercel); owner-token approvals are refused.");
+      }
       const v = await store.getVersion(project.id, m[2]);
       if (typeof body.confirmHash !== "string" || body.confirmHash !== v.approvedTestHash) {
         throw new GreenlightError("approval_hash_mismatch", "confirmHash must be the full approved-test hash of this version, as shown to the person approving.");
@@ -230,7 +237,7 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       if (request.environment !== undefined && !["preview", "production"].includes(request.environment)) throw new GreenlightError("invalid_request", "environment must be preview or production.");
       if (!Number.isInteger(body.version) || body.version < 1) throw new GreenlightError("invalid_request", "version: the approved test version number is required.");
       // Fail fast on everything that can be checked without spending (the job re-checks).
-      await prepareCertification({ store, project, versionNo: body.version, request });
+      await prepareCertification({ store, project, versionNo: body.version, request, config });
       const job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: principal.name });
       return [202, job];
     }],

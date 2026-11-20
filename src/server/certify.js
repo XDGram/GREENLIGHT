@@ -28,6 +28,7 @@ import { actualUsage, reconcileUsage, creditRecord } from "../credits/usage.js";
 import { requireReady } from "../deploy/check.js";
 import { GreenlightError } from "../cli/errors.js";
 import { approvalValidFor, buildVerificationRecord } from "./models.js";
+import { browserApprovalRequired, verifyBrowserApproval } from "./approval-policy.js";
 import { newId } from "./store.js";
 
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
@@ -36,7 +37,7 @@ const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 export const certificationRunId = (jobId) => `cert-${jobId.slice(4, 20)}`;
 
 /** Everything checked before any credit can be spent. Throws GreenlightError. */
-export async function prepareCertification({ store, project, versionNo, request }) {
+export async function prepareCertification({ store, project, versionNo, request, config }) {
   const version = await store.getVersion(project.id, versionNo);
   const approval = await store.getApproval(project.id, versionNo);
   if (!approval) throw new GreenlightError("approval_not_certifiable", `Test version ${versionNo} has no human approval on the server.`);
@@ -49,6 +50,10 @@ export async function prepareCertification({ store, project, versionNo, request 
   }
   if (derived.hash !== version.approvedTestHash) throw new GreenlightError("approval_hash_mismatch", "Stored tests do not match their recorded hash.");
   if (!approvalValidFor(approval, derived.hash)) throw new GreenlightError("approval_not_certifiable", "The approval is not a valid human approval for exactly these tests.");
+  if (browserApprovalRequired(config, project.account)) {
+    const b = verifyBrowserApproval(config, approval, derived.hash, project.account);
+    if (!b.ok) throw new GreenlightError("approval_not_certifiable", `This account requires a signed browser approval by its approver (${b.reason}).`, { reason: b.reason });
+  }
   if (request.approvedTestHash !== undefined && request.approvedTestHash !== derived.hash) {
     throw new GreenlightError("approval_hash_mismatch", "The submitted approved-test hash is not the approved version's hash.", { approved: derived.hash });
   }
@@ -71,7 +76,7 @@ export async function prepareCertification({ store, project, versionNo, request 
  */
 export async function runCertification({ store, job, config, deps }) {
   const project = await store.getProject(job.projectId);
-  const { version, approval, derived, url } = await prepareCertification({ store, project, versionNo: job.version, request: job.request });
+  const { version, approval, derived, url } = await prepareCertification({ store, project, versionNo: job.version, request: job.request, config });
 
   const deployment = await deps.verifyLiveDeployment({
     url,

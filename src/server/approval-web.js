@@ -21,7 +21,8 @@
 import { createHmac, createHash, randomBytes, timingSafeEqual, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { GreenlightError } from "../cli/errors.js";
 import { projectFromText } from "../spec/generate.js";
-import { buildApproval, WEB_APPROVAL_CHANNEL } from "./models.js";
+import { buildApproval, selfHash, WEB_APPROVAL_CHANNEL } from "./models.js";
+import { signApproval } from "./approval-policy.js";
 
 export const VERCEL_ISSUER = "https://vercel.com";
 export const VERCEL_AUTHORIZE_URL = "https://vercel.com/oauth/authorize";
@@ -340,6 +341,9 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
         },
       },
     });
+    // Sign with the server-only key, then re-seal the self-hash over the signed record.
+    record.signature = signApproval(config.approvalSigningKey, record);
+    record.recordSha256 = selfHash(record);
     try {
       await store.putApproval(project.id, v.version, record);
     } catch (err) {

@@ -86,7 +86,8 @@ export async function cmdPublish(ctx) {
   if (v.body.approvedTestHash !== localHash) {
     return ctx.fail("approval_hash_mismatch", `Server version ${o.version} (${v.body.approvedTestHash.slice(0, 12)}…) is not the local approved tests (${localHash.slice(0, 12)}…).`);
   }
-  if (viaServer && !webApprovalValidFor(v.body.approval, localHash)) {
+  // The record's shape is checked here; its signature only by the server (it alone holds the key).
+  if (viaServer && (!webApprovalValidFor(v.body.approval, localHash) || v.body.approvalVerification?.browserApproval !== true)) {
     return ctx.fail("tests_not_approved", "Local tests have no terminal approval, and the server version has no verified browser approval (Sign in with Vercel) of exactly these tests.");
   }
   if (viaServer) ctx.out(`Approved in the browser by ${v.body.approval.approvedBy} (Vercel subject ${v.body.approval.identity.subject}) for exactly these tests.`);

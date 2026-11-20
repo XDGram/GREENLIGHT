@@ -30,6 +30,9 @@
 //   GREENLIGHT_VERCEL_APP_CLIENT_ID  enables browser approval (Sign in with Vercel) at /approve/...
 //   GREENLIGHT_APPROVERS             JSON [{"vercelSub","account","user"}]: who may approve, as which owner
 //   GREENLIGHT_VERCEL_APP_CLIENT_SECRET optional secret; default is the deployment's OIDC client assertion
+//   GREENLIGHT_APPROVAL_SIGNING_KEY  required with browser approval: secret (>= 32 chars) that signs approval records
+//   GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS accounts that need a signed browser approval to certify, default "xdgram"
+//                                    (plus every account in GREENLIGHT_APPROVERS); owner-token approvals refused
 //   GREENLIGHT_KANE_BIN              Kane CLI binary, default kane-cli
 //   GREENLIGHT_KANE_REMOTE           "hyper": Kane runs the browser on TestMu HyperExecute (--remote hyper)
 //   GREENLIGHT_EXECUTION             "local" (default: jobs run in this process) | "sandbox" (each job
@@ -173,14 +176,23 @@ export function loadConfig(env = process.env) {
     if (!Array.isArray(approvers) || !approvers.length || approvers.some((a) => !a || typeof a.vercelSub !== "string" || !a.vercelSub || typeof a.account !== "string" || !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(a.account) || typeof a.user !== "string" || !a.user)) {
       throw new Error("GREENLIGHT_APPROVERS must be a JSON array of {vercelSub, account, user}");
     }
+    if (typeof env.GREENLIGHT_APPROVAL_SIGNING_KEY !== "string" || env.GREENLIGHT_APPROVAL_SIGNING_KEY.length < 32) {
+      throw new Error("browser approval needs GREENLIGHT_APPROVAL_SIGNING_KEY (a random secret of at least 32 characters, server-side only)");
+    }
     webApproval = { clientId: String(env.GREENLIGHT_VERCEL_APP_CLIENT_ID), approvers: Object.freeze(approvers.map((a) => Object.freeze({ vercelSub: a.vercelSub, account: a.account, user: a.user }))) };
     // Optional: a client secret instead of the deployment's OIDC client assertion. Never serialised.
     Object.defineProperty(webApproval, "clientSecret", { value: env.GREENLIGHT_VERCEL_APP_CLIENT_SECRET || null, enumerable: false });
     Object.freeze(webApproval);
   }
+  // Accounts whose certifications need a signed browser approval (owner-token approvals refused).
+  // Fail closed: if browser approval is not configured, these accounts cannot be approved at all.
+  const listed = (env.GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS ?? "xdgram").split(",").map((x) => x.trim()).filter(Boolean);
+  if (listed.some((a) => !/^[a-z0-9][a-z0-9_-]{0,62}$/.test(a))) throw new Error("GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS must be a comma-separated list of account slugs");
+  const browserApprovalAccounts = Object.freeze([...new Set([...listed, ...(webApproval?.approvers.map((a) => a.account) ?? [])])].sort());
   const cfg = {
     store: supabase ? "supabase" : "file",
     webApproval,
+    browserApprovalAccounts,
     supabase,
     dataDir,
     workDir,
@@ -202,6 +214,8 @@ export function loadConfig(env = process.env) {
     execution,
     maxBodyBytes: 256 * 1024,
   };
+  // Approval signing key: non-enumerable, never serialised, logged or sent to clients.
+  if (webApproval) Object.defineProperty(cfg, "approvalSigningKey", { value: env.GREENLIGHT_APPROVAL_SIGNING_KEY, enumerable: false });
   // Kane credentials (sandbox mode): non-enumerable like the Supabase key, never logged or serialised.
   if (execution === "sandbox") {
     Object.defineProperty(cfg, "kaneCredentials", { value: Object.freeze({ username: env.GREENLIGHT_KANE_USERNAME, accessKey: env.GREENLIGHT_KANE_ACCESS_KEY }), enumerable: false });
