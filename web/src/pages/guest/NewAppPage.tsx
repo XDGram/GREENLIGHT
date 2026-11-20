@@ -26,7 +26,8 @@ export function NewAppPage({ limits }: { limits: GuestLimits | null }) {
   const [name, setName] = useState("");
   const [url, setUrl] = useState("https://");
   const [requirements, setRequirements] = useState("");
-  const [draft, setDraft] = useState<DraftSpec | null>(null);
+  // Without AI, the form is the only way in: open it straight away.
+  const [draft, setDraft] = useState<DraftSpec | null>(limits?.aiAvailable === false ? emptyDraft() : null);
   const [notes, setNotes] = useState<string | null>(null);
   const [check, setCheck] = useState<SpecCheck | null>(null);
   const [busy, setBusy] = useState<"draft" | "save" | null>(null);
