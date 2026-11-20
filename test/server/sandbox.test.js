@@ -275,18 +275,32 @@ test("vercel.json routes /v1 to the function, bundles the files the sandbox need
   const v = JSON.parse(readFileSync(path.join(ROOT, "vercel.json"), "utf8"));
   assert.equal(v.functions["api/index.js"].includeFiles, "{src,bin}/**");
   assert.ok(v.functions["api/index.js"].maxDuration <= 300);
-  assert.deepEqual(v.rewrites, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }, { source: "/api/auth/callback", destination: "/api" }]);
-  // Static files come only from public/, which holds nothing but .gitkeep: no source, docs or
-  // config of the repository is ever served.
+  const toFunction = v.rewrites.filter((r) => r.destination === "/api");
+  assert.deepEqual(toFunction, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }, { source: "/api/auth/callback", destination: "/api" }, { source: "/app/api/:path*", destination: "/api" }]);
+  // Every other rewrite only serves the web app's own entry page (client-side routes under /app).
+  assert.deepEqual(v.rewrites.filter((r) => r.destination !== "/api"), [{ source: "/app", destination: "/app/index.html" }, { source: "/app/:path((?!api/|assets/|favicon\\.svg$).*)", destination: "/app/index.html" }]);
+  // Static files come only from public/. In the repository it holds nothing but .gitkeep; the
+  // build writes the web app (from web/ only) to public/app, which is never committed. No source,
+  // docs or config of the repository is ever served.
   assert.equal(v.outputDirectory, "public");
   const { readdirSync } = await import("node:fs");
-  assert.deepEqual(readdirSync(path.join(ROOT, "public")), [".gitkeep"]);
+  assert.deepEqual(readdirSync(path.join(ROOT, "public")).filter((f) => f !== "app"), [".gitkeep"]);
   assert.equal(readFileSync(path.join(ROOT, "public/.gitkeep"), "utf8"), "");
-  assert.ok(v.rewrites.every((r) => (/^\/(v1|approve)(\/|$)/.test(r.source) || r.source === "/api/auth/callback") && r.destination === "/api"), "only /v1/* and /approve* are routed, and only to the function");
+  assert.match(readFileSync(path.join(ROOT, ".gitignore"), "utf8"), /^public\/app\/$/m, "build output is not committed");
+  const vite = readFileSync(path.join(ROOT, "web/vite.config.ts"), "utf8");
+  assert.match(vite, /outDir: fileURLToPath\(new URL\("\.\.\/public\/app", import\.meta\.url\)\)/);
+  assert.match(vite, /root: fileURLToPath\(new URL\("\.", import\.meta\.url\)\)/, "the build reads only web/");
+  assert.equal(v.buildCommand, "npm run build");
   assert.equal(v.cleanUrls ?? false, false);
   assert.equal(v.routes, undefined, "no legacy routes that could expose files");
+  // The web app is framed by nobody and loads nothing from other origins.
+  const appHeaders = Object.fromEntries(v.headers.find((h) => h.source === "/app/:path*").headers.map((h) => [h.key, h.value]));
+  assert.match(appHeaders["Content-Security-Policy"], /default-src 'self'.*frame-ancestors 'none'/);
+  assert.equal(appHeaders["X-Frame-Options"], "DENY");
   const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.equal(pkg.dependencies["@vercel/sandbox"], "3.9.1", "exact version");
+  assert.equal(pkg.scripts.build, "vite build --config web/vite.config.ts");
+  assert.ok(Object.values(pkg.devDependencies).every((ver) => /^\d+\.\d+\.\d+$/.test(ver)), "exact versions for the web app's build tools");
 });
 
 test("Hobby: sandbox mode defaults to 45 / 25 / 300 and refuses settings that cannot fit the plan", () => {

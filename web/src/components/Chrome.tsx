@@ -1,0 +1,70 @@
+import { useId } from "react";
+import { initials } from "../format";
+
+export function Logo({ size = 26 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" aria-hidden="true">
+      <circle cx="13" cy="13" r="12" fill="var(--ink)" />
+      <path d="M7.5 13.5l3.6 3.6 7.4-8" stroke="var(--on-dark)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function Avatar({ name, small = false }: { name: string; small?: boolean }) {
+  return (
+    <span className={small ? "avatar sm" : "avatar"} aria-hidden="true">
+      {initials(name)}
+    </span>
+  );
+}
+
+/**
+ * A liquid-chrome sphere drawn in SVG: a lit sphere, a soft reflection and two warped rings.
+ * Decorative only; the slow ring rotation stops when the viewer prefers reduced motion.
+ */
+export function ChromeOrb({ intensity = 1 }: { intensity?: number }) {
+  const id = useId().replace(/:/g, "");
+  return (
+    <div className="orb" aria-hidden="true">
+      <svg viewBox="0 0 400 260" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <radialGradient id={`${id}-sphere`} cx="44%" cy="36%" r="62%">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="16%" stopColor="#e9e9e9" />
+            <stop offset="38%" stopColor="#8d8d8d" />
+            <stop offset="64%" stopColor="#2c2c2c" />
+            <stop offset="100%" stopColor="#060606" />
+          </radialGradient>
+          <radialGradient id={`${id}-rim`} cx="50%" cy="50%" r="50%">
+            <stop offset="70%" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="92%" stopColor="#ffffff" stopOpacity={0.55 * intensity} />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
+          </radialGradient>
+          <linearGradient id={`${id}-ring`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.9" />
+            <stop offset="45%" stopColor="#6a6a6a" stopOpacity="0.4" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0.75" />
+          </linearGradient>
+          <filter id={`${id}-liquid`} x="-20%" y="-20%" width="140%" height="140%">
+            <feTurbulence type="fractalNoise" baseFrequency="0.012 0.02" numOctaves="2" seed="7" result="n" />
+            <feDisplacementMap in="SourceGraphic" in2="n" scale="26" xChannelSelector="R" yChannelSelector="G" />
+            <feGaussianBlur stdDeviation="0.6" />
+          </filter>
+          <filter id={`${id}-glow`} x="-50%" y="-50%" width="200%" height="200%">
+            <feGaussianBlur stdDeviation="18" />
+          </filter>
+        </defs>
+        <ellipse cx="200" cy="230" rx="150" ry="22" fill="#000" opacity="0.55" filter={`url(#${id}-glow)`} />
+        <g className="spin">
+          <g filter={`url(#${id}-liquid)`}>
+            <ellipse cx="200" cy="132" rx="138" ry="78" fill="none" stroke={`url(#${id}-ring)`} strokeWidth="9" opacity="0.55" />
+            <ellipse cx="200" cy="132" rx="108" ry="104" fill="none" stroke={`url(#${id}-ring)`} strokeWidth="5" opacity="0.4" transform="rotate(28 200 132)" />
+          </g>
+        </g>
+        <circle cx="200" cy="132" r="62" fill={`url(#${id}-sphere)`} />
+        <circle cx="200" cy="132" r="64" fill={`url(#${id}-rim)`} />
+        <ellipse cx="180" cy="104" rx="22" ry="12" fill="#ffffff" opacity="0.85" transform="rotate(-24 180 104)" filter={`url(#${id}-liquid)`} />
+      </svg>
+    </div>
+  );
+}

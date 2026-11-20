@@ -7,3 +7,6 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Web app build output (built by `npm run build` at deploy time)
+public/app/

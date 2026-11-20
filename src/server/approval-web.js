@@ -23,6 +23,7 @@ import { GreenlightError } from "../cli/errors.js";
 import { projectFromText } from "../spec/generate.js";
 import { buildApproval, selfHash, WEB_APPROVAL_CHANNEL } from "./models.js";
 import { signApproval } from "./approval-policy.js";
+import { APP_API_PREFIX, handleAppApi, sendJson } from "./app-api.js";
 
 export const VERCEL_ISSUER = "https://vercel.com";
 export const VERCEL_AUTHORIZE_URL = "https://vercel.com/oauth/authorize";
@@ -44,6 +45,8 @@ const SKEW_S = 60;
 const PAGE = /^\/approve\/(prj_[0-9a-f]{32})\/([1-9][0-9]{0,8})$/;
 const ACTION = /^\/approve\/(prj_[0-9a-f]{32})\/([1-9][0-9]{0,8})\/(test-specification|server-version)$/;
 const HEX64 = /^[0-9a-f]{64}$/;
+/** Where sign-in may return to besides an approval page: the web app (same-origin paths only). */
+const APP_NEXT = /^\/app(?:\/[A-Za-z0-9_-]+){0,4}$/;
 
 const b64u = (buf) => Buffer.from(buf).toString("base64url");
 const sha256b64u = (s) => createHash("sha256").update(s).digest("base64url");
@@ -209,7 +212,7 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
 
   async function login(req, res, url) {
     const next = url.searchParams.get("next") ?? "";
-    if (!PAGE.test(next)) return send(res, 400, "<h1>Bad request</h1><p>Unknown approval page.</p>");
+    if (!PAGE.test(next) && !APP_NEXT.test(next)) return send(res, 400, "<h1>Bad request</h1><p>Unknown approval page.</p>");
     const state = b64u(randomBytes(32));
     const nonce = b64u(randomBytes(32));
     const verifier = b64u(randomBytes(48));
@@ -361,9 +364,20 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
   }
 
   return async function handle(req, res, url) {
-    if (url.pathname !== CALLBACK_PATH && url.pathname !== "/approve" && !url.pathname.startsWith("/approve/")) return false;
+    const isApp = url.pathname.startsWith(APP_API_PREFIX);
+    if (!isApp && url.pathname !== CALLBACK_PATH && url.pathname !== "/approve" && !url.pathname.startsWith("/approve/")) return false;
     if (!web) {
-      send(res, 404, "<h1>Not found</h1>");
+      if (isApp) sendJson(res, 404, { error: { code: "not_found", message: "Web sign-in is not configured on this server." } });
+      else send(res, 404, "<h1>Not found</h1>");
+      return true;
+    }
+    if (isApp) {
+      try {
+        await handleAppApi({ req, res, url, s: session(req), store, config, sameOrigin, clearSessionCookie: cookie(SESSION_COOKIE, "", 0) });
+      } catch (err) {
+        log({ event: "app_api_error", path: url.pathname, error: String(err?.stack ?? err) });
+        sendJson(res, 500, { error: { code: "internal_error", message: "Internal error." } });
+      }
       return true;
     }
     try {

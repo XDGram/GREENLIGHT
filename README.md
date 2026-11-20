@@ -112,6 +112,12 @@ Every command accepts `--json` (one `greenlight.cli-result/v1` document on stdou
 - Supabase persistence is implemented and tested against the real migrations on PGlite with a mocked Data API and Storage, but **no Supabase project has the schema yet** (see [docs/SUPABASE.md](docs/SUPABASE.md)). Rate limits and the job concurrency limit are per server process. The server has not yet run against real Kane, a real deployment or real credits. Requirement analysis by AI (brief §3) is done by Claude writing `greenlight.yaml`; there is no server-side analysis.
 - Certification runs are not retried automatically (each attempt spends credits); a person starts another.
 
+## Web app
+
+Signed-in approvers get a dashboard at `/app` (projects, verification path, claims, tests, approvals, records). It is read-only and uses the Sign in with Vercel session; see [docs/WEB.md](docs/WEB.md).
+
 ## Development
+
+`npm run build` builds the web app into `public/app/`; `npm run dev:web` serves it locally.
 
 `npm test` runs the whole suite with mocks only: no Kane, network, deployments or credits (a booby-trapped `kane-cli` on `PATH` fails the run if anything tries). Real captured Kane 0.10.6 output lives in `test/fixtures/kane/`.

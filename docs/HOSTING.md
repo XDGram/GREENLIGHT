@@ -62,6 +62,8 @@ host's container sandbox settings.
 `GREENLIGHT_EXECUTION=sandbox` keeps everything on Vercel and Supabase:
 
 - `api/index.js` (Vercel Function, `vercel.json` rewrites `/v1/*` to it) serves the unchanged API.
+  The web app ([WEB.md](WEB.md)) is built into `public/app/` on each deployment and served statically
+  at `/app`; its data comes from `/app/api/*` on the same function.
   A certification is persisted as before, then handed to a **new Vercel Sandbox per job**
   (`src/server/sandbox.js`, `@vercel/sandbox`); the function answers once the sandbox's command
   is started and never runs Kane itself.

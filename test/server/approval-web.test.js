@@ -600,3 +600,79 @@ test("the OAuth callback is /api/auth/callback for both the authorization reques
   const off = await setup({ webEnabled: false });
   assert.equal((await browser(off).go("GET", "/api/auth/callback?code=x&state=y")).status, 404);
 });
+
+test("web app data (/app/api): read-only JSON behind the Vercel session, scoped to the session's account", async () => {
+  const h = await setup();
+  const { projectId, hash } = await proposal(h);
+  const foreign = await h.api("POST", "/v1/projects", { name: "Theirs", url: "https://b.example.com/" }, OTHER_TOKEN);
+  const b = browser(h);
+
+  // Signed out: 401 with where to sign in; API tokens never stand in for the session.
+  for (const p of ["/app/api/session", "/app/api/projects", `/app/api/projects/${projectId}`]) {
+    const r = await b.go("GET", p, { headers: { authorization: `Bearer ${OWNER_TOKEN}` } });
+    assert.equal(r.status, 401, p);
+    assert.deepEqual(JSON.parse(r.text), { error: { code: "sign_in_required", message: "Sign in with Vercel to continue." }, loginUrl: "/approve/login?next=%2Fapp" });
+    assert.equal(r.headers.get("cache-control"), "no-store");
+  }
+
+  // Sign-in may return to /app paths, and to nothing else new.
+  for (const bad of ["//evil.example", "/app/../v1/projects", "https://evil.example/app", "/apps", "/app/a/b/c/d/e"]) {
+    assert.equal((await b.go("GET", `/approve/login?next=${encodeURIComponent(bad)}`)).status, 400, bad);
+  }
+  const login = await b.go("GET", "/approve/login?next=%2Fapp");
+  assert.equal(login.status, 302);
+  const q = Object.fromEntries(new URL(login.location).searchParams);
+  h.vercel.state.challenges.set("app-code", { challenge: q.code_challenge, nonce: q.nonce });
+  const cb = await b.go("GET", `/api/auth/callback?code=app-code&state=${encodeURIComponent(q.state)}`, { headers: { "x-vercel-oidc-token": "deployment-oidc-token" } });
+  assert.deepEqual([cb.status, cb.location], [302, "/app"]);
+
+  const s = await b.go("GET", "/app/api/session");
+  assert.equal(s.status, 200);
+  const sj = JSON.parse(s.text);
+  assert.deepEqual([sj.user, sj.account, sj.username], ["dev", "acme", "sadiqyusuf1775"]);
+
+  const list = JSON.parse((await b.go("GET", "/app/api/projects")).text);
+  assert.deepEqual(list.projects.map((p) => p.id), [projectId], "only this account's projects");
+  assert.equal(list.projects[0].latestVersion.status, "pending_approval");
+  assert.deepEqual(list.projects[0].pendingApprovals.map((p) => p.approveUrl), [`/approve/${projectId}/1`]);
+
+  const detail = JSON.parse((await b.go("GET", `/app/api/projects/${projectId}`)).text);
+  assert.equal(detail.project.id, projectId);
+  const v = detail.versions[0];
+  assert.deepEqual([v.version, v.approvedTestHash, v.status, v.approval, v.approveUrl], [1, hash, "pending_approval", null, `/approve/${projectId}/1`]);
+  assert.ok(v.claims.length > 0 && v.tests.length > 0 && v.tests.every((t) => t.steps.length > 0 && t.title));
+  assert.ok(v.estimate.credits > 0 && v.estimate.breakdown.length === v.tests.length);
+  assert.deepEqual([detail.jobs, detail.records], [[], []]);
+  const raw = JSON.stringify([sj, list, detail]);
+  for (const secret of [KEY, SIGNING_KEY, OWNER_TOKEN, "specText"]) assert.ok(!raw.includes(secret), `no ${secret} in app data`);
+
+  // Another account's project is not found; unknown paths 404; nothing is writable.
+  assert.equal((await b.go("GET", `/app/api/projects/${foreign.body.id}`)).status, 404);
+  assert.equal((await b.go("GET", "/app/api/projects/prj_123")).status, 404);
+  assert.equal((await b.go("GET", "/app/api/nope")).status, 404);
+  assert.equal((await b.go("POST", "/app/api/projects", { form: { a: "1" } })).status, 405);
+
+  // Approval state appears once the version is approved through the browser flow.
+  const pagePath = `/approve/${projectId}/1`;
+  const page = await b.go("GET", pagePath);
+  await b.go("POST", `${pagePath}/test-specification`, { form: { csrf: csrfOf(page.text, "test-specification"), confirmHash: hash } });
+  const page2 = await b.go("GET", pagePath);
+  assert.equal((await b.go("POST", `${pagePath}/server-version`, { form: { csrf: csrfOf(page2.text, "server-version"), confirmHash: hash } })).status, 201);
+  const after = JSON.parse((await b.go("GET", `/app/api/projects/${projectId}`)).text).versions[0];
+  assert.deepEqual([after.status, after.approveUrl, after.approval.approvedBy, after.approval.verified, after.approval.identity.username], ["approved", null, "dev", true, "sadiqyusuf1775"]);
+
+  // Logout: same-origin POST only; it clears the session.
+  assert.equal((await b.go("GET", "/app/api/logout")).status, 405);
+  assert.equal((await b.go("POST", "/app/api/logout", { form: { a: "1" }, headers: { origin: "https://evil.example" } })).status, 403);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 200, "still signed in after the refused logout");
+  const out = await b.go("POST", "/app/api/logout", { form: { a: "1" } });
+  assert.equal(out.status, 204);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 401);
+});
+
+test("web app data (/app/api): 404 when web sign-in is not configured", async () => {
+  const h = await setup({ webEnabled: false });
+  const r = await browser(h).go("GET", "/app/api/session");
+  assert.equal(r.status, 404);
+  assert.equal(JSON.parse(r.text).error.code, "not_found");
+});
