@@ -45,6 +45,11 @@ export class SupabaseStore {
     return path.join(this.workRoot, "evidence", assertId("job", jobId));
   }
 
+  /** Readiness of the database API and the private evidence bucket (codes only). */
+  async health() {
+    return { store: "supabase", ...(await this.db.health(this.bucket)) };
+  }
+
   /** Token hash -> {name, role, account}, or null. Revoked tokens never authenticate. */
   async authenticate(tokenSha256) {
     if (!/^[0-9a-f]{64}$/.test(tokenSha256 ?? "")) return null;

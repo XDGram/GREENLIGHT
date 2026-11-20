@@ -31,6 +31,15 @@ export function assertObjectPath(p) {
 }
 
 /**
+ * Request headers for the server-side key. A secret key (sb_secret_...) is not a
+ * JWT: Supabase accepts it only in the apikey header and refuses it as a Bearer
+ * token. A legacy service_role JWT goes in both headers.
+ */
+export function authHeaders(key) {
+  return String(key).startsWith("sb_") ? { apikey: key } : { apikey: key, authorization: `Bearer ${key}` };
+}
+
+/**
  * @param {object} p
  * @param {string} p.url                Supabase project URL, https://<ref>.supabase.co
  * @param {string} p.serviceRoleKey     server-side secret; never sent anywhere else
@@ -50,7 +59,7 @@ export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) =
   }
   if (typeof serviceRoleKey !== "string" || serviceRoleKey.length < 20) throw new Error("SUPABASE_SERVICE_ROLE_KEY is missing");
   const root = base.href.replace(/\/+$/, "");
-  const auth = { apikey: serviceRoleKey, authorization: `Bearer ${serviceRoleKey}` };
+  const auth = authHeaders(serviceRoleKey);
   const scrub = (s) => String(s ?? "").split(serviceRoleKey).join("REDACTED");
 
   async function request(path, init, what) {
@@ -88,6 +97,30 @@ export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) =
         throw new GreenlightError(code, code === "internal_error" ? `Database error in ${fn}: ${message}` : `${message.charAt(0).toUpperCase()}${message.slice(1)}.`);
       }
       return body;
+    },
+
+    /**
+     * Readiness: the key is accepted, greenlight_api is exposed and its RPCs run as
+     * service_role, and the evidence bucket exists and is private. Never throws;
+     * the result carries codes only (no URLs, keys or object paths).
+     */
+    async health(bucket) {
+      const out = { ok: false, database: "unknown", storage: "unknown" };
+      try {
+        const r = await this.rpc("greenlight_authenticate", { p_token_sha256: "0".repeat(64) });
+        out.database = r === null ? "ok" : "unexpected_response";
+      } catch (err) {
+        out.database = err?.code === "server_not_configured" ? "schema_not_exposed" : /HTTP 401|Invalid API key|permission denied/i.test(err?.message ?? "") ? "unauthorized" : "unreachable";
+      }
+      try {
+        const res = await request(`/storage/v1/bucket/${encodeURIComponent(bucket)}`, { method: "GET", headers: { ...auth, accept: "application/json" } }, "storage bucket check");
+        const b = res.ok ? await res.json().catch(() => null) : null;
+        out.storage = !res.ok ? (res.status === 401 || res.status === 403 ? "unauthorized" : "bucket_missing") : b?.public === false ? "ok" : "bucket_public";
+      } catch {
+        out.storage = "unreachable";
+      }
+      out.ok = out.database === "ok" && out.storage === "ok";
+      return out;
     },
 
     storage: {

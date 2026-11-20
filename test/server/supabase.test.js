@@ -428,3 +428,45 @@ test("if greenlight_api is not exposed in the Data API, the server reports exact
   assert.throws(() => createSupabaseClient({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, schema: "public" }), /never public/);
   assert.ok(fake.calls.every((c) => c.profile === "greenlight_api"), "every RPC targets greenlight_api");
 });
+
+// ---------------------------------------------------------------- readiness and key formats
+
+test("readiness: /v1/ready is 200 with database and private bucket ok; liveness stays separate", async () => {
+  const { fake } = await newFake();
+  const h = await instance(fake);
+  const r = await h.call("GET", "/v1/ready", { token: null });
+  assert.deepEqual([r.status, r.body], [200, { schema: "greenlight.ready/v1", ok: true, store: "supabase", database: "ok", storage: "ok" }]);
+  assert.equal((await h.call("GET", "/v1/health", { token: null })).status, 200);
+});
+
+test("readiness reports wrong key, public bucket, missing bucket and unexposed schema as codes, never details", async () => {
+  const { fake } = await newFake();
+  const bad = new SupabaseStore({ url: fake.url, serviceRoleKey: `wrong-key-${"x".repeat(30)}`, fetchImpl: fake.fetch });
+  assert.deepEqual(await bad.health(), { store: "supabase", ok: false, database: "unauthorized", storage: "unauthorized" });
+  const missing = new SupabaseStore({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, fetchImpl: fake.fetch, bucket: "no-such-bucket" });
+  assert.deepEqual(await missing.health(), { store: "supabase", ok: false, database: "ok", storage: "bucket_missing" });
+  await fake.sql("update storage.buckets set public = true where id = 'greenlight-evidence'");
+  const pub = new SupabaseStore({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, fetchImpl: fake.fetch });
+  assert.equal((await pub.health()).storage, "bucket_public");
+  const down = new SupabaseStore({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, fetchImpl: async () => { throw new Error(`connect ECONNREFUSED ${fake.serviceRoleKey}`); } });
+  const d = await down.health();
+  assert.deepEqual([d.ok, d.database, d.storage], [false, "unreachable", "unreachable"]);
+  assert.ok(!JSON.stringify(d).includes(fake.serviceRoleKey));
+
+  const hidden = await createFakeSupabase({ exposedSchemas: ["public", "graphql_public"] });
+  fakes.push(hidden);
+  const hs = new SupabaseStore({ url: hidden.url, serviceRoleKey: hidden.serviceRoleKey, fetchImpl: hidden.fetch });
+  assert.equal((await hs.health()).database, "schema_not_exposed");
+});
+
+test("an sb_secret_ key is sent only in the apikey header (it is not a JWT); a legacy JWT key in both", async () => {
+  const key = `sb_secret_${"k".repeat(22)}_abcdefgh`;
+  const fake = await createFakeSupabase({ serviceRoleKey: key });
+  fakes.push(fake);
+  const seen = [];
+  const store = new SupabaseStore({ url: fake.url, serviceRoleKey: key, fetchImpl: (u, init) => { seen.push(init.headers); return fake.fetch(u, init); } });
+  assert.equal((await store.health()).ok, true);
+  assert.ok(seen.every((hd) => hd.apikey === key && !("authorization" in hd)));
+  const { authHeaders } = await import("../../src/server/supabase/client.js");
+  assert.deepEqual(authHeaders("eyJhbGciOiJIUzI1NiJ9.x.y"), { apikey: "eyJhbGciOiJIUzI1NiJ9.x.y", authorization: "Bearer eyJhbGciOiJIUzI1NiJ9.x.y" });
+});

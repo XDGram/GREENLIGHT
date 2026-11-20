@@ -5,7 +5,7 @@
 // tests only and is refused here. It needs Chrome and an authenticated kane-cli
 // on this machine, and must not run as a serverless function (brief §13).
 
-import { loadConfig, createServerContext, startServer } from "../src/server/index.js";
+import { loadConfig, createServerContext, createStore, startServer } from "../src/server/index.js";
 
 const log = (entry) => process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
 
@@ -20,7 +20,21 @@ if (config.store !== "supabase") {
   process.stderr.write("greenlight-server: production persistence is Supabase; set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. The file store is for tests only.\n");
   process.exit(2);
 }
-const { store, jobs, deps } = await createServerContext({ config, log });
+// Fail fast on a wrong key, an unexposed schema or a missing/public bucket; retry
+// only while Supabase is unreachable (network blips during a restart).
+const store = createStore(config);
+let ready;
+for (let attempt = 1; ; attempt++) {
+  ready = await store.health();
+  if (ready.ok || ready.database !== "unreachable" && ready.storage !== "unreachable" || attempt >= 5) break;
+  log({ event: "supabase_unreachable", attempt });
+  await new Promise((r) => setTimeout(r, 2000 * attempt));
+}
+if (!ready.ok) {
+  log({ event: "not_ready", database: ready.database, storage: ready.storage, help: "docs/SUPABASE.md#troubleshooting" });
+  process.exit(2);
+}
+const { jobs, deps } = await createServerContext({ config, log, store });
 const server = await startServer({ config, store, jobs, now: deps.now, log });
 log({ event: "listening", host: config.host, port: server.address().port, store: config.store, supabase: config.supabase.url, bucket: config.supabase.bucket });
 

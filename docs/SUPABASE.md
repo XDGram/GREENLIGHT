@@ -42,9 +42,15 @@ All three run unchanged in the test suite on real PostgreSQL (PGlite), next to a
 | Variable | Value |
 |---|---|
 | `SUPABASE_URL` | `https://<project-ref>.supabase.co` (https only) |
-| `SUPABASE_SERVICE_ROLE_KEY` | the project's service-role key (Project Settings → API). **A secret, server-side only.** Never commit it, never give it to a frontend, never put it in `NEXT_PUBLIC_*`/`VITE_*` or similar variables |
+| `SUPABASE_SERVICE_ROLE_KEY` | the project's server-side key: a **secret key** `sb_secret_…` (Project Settings → API Keys, recommended) or the legacy `service_role` JWT. **A secret, server-side only.** Never commit it, never give it to a frontend, never put it in `NEXT_PUBLIC_*`/`VITE_*` or similar variables |
 | `GREENLIGHT_EVIDENCE_BUCKET` | optional, default `greenlight-evidence` |
 | `GREENLIGHT_WORK_DIR` | optional local scratch for Kane workspaces and in-flight evidence, default `<tmp>/greenlight-work` |
+
+Header handling follows the key type: a `sb_secret_…` key is not a JWT, so it is sent only in the `apikey`
+header (Supabase rejects it as a `Bearer` token); a legacy `service_role` JWT is sent in `apikey` and
+`Authorization`. Where an egress proxy injects the key into the `apikey` header for the Supabase host, set
+`SUPABASE_SERVICE_ROLE_KEY` to a placeholder of the same form (for example `sb_secret_placeholder…`): the
+proxy replaces it and the real key never enters the process.
 
 The key is stored as a non-enumerable config property, so serialised config, logs and errors never contain it. Errors from Supabase are scrubbed of it. The frontend never talks to Supabase directly: it uses the Greenlight API with Greenlight tokens. The anon key is not needed, and it has no access to anything Greenlight stores.
 
@@ -117,6 +123,48 @@ greenlight-migrate-to-supabase --from /var/lib/greenlight --apply    # imports; 
 - **Never overwritten:** anything already in Supabase is compared. Identical items are skipped; different ones are reported as `conflicts` and left untouched, and nothing dependent is attached to a conflicting project or version.
 - **Never dropped silently:** items that cannot be imported are listed under `refused` with a reason (record hash mismatch, missing evidence, unfinished job, no job). The source directory is only read. Re-running is safe and idempotent.
 - **Exit code:** 1 when there are conflicts or refusals.
+
+## Health, readiness and startup
+
+- `GET /v1/health`: liveness, no dependencies.
+- `GET /v1/ready`: readiness. Calls `greenlight_authenticate` with an all-zero hash (proves the key is
+  accepted, `greenlight_api` is exposed and its RPCs run as `service_role`) and reads the bucket's metadata
+  (exists and `public = false`). `200` when both are `ok`, else `503`. The body holds codes only.
+- `bin/greenlight-server.js` runs the same check before listening. It retries only while Supabase is
+  unreachable (5 attempts, backoff) and exits with code 2 and a `not_ready` log line otherwise. It refuses
+  to start on the file store.
+
+### Troubleshooting
+
+| `database` / `storage` code | Cause and fix |
+|---|---|
+| `unauthorized` | Wrong or revoked key, or a `sb_secret_` key sent as a Bearer token by another client. Use the project's secret key |
+| `schema_not_exposed` | Add `greenlight_api` to Project Settings → API → Exposed schemas |
+| `unreachable` | Network or DNS to `<ref>.supabase.co`; the host must be allowed by the server's egress rules |
+| `bucket_missing` | Apply `20261119140200_greenlight_evidence_bucket.sql`, or fix `GREENLIGHT_EVIDENCE_BUCKET` |
+| `bucket_public` | Someone made the bucket public: set it private again before serving |
+
+## Testing against the real project
+
+`test/server/supabase-live.test.js` runs the real server (HTTP API, job runner, certification pipeline,
+`SupabaseStore`) against the real RPCs and the real private bucket. Kane, the credit balance, the
+evidence validator and the deployment check are fakes, so no Kane run and no credits. It is skipped unless
+the key is present:
+
+```sh
+GREENLIGHT_LIVE_SUPABASE=1 SUPABASE_URL=https://<ref>.supabase.co SUPABASE_SERVICE_ROLE_KEY=<secret key> npm run test:live
+```
+
+It writes only to the dedicated accounts `greenlight-e2e-a` and `greenlight-e2e-b` (rows are permanent: the
+tables are immutable), creates a new project per run, issues fresh tokens and revokes them at the end, and
+stores only a **failed** run (`certified: false`): it never creates a certification. It covers readiness,
+token authentication, roles, account isolation, projects, versions, write-once approvals, a job through to
+its record and run, evidence upload, download, SHA-256 verification and refused overwrites, the public
+view's redaction, a restart (new store and job runner, `recover()`), refused changes to finished jobs and
+records, and revocation.
+
+Database-level verification already done on Ceaser (2026-11-20) without the key: see
+[baselines/greenlight-e2e-verification.md](baselines/greenlight-e2e-verification.md).
 
 ## Operational notes
 

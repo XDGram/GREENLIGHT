@@ -2,7 +2,8 @@
 // See docs/API.md for the full contract.
 //
 // Authenticated (Authorization: Bearer <token>; token scoped to one account):
-//   GET  /v1/health                                         (no auth)
+//   GET  /v1/health                                         (no auth) liveness
+//   GET  /v1/ready                                          (no auth) readiness: database + evidence bucket, 503 if not ready
 //   POST /v1/projects                                       propose   {name, url}
 //   GET  /v1/projects                                       read
 //   GET  /v1/projects/:projectId                            read
@@ -106,6 +107,18 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
 
   const routes = [
     ["GET", /^\/v1\/health$/, null, async () => [200, { ok: true, schema: "greenlight.health/v1" }]],
+
+    // Readiness: database API and private evidence bucket reachable with the server key.
+    // Codes only; never URLs, keys, bucket paths or error text.
+    ["GET", /^\/v1\/ready$/, null, async () => {
+      let h;
+      try {
+        h = await store.health();
+      } catch {
+        h = { ok: false, database: "unreachable", storage: "unreachable" };
+      }
+      return [h.ok ? 200 : 503, { schema: "greenlight.ready/v1", ok: Boolean(h.ok), store: store.kind ?? h.store ?? null, database: h.database, storage: h.storage }];
+    }],
 
     ["POST", /^\/v1\/projects$/, "propose", async ({ principal, body }) => {
       const name = typeof body.name === "string" ? body.name.trim() : "";

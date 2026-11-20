@@ -20,7 +20,8 @@
 
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, rename, readdir, open } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, readdir, open, access } from "node:fs/promises";
+import { constants } from "node:fs";
 import { GreenlightError } from "../cli/errors.js";
 import { describeRun, runFiles } from "./run-archive.js";
 
@@ -97,6 +98,17 @@ export class FileStore {
   }
 
   /** Tokens live in GREENLIGHT_API_TOKENS for this store; there is no token table. */
+  /** Test-only store: ready when its data directory is writable. */
+  async health() {
+    try {
+      await mkdir(this.dir, { recursive: true });
+      await access(this.dir, constants.W_OK);
+      return { store: "file", ok: true, database: "ok", storage: "ok" };
+    } catch {
+      return { store: "file", ok: false, database: "unreachable", storage: "unreachable" };
+    }
+  }
+
   async authenticate() {
     return null;
   }

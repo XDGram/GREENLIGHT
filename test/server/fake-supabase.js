@@ -122,7 +122,10 @@ export async function createFakeSupabase({
     const h = Object.fromEntries(Object.entries(init.headers ?? {}).map(([k, v]) => [k.toLowerCase(), v]));
     if (`${u.protocol}//${u.host}` !== url) throw new Error(`fake supabase: unexpected host ${u.host}`);
     // Which database role the request runs as, exactly as Supabase decides it from the key.
-    const role = h.apikey === serviceRoleKey && h.authorization === `Bearer ${serviceRoleKey}` ? "service_role" : h.apikey === anonKey ? "anon" : null;
+    // A legacy JWT key is sent in apikey and Authorization; an sb_ secret key only in apikey
+    // (Supabase refuses an sb_ key that is not identical in both headers).
+    const keyOk = serviceRoleKey.startsWith("sb_") ? h.apikey === serviceRoleKey && (h.authorization === undefined || h.authorization === `Bearer ${serviceRoleKey}`) : h.apikey === serviceRoleKey && h.authorization === `Bearer ${serviceRoleKey}`;
+    const role = keyOk ? "service_role" : h.apikey === anonKey ? "anon" : null;
     calls.push({ method: init.method ?? "GET", path: u.pathname, role, profile: h["content-profile"] ?? null });
     if (!role) return json(401, { code: "PGRST301", message: "invalid api key" });
     if (u.pathname.startsWith("/rest/v1/rpc/")) {
@@ -131,6 +134,11 @@ export async function createFakeSupabase({
     }
     if (role !== "service_role") return json(403, { statusCode: "403", error: "Unauthorized", message: "no storage policy allows this" });
 
+    const bk = /^\/storage\/v1\/bucket\/([^/]+)$/.exec(u.pathname);
+    if (bk && (init.method ?? "GET") === "GET") {
+      const b = await db.query("select id, name, public from storage.buckets where id = $1", [decodeURIComponent(bk[1])]);
+      return b.rows.length ? json(200, b.rows[0]) : json(400, { statusCode: "404", error: "Bucket not found", message: "Bucket not found" });
+    }
     const up = /^\/storage\/v1\/object\/([^/]+)\/(.+)$/.exec(u.pathname);
     const down = /^\/storage\/v1\/object\/authenticated\/([^/]+)\/(.+)$/.exec(u.pathname);
     if (down && (init.method ?? "GET") === "GET") {
