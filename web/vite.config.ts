@@ -12,6 +12,8 @@ export default defineConfig({
     outDir: fileURLToPath(new URL("../public/app", import.meta.url)),
     emptyOutDir: true,
     assetsDir: "assets",
+    // Never inline assets as data: URIs: the /app CSP allows fonts and images from this origin only.
+    assetsInlineLimit: 0,
     sourcemap: false,
     target: "es2020",
   },

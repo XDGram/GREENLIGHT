@@ -290,6 +290,7 @@ test("vercel.json routes /v1 to the function, bundles the files the sandbox need
   const vite = readFileSync(path.join(ROOT, "web/vite.config.ts"), "utf8");
   assert.match(vite, /outDir: fileURLToPath\(new URL\("\.\.\/public\/app", import\.meta\.url\)\)/);
   assert.match(vite, /root: fileURLToPath\(new URL\("\.", import\.meta\.url\)\)/, "the build reads only web/");
+  assert.match(vite, /assetsInlineLimit: 0,/, "no data: URIs, which the /app CSP would block");
   assert.equal(v.buildCommand, "npm run build");
   assert.equal(v.cleanUrls ?? false, false);
   assert.equal(v.routes, undefined, "no legacy routes that could expose files");
