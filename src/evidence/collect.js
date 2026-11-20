@@ -217,7 +217,10 @@ async function collectPack({ runResult, kaneCwd, runDir, validator }) {
     return { ...base, executionId, status: EVIDENCE_STATUS.EXECUTION_ID_MISMATCH };
   }
 
-  const source = path.join(kaneCwd, ".testmuai", "evidence", `${executionId}.evidence`);
+  // Local runs write <id>.evidence; with --remote Kane copies the grid's pack to execution-<id>.evidence.
+  let source = path.join(kaneCwd, ".testmuai", "evidence", `${executionId}.evidence`);
+  const remoteSource = path.join(kaneCwd, ".testmuai", "evidence", `execution-${executionId}.evidence`);
+  if (!(await lstat(source).then(() => true, () => false)) && (await lstat(remoteSource).then(() => true, () => false))) source = remoteSource;
   const rec = { ...base, executionId, source };
 
   let st;

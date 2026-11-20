@@ -40,14 +40,15 @@ function kaneVersion(bin, timeoutMs) {
 }
 
 /** {ok, kane, chrome} with codes only (paths are not exposed by the API). */
-export async function checkRuntime({ kaneBin, env = process.env, timeoutMs = 20_000 } = {}) {
+export async function checkRuntime({ kaneBin, env = process.env, timeoutMs = 20_000, requireChrome = true } = {}) {
   const k = await kaneVersion(kaneBin, timeoutMs);
-  const chrome = findChrome(env);
+  // With --remote hyper the browser runs on TestMu HyperExecute: no local Chrome is needed.
+  const chrome = requireChrome ? findChrome(env) : null;
   return {
-    ok: k.ok && chrome !== null,
+    ok: k.ok && (!requireChrome || chrome !== null),
     kane: k.ok ? "ok" : k.reason,
     kaneVersion: k.version ?? null,
-    chrome: chrome ? "ok" : "chrome_not_found",
+    chrome: !requireChrome ? "remote" : chrome ? "ok" : "chrome_not_found",
     chromePath: chrome,
   };
 }

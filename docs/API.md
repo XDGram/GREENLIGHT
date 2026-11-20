@@ -236,6 +236,8 @@ Every command accepts `--json` and then writes exactly one document to stdout:
 | `job_limit_reached` | 429 | 4 | Wait for running verifications to finish. |
 | `server_not_configured` | 503 | 4 | Set GREENLIGHT_API_URL and GREENLIGHT_API_TOKEN (CLI) or the server's environment. |
 | `server_unreachable` | 503 | 3 | Check GREENLIGHT_API_URL and the network. |
+| `sandbox_dispatch_failed` | 503 | 3 | The job's Vercel Sandbox could not be started; check the Vercel project's Sandbox access and limits, then submit again. |
+| `sandbox_setup_failed` | 503 | 3 | Kane could not be installed or logged in inside the Vercel Sandbox; check the Kane credentials and the remote-execution plugin, then submit again. |
 | `certification_failed` | 200 | 1 | The certification run did not pass; the record is kept as history. |
 | `internal_error` | 500 | 3 | Retry; if it persists, report it with the run id. |
 

@@ -119,7 +119,7 @@ export async function runCertification({ store, job, config, deps }) {
   const runId = certificationRunId(job.id);
   const startedAt = deps.now().toISOString();
   const runResult = await deps.runKane({
-    args: buildTestrunArgs({ testFiles: files, startUrl: url, runName: runId }),
+    args: buildTestrunArgs({ testFiles: files, startUrl: url, runName: runId, remote: config.kaneRemote ?? null }),
     cwd: testsDir,
     timeoutMs: config.kaneTimeoutMs,
   });

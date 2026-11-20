@@ -35,7 +35,7 @@ if (!ready.ok) {
   process.exit(2);
 }
 // The execution host must have the pinned Kane CLI and a Chrome it can launch (brief §13).
-const runtime = await checkRuntime({ kaneBin: config.kaneBin });
+const runtime = await checkRuntime({ kaneBin: config.kaneBin, requireChrome: !config.kaneRemote });
 if (!runtime.ok) {
   log({ event: "not_ready", kane: runtime.kane, kaneVersion: runtime.kaneVersion, chrome: runtime.chrome, help: "Install @testmuai/kane-cli@0.10.6 and Chrome/Chromium (see Dockerfile), or set GREENLIGHT_KANE_BIN / KANE_CLI_CHROME_PATH" });
   process.exit(2);

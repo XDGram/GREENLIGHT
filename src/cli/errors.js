@@ -54,6 +54,8 @@ export const ERRORS = Object.freeze({
   job_limit_reached: E(EXIT.BLOCKED, 429, "Wait for running verifications to finish."),
   server_not_configured: E(EXIT.BLOCKED, 503, "Set GREENLIGHT_API_URL and GREENLIGHT_API_TOKEN (CLI) or the server's environment."),
   server_unreachable: E(EXIT.COULDNT_VERIFY, 503, "Check GREENLIGHT_API_URL and the network."),
+  sandbox_dispatch_failed: E(EXIT.COULDNT_VERIFY, 503, "The job's Vercel Sandbox could not be started; check the Vercel project's Sandbox access and limits, then submit again."),
+  sandbox_setup_failed: E(EXIT.COULDNT_VERIFY, 503, "Kane could not be installed or logged in inside the Vercel Sandbox; check the Kane credentials and the remote-execution plugin, then submit again."),
   certification_failed: E(EXIT.FAILED, 200, "The certification run did not pass; the record is kept as history."),
   internal_error: E(EXIT.COULDNT_VERIFY, 500, "Retry; if it persists, report it with the run id."),
 });

@@ -56,3 +56,44 @@ start (`recover()`), and nothing is re-run.
 Not verifiable without a deployment (check on the first one): Kane's authenticated session in
 the volume (`kane-cli balance` inside the container), and that Chromium launches under the
 host's container sandbox settings.
+
+## Alternative: Vercel Functions + Vercel Sandbox (no persistent server)
+
+`GREENLIGHT_EXECUTION=sandbox` keeps everything on Vercel and Supabase:
+
+- `api/index.js` (Vercel Function, `vercel.json` rewrites `/v1/*` to it) serves the unchanged API.
+  A certification is persisted as before, then handed to a **new Vercel Sandbox per job**
+  (`src/server/sandbox.js`, `@vercel/sandbox`); the function answers once the sandbox's command
+  is started and never runs Kane itself.
+- In the sandbox (`node22`, 2 vCPUs, lifetime = Kane timeout + deployment timeout + 15 min, or
+  `GREENLIGHT_SANDBOX_TIMEOUT_MINUTES`), `run-job.sh` installs `@testmuai/kane-cli@0.10.6`,
+  installs Kane's `remote-execution` plugin, logs Kane in with basic auth, drops the credentials,
+  and runs `bin/greenlight-worker.js <jobId>`: the same `JobRunner.execute` -> `runCertification`
+  pipeline, storing the record and evidence in Supabase.
+- Kane runs with `--remote hyper` (TestMu HyperExecute runs the browser; no Chrome in the
+  sandbox), still with `--local` (no Test Manager uploads) and `--no-adaptive-heal`. The sealed
+  evidence pack Kane copies back (`execution-<id>.evidence`) goes through the normal checks; if
+  it is missing or not a sealed pack, the run is not certified.
+- If setup fails (install, plugin, login), the job is marked `failed` with `sandbox_setup_failed`
+  and Kane does not run. If the sandbox cannot start, `sandbox_dispatch_failed`. A job whose
+  sandbox disappeared is settled as `interrupted` once it is older than a sandbox's lifetime.
+- The sandbox is not stopped early: it ends at its timeout (billed until then).
+
+Vercel project environment variables (Production; mark the secrets as sensitive):
+
+| Variable | Value |
+|---|---|
+| `GREENLIGHT_EXECUTION` | `sandbox` |
+| `GREENLIGHT_KANE_REMOTE` | `hyper` |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (secret) | as for the container |
+| `GREENLIGHT_KANE_USERNAME`, `GREENLIGHT_KANE_ACCESS_KEY` (secret) | TestMu basic-auth credentials for Kane |
+| `GREENLIGHT_KANE_PROJECT_ID`, `GREENLIGHT_KANE_FOLDER_ID` | optional: skip Kane's project/folder picker at login |
+| `GREENLIGHT_PUBLIC_BASE_URL` | the deployment's public URL |
+
+The function authenticates to Vercel Sandbox with the deployment's OIDC token automatically.
+The secrets reach the sandbox only as the detached command's environment, never in files,
+sandbox settings, logs or job documents.
+
+Not verifiable without a real run (credits): that `kane-cli login --username/--access-key` and
+`plugin install remote-execution` complete non-interactively in the sandbox, that `--remote hyper`
+works together with `--local`, the exact file Kane copies back, and HyperExecute's credit cost.

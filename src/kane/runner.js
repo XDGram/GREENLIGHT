@@ -26,6 +26,7 @@ export const DEFAULT_KILL_GRACE_MS = 15 * 1000;
 
 // Kane options that write to Test Manager / the cloud, re-author approved tests,
 // or move execution off this machine. Greenlight never passes them.
+export const REMOTE_BACKEND = "hyper";
 export const FORBIDDEN_KANE_ARGS = Object.freeze(["--push", "--author", "--remote", "--code-export", "--evidence-publish"]);
 
 /**
@@ -41,6 +42,7 @@ export function buildTestrunArgs({
   headless = true,
   local = true,
   noAdaptiveHeal = true,
+  remote = null,
   extraArgs = [],
 }) {
   if (!Array.isArray(testFiles) || testFiles.length === 0) {
@@ -54,12 +56,17 @@ export function buildTestrunArgs({
   if (local !== true) throw new TypeError("buildTestrunArgs: --local is mandatory (Test Manager uploads are never enabled)");
   if (noAdaptiveHeal !== true) throw new TypeError("buildTestrunArgs: --no-adaptive-heal is mandatory (approved tests must not be rewritten)");
   if (!Array.isArray(extraArgs) || extraArgs.some((a) => typeof a !== "string")) throw new TypeError("buildTestrunArgs: extraArgs must be strings");
+  // Remote execution only through this option, only on TestMu HyperExecute ("hyper"), and still
+  // with --local and --no-adaptive-heal: the browser runs on the grid, nothing is uploaded to
+  // Test Manager, and the sealed evidence pack comes back to this machine.
+  if (remote !== null && remote !== REMOTE_BACKEND) throw new TypeError(`buildTestrunArgs: the only remote backend is ${REMOTE_BACKEND}`);
   const forbidden = extraArgs.filter((a) => FORBIDDEN_KANE_ARGS.includes(a.split("=")[0]));
   if (forbidden.length) throw new TypeError(`buildTestrunArgs: forbidden Kane option(s): ${forbidden.join(", ")}`);
   const args = ["testrun", "run", ...testFiles, "--agent"];
-  if (headless) args.push("--headless");
+  if (headless && !remote) args.push("--headless");
   if (noAdaptiveHeal) args.push("--no-adaptive-heal");
   if (local) args.push("--local");
+  if (remote) args.push("--remote", remote);
   if (startUrl !== undefined) {
     let url;
     try {

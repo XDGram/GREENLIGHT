@@ -21,5 +21,8 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13"
+  },
+  "dependencies": {
+    "@vercel/sandbox": "3.9.1"
   }
 }

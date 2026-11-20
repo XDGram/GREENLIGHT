@@ -26,6 +26,11 @@
 //   GREENLIGHT_KANE_TIMEOUT_MINUTES  default 30
 //   GREENLIGHT_DEPLOY_TIMEOUT_SECONDS default 600
 //   GREENLIGHT_KANE_BIN              Kane CLI binary, default kane-cli
+//   GREENLIGHT_KANE_REMOTE           "hyper": Kane runs the browser on TestMu HyperExecute (--remote hyper)
+//   GREENLIGHT_EXECUTION             "local" (default: jobs run in this process) | "sandbox" (each job
+//                                    runs in its own Vercel Sandbox; the API can then run on Vercel
+//                                    Functions). Sandbox mode needs GREENLIGHT_KANE_REMOTE=hyper and
+//                                    GREENLIGHT_KANE_USERNAME / GREENLIGHT_KANE_ACCESS_KEY (secrets).
 
 import path from "node:path";
 import os from "node:os";
@@ -105,7 +110,16 @@ export function loadConfig(env = process.env) {
       throw new Error("each API token needs name, role (owner|agent), account and sha256 (hex SHA-256 of the token; never the token itself)");
     }
   }
-  return Object.freeze({
+  const kaneRemote = env.GREENLIGHT_KANE_REMOTE || null;
+  if (kaneRemote !== null && kaneRemote !== "hyper") throw new Error('GREENLIGHT_KANE_REMOTE must be "hyper" (TestMu HyperExecute) or unset');
+  const execution = env.GREENLIGHT_EXECUTION || "local";
+  if (!["local", "sandbox"].includes(execution)) throw new Error('GREENLIGHT_EXECUTION must be "local" or "sandbox"');
+  if (execution === "sandbox") {
+    if (!supabase) throw new Error("sandbox execution needs Supabase persistence");
+    if (kaneRemote !== "hyper") throw new Error("sandbox execution needs GREENLIGHT_KANE_REMOTE=hyper (no Chrome in the sandbox)");
+    if (!env.GREENLIGHT_KANE_USERNAME || !env.GREENLIGHT_KANE_ACCESS_KEY) throw new Error("sandbox execution needs GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY");
+  }
+  const cfg = {
     store: supabase ? "supabase" : "file",
     supabase,
     dataDir,
@@ -123,8 +137,15 @@ export function loadConfig(env = process.env) {
     deployTimeoutMs: num(env.GREENLIGHT_DEPLOY_TIMEOUT_SECONDS, 600) * 1000,
     deployIntervalMs: 10_000,
     kaneBin: env.GREENLIGHT_KANE_BIN || "kane-cli",
+    kaneRemote,
+    execution,
     maxBodyBytes: 256 * 1024,
-  });
+  };
+  // Kane credentials (sandbox mode): non-enumerable like the Supabase key, never logged or serialised.
+  if (execution === "sandbox") {
+    Object.defineProperty(cfg, "kaneCredentials", { value: Object.freeze({ username: env.GREENLIGHT_KANE_USERNAME, accessKey: env.GREENLIGHT_KANE_ACCESS_KEY }), enumerable: false });
+  }
+  return Object.freeze(cfg);
 }
 
 /** SHA-256 hex of a well-formed bearer token, or null. */

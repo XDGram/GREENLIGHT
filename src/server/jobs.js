@@ -24,9 +24,11 @@ export class JobRunner {
    * already committed (crash between the record and the job update), the job is
    * completed from it; otherwise it is marked failed. Nothing is re-run.
    */
-  async recover() {
+  async recover({ olderThanMs = null } = {}) {
+    const cutoff = olderThanMs === null ? null : this.deps.now().getTime() - olderThanMs;
     for (const j of await this.store.listJobs({ statuses: [JOB_STATUS.QUEUED, JOB_STATUS.RUNNING] })) {
       if (j.status !== JOB_STATUS.RUNNING && j.status !== JOB_STATUS.QUEUED) continue;
+      if (cutoff !== null && Date.parse(j.createdAt) > cutoff) continue; // may still be running elsewhere
       const finishedAt = this.deps.now().toISOString();
       const record = j.status === JOB_STATUS.RUNNING ? await this.#recordForJob(j) : null;
       if (record) {
