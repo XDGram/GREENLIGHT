@@ -81,7 +81,10 @@ test("config: sandbox execution needs Supabase, remote hyper and Kane credential
   assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_REMOTE: "lambdatest" }), /must be "hyper"/);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir(), GREENLIGHT_EXECUTION: "sandbox", GREENLIGHT_KANE_REMOTE: "hyper", ...KANE }), /needs Supabase/);
   assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_EXECUTION: "lambda" }), /"local" or "sandbox"/);
-  assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_PUBLIC_BASE_URL: "" }), /GREENLIGHT_PUBLIC_BASE_URL/);
+  for (const bad of ["", "not a url", "http://greenlight.example.com", "https://localhost", "https://127.0.0.1", "https://10.0.0.5", "https://u:p@greenlight.example.com", "https://greenlight.example.com/?x=1", "https://greenlight.example.com/#f"]) {
+    assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_PUBLIC_BASE_URL: bad }), /GREENLIGHT_PUBLIC_BASE_URL/, bad);
+  }
+  assert.equal(loadConfig({ ...SANDBOX_ENV, GREENLIGHT_PUBLIC_BASE_URL: "https://greenlight.vercel.app" }).publicBaseUrl, "https://greenlight.vercel.app");
   assert.equal(loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir() }).execution, "local");
 });
 
@@ -316,6 +319,13 @@ test("the sandbox's signed 'job settled' report stops its sandbox; forged, early
   const stops = () => sbx.calls.filter((x) => x[0] === "stop").length;
   assert.equal((await report(c.body.id, "0".repeat(64))).status, 401, "forged signature");
   assert.equal((await report(c.body.id, finishedSignature(KEY, c.body.id))).status, 409, "the job is not finished yet");
+  // A signature is bound to one job: another project's (or any other) job id cannot reuse it.
+  const otherProject = await approvedProject(h.call);
+  const other = await h.call("POST", `/v1/projects/${otherProject}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 });
+  const o = await h.admin.rpc("greenlight_get_job", { p_id: other.body.id });
+  await h.admin.rpc("greenlight_put_job", { p_doc: { ...o, status: "failed", finishedAt: new Date().toISOString(), error: { code: "sandbox_setup_failed", message: "x", action: "y" } } });
+  assert.equal((await report(other.body.id, finishedSignature(KEY, c.body.id))).status, 401, "job A's signature cannot stop job B's sandbox");
+  assert.equal((await report(other.body.id, finishedSignature("another-key-entirely-0123456789", other.body.id))).status, 401, "a signature needs the server key");
   assert.equal((await report(`job_${"9".repeat(32)}`, finishedSignature(KEY, `job_${"9".repeat(32)}`))).status, 404);
   assert.equal(stops(), 0);
   const job = await h.admin.rpc("greenlight_get_job", { p_id: c.body.id });

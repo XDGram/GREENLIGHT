@@ -37,6 +37,7 @@
 import path from "node:path";
 import os from "node:os";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { isLocalOrPrivateHost } from "../deploy/host.js";
 
 /** Sandbox time reserved for installing Kane, logging in, and uploading evidence. */
 export const SANDBOX_OVERHEAD_MS = 10 * 60_000;
@@ -73,6 +74,22 @@ export function assertServerKey(key) {
     }
     if (role !== "service_role") throw new Error(`SUPABASE_SERVICE_ROLE_KEY is a JWT for role ${role ?? "unknown"}; the server needs the secret key (sb_secret_...) or the service_role key`);
   }
+}
+
+/**
+ * Sandbox mode: GREENLIGHT_PUBLIC_BASE_URL is where each sandbox reports its finished job, so it
+ * must be the public production origin: https, a public host, no credentials, query or fragment.
+ */
+export function assertPublicBaseUrl(value) {
+  let u;
+  try {
+    u = new URL(String(value ?? ""));
+  } catch {
+    throw new Error("sandbox execution needs GREENLIGHT_PUBLIC_BASE_URL (https production URL), where sandboxes report finished jobs");
+  }
+  if (u.protocol !== "https:") throw new Error("GREENLIGHT_PUBLIC_BASE_URL must use https");
+  if (u.username || u.password || u.search || u.hash) throw new Error("GREENLIGHT_PUBLIC_BASE_URL must not contain credentials, a query or a fragment");
+  if (isLocalOrPrivateHost(u.hostname)) throw new Error("GREENLIGHT_PUBLIC_BASE_URL must be a public host (sandboxes reach it over the internet)");
 }
 
 export const sha256Hex = (s) => createHash("sha256").update(String(s)).digest("hex");
@@ -124,7 +141,7 @@ export function loadConfig(env = process.env) {
     if (kaneRemote !== "hyper") throw new Error("sandbox execution needs GREENLIGHT_KANE_REMOTE=hyper (no Chrome in the sandbox)");
     if (!env.GREENLIGHT_KANE_USERNAME || !env.GREENLIGHT_KANE_ACCESS_KEY) throw new Error("sandbox execution needs GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY");
     // The sandbox reports "job settled" to this URL so the API can stop it (no Vercel credential inside).
-    if (!/^https:\/\//.test(env.GREENLIGHT_PUBLIC_BASE_URL ?? "")) throw new Error("sandbox execution needs GREENLIGHT_PUBLIC_BASE_URL (https), where sandboxes report finished jobs");
+    assertPublicBaseUrl(env.GREENLIGHT_PUBLIC_BASE_URL);
   }
   // Sandbox mode defaults fit Vercel Hobby: a sandbox lives at most 45 minutes there. The whole
   // job (setup + deployment wait + Kane + evidence upload) must fit inside the sandbox.
