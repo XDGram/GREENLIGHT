@@ -47,7 +47,8 @@ API, without a terminal. `greenlight publish` then accepts that approval for exa
 ## Setup (once)
 
 1. In Vercel, create a **Sign in with Vercel** app for the team:
-   - Redirect URI: `https://greenlight-api-xi.vercel.app/approve/callback`
+   - Authorization Callback URL: `https://greenlight-api-xi.vercel.app/api/auth/callback` (selecting the
+     `greenlight-api` project in the callback dropdown registers its domains at this path)
    - Scopes: `openid email profile`
    - Trusted issuer (client authentication with the deployment's OIDC token):
      issuer `https://oidc.vercel.com/timeb7208-5361s-projects`,

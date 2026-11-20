@@ -28,6 +28,12 @@ export const VERCEL_ISSUER = "https://vercel.com";
 export const VERCEL_AUTHORIZE_URL = "https://vercel.com/oauth/authorize";
 export const VERCEL_TOKEN_URL = "https://api.vercel.com/login/oauth/token";
 export const VERCEL_JWKS_URL = "https://vercel.com/.well-known/jwks";
+/**
+ * The OAuth callback path. Vercel's project-based Authorization Callback URL for a Sign in with
+ * Vercel app is <deployment domain>/api/auth/callback, so the callback lives exactly there. The
+ * same value is sent as redirect_uri in the authorization request and in the token exchange.
+ */
+export const CALLBACK_PATH = "/api/auth/callback";
 
 const OAUTH_COOKIE = "__Host-gl_oauth";
 const SESSION_COOKIE = "__Host-gl_session";
@@ -186,7 +192,7 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
   const origin = base ? new URL(base).origin : null;
   const key = web ? createHmac("sha256", String(config.supabase?.serviceRoleKey ?? "")).update("greenlight-web-approval-v1").digest() : null;
   const jwks = getJwks ?? createJwksCache({ fetchImpl, now: () => now().getTime() });
-  const redirectUri = base ? `${base}/approve/callback` : null;
+  const redirectUri = base ? `${base}${CALLBACK_PATH}` : null;
 
   const csrfFor = (sid, action, projectId, version, hash) => createHmac("sha256", key).update(`csrf|${sid}|${action}|${projectId}|${version}|${hash}`).digest("base64url");
 
@@ -355,14 +361,14 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
   }
 
   return async function handle(req, res, url) {
-    if (url.pathname !== "/approve" && !url.pathname.startsWith("/approve/")) return false;
+    if (url.pathname !== CALLBACK_PATH && url.pathname !== "/approve" && !url.pathname.startsWith("/approve/")) return false;
     if (!web) {
       send(res, 404, "<h1>Not found</h1>");
       return true;
     }
     try {
       if (req.method === "GET" && url.pathname === "/approve/login") await login(req, res, url);
-      else if (req.method === "GET" && url.pathname === "/approve/callback") await callback(req, res, url);
+      else if (req.method === "GET" && url.pathname === CALLBACK_PATH) await callback(req, res, url);
       else {
         const p = PAGE.exec(url.pathname);
         const a = ACTION.exec(url.pathname);

@@ -63,7 +63,7 @@ function fakeVercel() {
       const entry = state.challenges.get(p.get("code"));
       const pkceOk = entry && createHash("sha256").update(p.get("code_verifier") ?? "").digest("base64url") === entry.challenge;
       const authOk = p.get("client_assertion_type") === "urn:vercel:params:oauth:client-assertion-type:oidc-bearer" && p.get("client_assertion") === "deployment-oidc-token";
-      if (state.status !== 200 || !pkceOk || !authOk || p.get("client_id") !== CLIENT_ID || p.get("redirect_uri") !== `${BASE}/approve/callback`) {
+      if (state.status !== 200 || !pkceOk || !authOk || p.get("client_id") !== CLIENT_ID || p.get("redirect_uri") !== `${BASE}/api/auth/callback`) {
         return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
       }
       return new Response(JSON.stringify({ id_token: state.mint(entry.nonce), access_token: "x" }), { status: 200 });
@@ -143,7 +143,7 @@ function browser(h) {
     const q = Object.fromEntries(auth.searchParams);
     const code = `code-${Math.random().toString(36).slice(2)}`;
     h.vercel.state.challenges.set(code, { challenge: q.code_challenge, nonce: q.nonce });
-    const cb = await go("GET", `/approve/callback?code=${code}&state=${encodeURIComponent(q.state)}`, { headers: callbackHeaders });
+    const cb = await go("GET", `/api/auth/callback?code=${code}&state=${encodeURIComponent(q.state)}`, { headers: callbackHeaders });
     return { first, login, auth, q, cb, code };
   };
   return { go, signIn, jar };
@@ -204,7 +204,7 @@ test("full browser approval: verified identity, complete review page, two separa
   const { auth, q, cb } = await b.signIn(pagePath);
   // Sign-in request: PKCE S256, state, nonce, this app, the configured public callback (not the Host header).
   assert.equal(auth.origin + auth.pathname, "https://vercel.com/oauth/authorize");
-  assert.deepEqual([q.client_id, q.redirect_uri, q.response_type, q.code_challenge_method, q.scope], [CLIENT_ID, `${BASE}/approve/callback`, "code", "S256", "openid email profile"]);
+  assert.deepEqual([q.client_id, q.redirect_uri, q.response_type, q.code_challenge_method, q.scope], [CLIENT_ID, `${BASE}/api/auth/callback`, "code", "S256", "openid email profile"]);
   assert.ok(q.state.length >= 40 && q.nonce.length >= 40 && q.code_challenge.length >= 40);
   assert.deepEqual([cb.status, cb.location], [302, pagePath]);
   assert.ok(cb.setCookie.some((c) => /^__Host-gl_session=.+; Path=\/; Secure; HttpOnly; SameSite=Lax/.test(c)));
@@ -260,13 +260,13 @@ test("identity cannot be spoofed: no session, forged headers, tampered cookies, 
   assert.equal((await anon.go("GET", pagePath, { headers: { cookie: `__Host-gl_session=${forged}` } })).status, 302);
 
   // Callback without the sign-in's state cookie, or with another state.
-  assert.equal((await anon.go("GET", "/approve/callback?code=c&state=s")).status, 400);
+  assert.equal((await anon.go("GET", "/api/auth/callback?code=c&state=s")).status, 400);
   const b = browser(h);
   const first = await b.go("GET", pagePath);
   const login = await b.go("GET", first.location);
   const q = Object.fromEntries(new URL(login.location).searchParams);
   h.vercel.state.challenges.set("c1", { challenge: q.code_challenge, nonce: q.nonce });
-  assert.equal((await b.go("GET", "/approve/callback?code=c1&state=WRONG", { headers: { "x-vercel-oidc-token": "deployment-oidc-token" } })).status, 400);
+  assert.equal((await b.go("GET", "/api/auth/callback?code=c1&state=WRONG", { headers: { "x-vercel-oidc-token": "deployment-oidc-token" } })).status, 400);
 
   // Forged ID tokens from the token endpoint are refused (signature, audience, nonce).
   for (const mint of [(n) => jwt(goodClaims(n), { key: attacker.privateKey }), (n) => jwt(goodClaims(n, { aud: "other-app" })), () => jwt(goodClaims("replayed-nonce"))]) {
@@ -533,4 +533,28 @@ test("forged, unsigned, re-signed, modified and mismatched browser records are r
   assert.equal(approvalSignatureValid(`other-${SIGNING_KEY}`, good), false);
   assert.equal(good.signature.keyId, keyIdOf(SIGNING_KEY));
   assert.ok(!good.signature.keyId.includes(SIGNING_KEY.slice(0, 8)));
+});
+
+test("the OAuth callback is /api/auth/callback for both the authorization request and the token exchange; the old path is gone", async () => {
+  const { CALLBACK_PATH } = await import("../../src/server/approval-web.js");
+  assert.equal(CALLBACK_PATH, "/api/auth/callback");
+  const h = await setup();
+  const { pagePath } = await proposal(h);
+  const b = browser(h);
+  const { q, cb, code } = await b.signIn(pagePath);
+  assert.equal(q.redirect_uri, "https://greenlight.example.com/api/auth/callback", "authorization request");
+  assert.equal(cb.status, 302, "the new callback completes the sign-in");
+  const exchange = h.vercel.state.calls.find((c) => c.code === code);
+  assert.equal(exchange.redirect_uri, q.redirect_uri, "token exchange sends the identical redirect_uri");
+  assert.equal(exchange.grant_type, "authorization_code");
+  assert.ok(exchange.code_verifier && exchange.code_verifier.length >= 43, "PKCE verifier sent");
+  // The old callback path no longer exists, even with a valid sign-in in progress.
+  const first = await browser(h).go("GET", pagePath);
+  const fresh = browser(h);
+  await fresh.go("GET", first.location);
+  assert.equal((await fresh.go("GET", "/approve/callback?code=x&state=y")).status, 404);
+  assert.equal((await fresh.go("POST", "/api/auth/callback")).status, 404, "GET only");
+  // With browser approval off, the callback path is not served either.
+  const off = await setup({ webEnabled: false });
+  assert.equal((await browser(off).go("GET", "/api/auth/callback?code=x&state=y")).status, 404);
 });

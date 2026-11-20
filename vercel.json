@@ -19,6 +19,10 @@
     {
       "source": "/approve/:path*",
       "destination": "/api"
+    },
+    {
+      "source": "/api/auth/callback",
+      "destination": "/api"
     }
   ]
 }
