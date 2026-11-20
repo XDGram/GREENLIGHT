@@ -114,14 +114,16 @@ async function setup({ approvers = [{ vercelSub: SUB, account: "acme", user: "de
 function browser(h) {
   const jar = new Map();
   const go = async (method, p, { form, headers = {} } = {}) => {
+    const merged = {
+      ...(jar.size ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
+      ...(form ? { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin" } : {}),
+      ...headers,
+    };
+    // A header set to undefined is not sent (an older browser without Sec-Fetch-*).
     const r = await fetch(h.url + p, {
       method,
       redirect: "manual",
-      headers: {
-        ...(jar.size ? { cookie: [...jar].map(([k, v]) => `${k}=${v}`).join("; ") } : {}),
-        ...(form ? { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin" } : {}),
-        ...headers,
-      },
+      headers: Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== undefined)),
       body: form ? new URLSearchParams(form).toString() : undefined,
     });
     for (const c of r.headers.getSetCookie()) {
@@ -284,6 +286,46 @@ test("identity cannot be spoofed: no session, forged headers, tampered cookies, 
   assert.equal(stranger.cb.status, 403);
   assert.match(stranger.cb.text, /Not an authorised approver/);
   assert.equal(await h.store.getApproval(projectId, 1), null);
+});
+
+test("Referrer-Policy is same-origin so browsers send a real Origin; Origin: null is still refused", async () => {
+  const h = await setup();
+  const { projectId, hash, pagePath } = await proposal(h);
+  const b = browser(h);
+  await b.signIn(pagePath);
+  const page = await b.go("GET", pagePath);
+  // With no-referrer, browsers serialise the form POST's Origin as "null" and every approval was refused.
+  assert.equal(page.headers.get("referrer-policy"), "same-origin");
+  for (const p of ["/approve/login?next=x", pagePath]) assert.equal((await b.go("GET", p)).headers.get("referrer-policy"), "same-origin", p);
+  const csrf = csrfOf(page.text, "test-specification");
+  const post = (p, form, headers) => b.go("POST", p, { form, headers });
+
+  // Origin: null (privacy-sensitive context, sandboxed frame, data: URL) stays refused, with or without Sec-Fetch-Site.
+  for (const headers of [{ origin: "null" }, { origin: "null", "sec-fetch-site": "same-origin" }, { origin: "null", "sec-fetch-site": undefined }, { origin: "null", referer: `${BASE}${pagePath}` }]) {
+    const r = await post(`${pagePath}/test-specification`, { csrf, confirmHash: hash }, headers);
+    assert.equal(r.status, 403, JSON.stringify(headers));
+    assert.match(r.text, /Cross-site request/);
+    assert.ok(!r.setCookie.some((c) => c.startsWith("__Host-gl_spec=")), "no confirmation cookie");
+  }
+  // Same origin but another scheme, port or host is not the same origin.
+  for (const origin of [BASE.replace("https:", "http:"), `${BASE}:8443`, `${BASE}.evil.example`, `${BASE}/`]) {
+    assert.equal((await post(`${pagePath}/test-specification`, { csrf, confirmHash: hash }, { origin })).status, 403, origin);
+  }
+  assert.equal((await post(`${pagePath}/test-specification`, { csrf, confirmHash: hash }, { "sec-fetch-site": "same-site" })).status, 403, "same-site is not same-origin");
+  assert.equal(await h.store.getApproval(projectId, 1), null);
+
+  // What a browser sends with Referrer-Policy: same-origin: the exact Origin, Sec-Fetch-Site, and the page as Referer.
+  const real = { origin: BASE, "sec-fetch-site": "same-origin", "sec-fetch-mode": "navigate", referer: `${BASE}${pagePath}` };
+  const spec = await post(`${pagePath}/test-specification`, { csrf, confirmHash: hash }, real);
+  assert.deepEqual([spec.status, spec.location], [302, pagePath], spec.text);
+  const page2 = await b.go("GET", pagePath);
+  const done = await post(`${pagePath}/server-version`, { csrf: csrfOf(page2.text, "server-version"), confirmHash: hash }, real);
+  assert.equal(done.status, 201, done.text);
+  assert.equal(done.headers.get("referrer-policy"), "same-origin");
+  const rec = await h.store.getApproval(projectId, 1);
+  assert.deepEqual([rec.approvedBy, rec.approvedTestHash, rec.channel], ["dev", hash, WEB_APPROVAL_CHANNEL]);
+  // An older browser that sends no Sec-Fetch-Site but the exact Origin is accepted by the check (here: write-once 409).
+  assert.equal((await post(`${pagePath}/server-version`, { csrf: csrfOf(page2.text, "server-version"), confirmHash: hash }, { "sec-fetch-site": undefined })).status, 409);
 });
 
 test("CSRF, origin, hash and ordering checks; sessions and confirmations are bound to one person, project and hash", async () => {

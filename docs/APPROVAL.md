@@ -42,7 +42,9 @@ API, without a terminal. `greenlight publish` then accepts that approval for exa
   approval only if it is an intact browser approval of exactly the local tests (same hash for both
   confirmations) and the server reports it verified (`approvalVerification.browserApproval`; only the
   server can check the signature). Relayed approvals are still refused; token approvals do not count.
-- The page sends a strict CSP, `no-store`, `X-Frame-Options: DENY` and no referrer.
+- The page sends a strict CSP, `no-store`, `X-Frame-Options: DENY` and `Referrer-Policy: same-origin`
+  (no referrer to other sites; with `no-referrer`, browsers send `Origin: null` on the approval form
+  and the same-origin check would refuse every real submission).
 
 ## Setup (once)
 

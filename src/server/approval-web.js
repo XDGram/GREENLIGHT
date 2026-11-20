@@ -155,7 +155,7 @@ function send(res, status, html, headers = {}) {
   res.setHeader("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'");
   res.setHeader("x-frame-options", "DENY");
   res.setHeader("x-content-type-options", "nosniff");
-  res.setHeader("referrer-policy", "no-referrer");
+  res.setHeader("referrer-policy", "same-origin");
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
   res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Greenlight approval</title>
 <style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;color:#111;background:#fff}pre{background:#f4f4f4;padding:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}code{word-break:break-all}.box{border:1px solid #ccc;border-radius:6px;padding:12px;margin:16px 0}.ok{color:#05620c}.bad{color:#a00}input[type=text]{width:100%;font:13px monospace;padding:6px;box-sizing:border-box}button{margin-top:8px;padding:8px 14px}</style></head><body>${html}</body></html>`);
