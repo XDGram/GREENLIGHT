@@ -54,6 +54,10 @@ function fakeSandbox({ failOn } = {}) {
     async stop() {
       calls.push(["stop"]);
     }
+    static async get(params) {
+      calls.push(["get", params]);
+      return new Sandbox();
+    }
   }
   return { Sandbox, calls };
 }
@@ -128,7 +132,7 @@ test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap writ
   assert.deepEqual(r, { sandboxId: "sbx_test", cmdId: "cmd_test" });
   const [[, created], [, files], [, cmd]] = fake.calls;
   assert.equal(created.runtime, "node22");
-  assert.equal(created.timeout, config.kaneTimeoutMs + config.deployTimeoutMs + 15 * 60_000);
+  assert.deepEqual([created.timeout, created.name, created.persistent], [45 * 60_000, `greenlight-job-${"a".repeat(32)}`, false]);
   assert.ok(!JSON.stringify(created).includes(KEY) && !JSON.stringify(created).includes("kane-access-key-secret"), "no secret in the sandbox's saved settings");
   const paths = files.map((f) => f.path);
   for (const p of ["package.json", "run-job.sh", "bin/greenlight-worker.js", "src/server/jobs.js", "src/server/certify.js", "src/kane/runner.js", "src/server/supabase/store.js"]) assert.ok(paths.includes(`${SANDBOX_APP_DIR}/${p}`), p);
@@ -145,7 +149,8 @@ test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap writ
   assert.match(BOOTSTRAP, /@testmuai\/kane-cli@0\.10\.6/);
   assert.match(BOOTSTRAP, /plugin install remote-execution/);
   assert.match(BOOTSTRAP, /login --username "\$GREENLIGHT_KANE_USERNAME" --access-key "\$GREENLIGHT_KANE_ACCESS_KEY"/);
-  assert.ok(BOOTSTRAP.indexOf("unset GREENLIGHT_KANE_USERNAME") < BOOTSTRAP.indexOf("exec node bin/greenlight-worker.js"));
+  assert.ok(BOOTSTRAP.indexOf("unset GREENLIGHT_KANE_USERNAME LOGIN") < BOOTSTRAP.indexOf('node bin/greenlight-worker.js "$JOB" ||'));
+  assert.match(BOOTSTRAP, /node bin\/greenlight-worker.js "\$JOB" \|\| code=\$\?\noff\nexit \$code/, "the VM powers off when the job ends");
   assert.match(BOOTSTRAP, /trap 'fail setup' ERR/);
   // A failure after create stops the sandbox.
   const bad = fakeSandbox({ failOn: "run" });
@@ -266,4 +271,33 @@ test("vercel.json routes /v1 to the function and bundles the files the sandbox n
   assert.deepEqual(v.rewrites, [{ source: "/v1/:path*", destination: "/api" }]);
   const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.equal(pkg.dependencies["@vercel/sandbox"], "3.9.1", "exact version");
+});
+
+test("Hobby: sandbox mode defaults to 45 / 25 / 300 and refuses settings that cannot fit the plan", () => {
+  const c = loadConfig(SANDBOX_ENV);
+  assert.deepEqual([c.sandboxTimeoutMs, c.kaneTimeoutMs, c.deployTimeoutMs], [45 * 60_000, 25 * 60_000, 300_000]);
+  // setup/upload 10 + deployment 5 + Kane 25 = 40 minutes <= 45.
+  assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_SANDBOX_TIMEOUT_MINUTES: "60" }), /exceeds the plan's sandbox limit \(45 min/);
+  assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_TIMEOUT_MINUTES: "31" }), /can take 46 min/);
+  assert.equal(loadConfig({ ...SANDBOX_ENV, GREENLIGHT_SANDBOX_MAX_MINUTES: "1440", GREENLIGHT_SANDBOX_TIMEOUT_MINUTES: "60", GREENLIGHT_KANE_TIMEOUT_MINUTES: "30" }).sandboxTimeoutMs, 60 * 60_000);
+  const local = loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir() });
+  assert.deepEqual([local.kaneTimeoutMs, local.deployTimeoutMs, local.sandboxTimeoutMs, local.kaneRemote], [30 * 60_000, 600_000, null, null], "local execution unchanged");
+});
+
+test("a finished job's sandbox is stopped when the API reads the result; running jobs' sandboxes are left alone", async () => {
+  const sbx = fakeSandbox();
+  const h = await supabaseApp({ Sandbox: sbx.Sandbox });
+  const projectId = await approvedProject(h.call);
+  const c = await h.call("POST", `/v1/projects/${projectId}/certifications`, { version: 1, commit: COMMIT, confirmSpend: 100 });
+  await h.call("GET", `/v1/jobs/${c.body.id}`);
+  assert.ok(!sbx.calls.some((x) => x[0] === "get"), "a queued job's sandbox keeps running");
+  // The worker settles the job (as it would in the sandbox).
+  const job = await h.admin.rpc("greenlight_get_job", { p_id: c.body.id });
+  await h.admin.rpc("greenlight_put_job", { p_doc: { ...job, status: "failed", finishedAt: new Date().toISOString(), error: { code: "sandbox_setup_failed", message: "x", action: "y" } } });
+  const done = await h.call("GET", `/v1/jobs/${c.body.id}`);
+  assert.equal(done.body.status, "failed");
+  assert.deepEqual(sbx.calls.filter((x) => x[0] === "get" || x[0] === "stop").slice(-2), [["get", { name: `greenlight-${c.body.id.replace("_", "-")}`, resume: false }], ["stop"]]);
+  await h.call("GET", `/v1/jobs/${c.body.id}`);
+  assert.equal(sbx.calls.filter((x) => x[0] === "get").length, 1, "stopped once");
+  h.close();
 });

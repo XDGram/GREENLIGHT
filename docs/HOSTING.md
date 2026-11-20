@@ -65,8 +65,7 @@ host's container sandbox settings.
   A certification is persisted as before, then handed to a **new Vercel Sandbox per job**
   (`src/server/sandbox.js`, `@vercel/sandbox`); the function answers once the sandbox's command
   is started and never runs Kane itself.
-- In the sandbox (`node22`, 2 vCPUs, lifetime = Kane timeout + deployment timeout + 15 min, or
-  `GREENLIGHT_SANDBOX_TIMEOUT_MINUTES`), `run-job.sh` installs `@testmuai/kane-cli@0.10.6`,
+- In the sandbox (`node22`, 2 vCPUs, named `greenlight-<job id>`, not persistent), `run-job.sh` installs `@testmuai/kane-cli@0.10.6`,
   installs Kane's `remote-execution` plugin, logs Kane in with basic auth, drops the credentials,
   and runs `bin/greenlight-worker.js <jobId>`: the same `JobRunner.execute` -> `runCertification`
   pipeline, storing the record and evidence in Supabase.
@@ -77,7 +76,14 @@ host's container sandbox settings.
 - If setup fails (install, plugin, login), the job is marked `failed` with `sandbox_setup_failed`
   and Kane does not run. If the sandbox cannot start, `sandbox_dispatch_failed`. A job whose
   sandbox disappeared is settled as `interrupted` once it is older than a sandbox's lifetime.
-- The sandbox is not stopped early: it ends at its timeout (billed until then).
+- Stopping: when the job ends the sandbox powers its VM off (best effort), and the API stops the
+  job's sandbox by name as soon as it returns the finished job (`greenlight publish` polls every
+  10 s). The sandbox timeout is the hard limit.
+- Vercel Hobby (defaults in sandbox mode): sandbox 45 min (Hobby's maximum), Kane 25 min,
+  deployment wait 300 s, plus 10 min reserved for setup and evidence upload = 40 min worst case.
+  The configuration refuses settings that do not fit (`GREENLIGHT_SANDBOX_MAX_MINUTES`, default
+  45; Pro allows up to 1440). Hobby allows 10 concurrent sandboxes; Greenlight runs one job per
+  project at a time.
 
 Vercel project environment variables (Production; mark the secrets as sensitive):
 

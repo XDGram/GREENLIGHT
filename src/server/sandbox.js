@@ -22,19 +22,20 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID"];
 const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME", "GREENLIGHT_KANE_ACCESS_KEY"];
 
-/** Sandbox lifetime: setup + deployment wait + Kane run + upload, unless set explicitly. */
-export function sandboxTimeoutMs(config, env = process.env) {
-  const explicit = Number(env.GREENLIGHT_SANDBOX_TIMEOUT_MINUTES);
-  if (Number.isFinite(explicit) && explicit > 0) return explicit * 60_000;
-  return config.kaneTimeoutMs + config.deployTimeoutMs + 15 * 60_000;
-}
+/** Sandbox lifetime (validated in loadConfig to fit the job and the plan's limit). */
+export const sandboxTimeoutMs = (config) => config.sandboxTimeoutMs;
+/** Each job's sandbox is named after it, so the API can find and stop it. */
+export const sandboxName = (jobId) => `greenlight-${jobId.replace(/_/g, "-")}`;
 
 /** Bootstrap run inside the sandbox: install the pinned Kane and its remote plugin, log in, run the job. */
 export const BOOTSTRAP = `#!/bin/bash
 set -euo pipefail
 JOB="$1"
 cd ${SANDBOX_APP_DIR}
-fail() { unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY; node bin/greenlight-worker.js --fail "$JOB" "$1" || true; exit 1; }
+fail() { unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY; node bin/greenlight-worker.js --fail "$JOB" "$1" || true; off; exit 1; }
+# Stop this sandbox's VM as soon as the job is settled (best effort; the API also stops it, and
+# its timeout is the hard limit).
+off() { sudo -n poweroff >/dev/null 2>&1 || true; }
 trap 'fail setup' ERR
 npm install --no-save --no-audit --no-fund --loglevel=error @testmuai/kane-cli@${KANE_CLI_VERSION} >/dev/null
 export GREENLIGHT_KANE_BIN="$PWD/node_modules/.bin/kane-cli"
@@ -46,7 +47,10 @@ LOGIN=(login --username "$GREENLIGHT_KANE_USERNAME" --access-key "$GREENLIGHT_KA
 "$GREENLIGHT_KANE_BIN" "\${LOGIN[@]}" </dev/null >/dev/null 2>&1 || fail kane_login
 unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY LOGIN
 trap - ERR
-exec node bin/greenlight-worker.js "$JOB"
+code=0
+node bin/greenlight-worker.js "$JOB" || code=$?
+off
+exit $code
 `;
 
 async function listJs(dir) {
@@ -85,7 +89,7 @@ export function createSandboxDispatcher({ config, env = process.env, Sandbox, ro
       const commandEnv = { GREENLIGHT_KANE_REMOTE: "hyper", GREENLIGHT_WORK_DIR: "/tmp/greenlight-work" };
       for (const k of [...FORWARD, ...SECRET_FORWARD]) if (env[k]) commandEnv[k] = env[k];
       // Outside Vercel (no OIDC token), the SDK reads VERCEL_TOKEN / VERCEL_TEAM_ID / VERCEL_PROJECT_ID.
-      const sbx = await SandboxClass.create({ runtime: "node22", timeout: sandboxTimeoutMs(config, env), resources: { vcpus: 2 } });
+      const sbx = await SandboxClass.create({ name: sandboxName(job.id), persistent: false, runtime: "node22", timeout: sandboxTimeoutMs(config), resources: { vcpus: 2 } });
       try {
         await sbx.writeFiles(await sandboxFiles(root));
         const cmd = await sbx.runCommand({ cmd: "bash", args: [`${SANDBOX_APP_DIR}/run-job.sh`, job.id], cwd: SANDBOX_APP_DIR, env: commandEnv, detached: true });
@@ -94,6 +98,18 @@ export function createSandboxDispatcher({ config, env = process.env, Sandbox, ro
       } catch (err) {
         await sbx.stop?.().catch(() => {});
         throw err;
+      }
+    },
+    /** Stop a job's sandbox (no-op if it is already stopped or gone). */
+    async stop(jobId) {
+      const SandboxClass = Sandbox ?? (await import("@vercel/sandbox")).Sandbox;
+      try {
+        const sbx = await SandboxClass.get({ name: sandboxName(jobId), resume: false });
+        await sbx.stop();
+        log({ event: "sandbox_stopped", jobId });
+        return true;
+      } catch {
+        return false;
       }
     },
   };
@@ -108,6 +124,13 @@ export class SandboxJobRunner extends JobRunner {
   constructor({ dispatcher, ...rest }) {
     super(rest);
     this.dispatcher = dispatcher;
+  }
+
+  /** A finished job's sandbox is stopped as soon as the API sees the result (publish polls every 10 s). */
+  async onJobRead(job) {
+    if (![JOB_STATUS.SUCCEEDED, JOB_STATUS.FAILED].includes(job?.status) || this.stopped?.has(job.id)) return;
+    (this.stopped ??= new Set()).add(job.id);
+    await this.dispatcher.stop?.(job.id);
   }
 
   staleAfterMs() {

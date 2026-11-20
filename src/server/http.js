@@ -228,6 +228,7 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
     ["GET", /^\/v1\/jobs\/([^/]+)$/, "read", async ({ principal, m }) => {
       const job = await store.getJob(m[1]);
       await store.getProject(job.projectId, principal.account); // scoping: 404 for other accounts
+      await jobs.onJobRead?.(job); // sandbox mode: stop a finished job's sandbox
       return [200, job];
     }],
 

@@ -23,8 +23,10 @@
 //   GREENLIGHT_MAX_CREDITS_PER_RUN   server-wide cap per certification run, default 150
 //   GREENLIGHT_CREDIT_RESERVE        credits that must remain after a run, default 500
 //   GREENLIGHT_RATE_LIMIT_PER_MINUTE requests per token (or per IP when anonymous), default 60
-//   GREENLIGHT_KANE_TIMEOUT_MINUTES  default 30
-//   GREENLIGHT_DEPLOY_TIMEOUT_SECONDS default 600
+//   GREENLIGHT_KANE_TIMEOUT_MINUTES  default 30 (25 in sandbox mode)
+//   GREENLIGHT_DEPLOY_TIMEOUT_SECONDS default 600 (300 in sandbox mode)
+//   GREENLIGHT_SANDBOX_TIMEOUT_MINUTES sandbox mode: sandbox lifetime, default 45 (Vercel Hobby's maximum)
+//   GREENLIGHT_SANDBOX_MAX_MINUTES   sandbox mode: the plan's limit, default 45 (Hobby); Pro allows 1440
 //   GREENLIGHT_KANE_BIN              Kane CLI binary, default kane-cli
 //   GREENLIGHT_KANE_REMOTE           "hyper": Kane runs the browser on TestMu HyperExecute (--remote hyper)
 //   GREENLIGHT_EXECUTION             "local" (default: jobs run in this process) | "sandbox" (each job
@@ -35,6 +37,9 @@
 import path from "node:path";
 import os from "node:os";
 import { createHash, timingSafeEqual } from "node:crypto";
+
+/** Sandbox time reserved for installing Kane, logging in, and uploading evidence. */
+export const SANDBOX_OVERHEAD_MS = 10 * 60_000;
 
 export const ROLES = Object.freeze({ OWNER: "owner", AGENT: "agent" });
 const PERMISSIONS = Object.freeze({
@@ -119,6 +124,18 @@ export function loadConfig(env = process.env) {
     if (kaneRemote !== "hyper") throw new Error("sandbox execution needs GREENLIGHT_KANE_REMOTE=hyper (no Chrome in the sandbox)");
     if (!env.GREENLIGHT_KANE_USERNAME || !env.GREENLIGHT_KANE_ACCESS_KEY) throw new Error("sandbox execution needs GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY");
   }
+  // Sandbox mode defaults fit Vercel Hobby: a sandbox lives at most 45 minutes there. The whole
+  // job (setup + deployment wait + Kane + evidence upload) must fit inside the sandbox.
+  const sandbox = execution === "sandbox";
+  const kaneTimeoutMs = num(env.GREENLIGHT_KANE_TIMEOUT_MINUTES, sandbox ? 25 : 30, { min: 1 }) * 60_000;
+  const deployTimeoutMs = num(env.GREENLIGHT_DEPLOY_TIMEOUT_SECONDS, sandbox ? 300 : 600) * 1000;
+  const sandboxTimeoutMs = sandbox ? num(env.GREENLIGHT_SANDBOX_TIMEOUT_MINUTES, 45, { min: 1 }) * 60_000 : null;
+  if (sandbox) {
+    const maxMs = num(env.GREENLIGHT_SANDBOX_MAX_MINUTES, 45, { min: 1 }) * 60_000; // plan limit: Hobby 45, Pro 1440
+    if (sandboxTimeoutMs > maxMs) throw new Error(`GREENLIGHT_SANDBOX_TIMEOUT_MINUTES exceeds the plan's sandbox limit (${maxMs / 60_000} min; set GREENLIGHT_SANDBOX_MAX_MINUTES for another plan)`);
+    const needMs = SANDBOX_OVERHEAD_MS + deployTimeoutMs + kaneTimeoutMs;
+    if (needMs > sandboxTimeoutMs) throw new Error(`a job can take ${Math.ceil(needMs / 60_000)} min (setup and upload ${SANDBOX_OVERHEAD_MS / 60_000} + deployment wait + Kane timeout), more than the sandbox's ${sandboxTimeoutMs / 60_000} min; lower GREENLIGHT_KANE_TIMEOUT_MINUTES or GREENLIGHT_DEPLOY_TIMEOUT_SECONDS`);
+  }
   const cfg = {
     store: supabase ? "supabase" : "file",
     supabase,
@@ -133,8 +150,9 @@ export function loadConfig(env = process.env) {
     maxCreditsPerRun: num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150),
     reserve: num(env.GREENLIGHT_CREDIT_RESERVE, 500),
     rateLimitPerMinute: num(env.GREENLIGHT_RATE_LIMIT_PER_MINUTE, 60, { min: 1 }),
-    kaneTimeoutMs: num(env.GREENLIGHT_KANE_TIMEOUT_MINUTES, 30, { min: 1 }) * 60_000,
-    deployTimeoutMs: num(env.GREENLIGHT_DEPLOY_TIMEOUT_SECONDS, 600) * 1000,
+    kaneTimeoutMs,
+    deployTimeoutMs,
+    sandboxTimeoutMs,
     deployIntervalMs: 10_000,
     kaneBin: env.GREENLIGHT_KANE_BIN || "kane-cli",
     kaneRemote,
