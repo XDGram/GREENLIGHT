@@ -51,6 +51,7 @@ export function claimStatusLabel(s: string | null | undefined): string {
   if (s === "passed") return "Passed";
   if (s === "failed") return "Failed";
   if (s === "couldnt_verify") return "Couldn’t verify";
+  if (s === "partial") return "Partly passed";
   return "Not run";
 }
 

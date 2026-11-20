@@ -8,6 +8,10 @@ export type Route =
   | { name: "project"; id: string }
   | { name: "approvals" }
   | { name: "records" }
+  | { name: "demo" }
+  | { name: "try" }
+  | { name: "try_new" }
+  | { name: "try_project"; id: string }
   | { name: "not_found" };
 
 export function parse(pathname: string): Route {
@@ -18,6 +22,11 @@ export function parse(pathname: string): Route {
   if (m) return { name: "project", id: m[1] };
   if (p === "/app/approvals") return { name: "approvals" };
   if (p === "/app/records") return { name: "records" };
+  if (p === "/app/demo") return { name: "demo" };
+  if (p === "/app/try") return { name: "try" };
+  if (p === "/app/try/new") return { name: "try_new" };
+  const g = /^\/app\/try\/(gpj_[0-9a-f]{32})$/.exec(p);
+  if (g) return { name: "try_project", id: g[1] };
   return { name: "not_found" };
 }
 

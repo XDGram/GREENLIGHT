@@ -126,3 +126,94 @@ export interface ProjectDetail {
   jobs: Job[];
   records: RecordSummary[];
 }
+
+// ---------------------------------------------------------------- guest demo (/app/api/guest)
+
+export interface GuestLimits {
+  runsPerGuest: number;
+  runsLeft: number;
+  runsPerDay: number;
+  runsLeftToday: number;
+  maxCreditsPerRun: number;
+  projectsPerGuest: number;
+  aiPerGuest: number;
+  aiLeft: number;
+  aiAvailable: boolean;
+  maxTests: number;
+  maxClaims: number;
+}
+
+export interface GuestMe {
+  guest: { id: string; createdAt: string; projects: number } | null;
+  limits: GuestLimits;
+  sample?: boolean;
+}
+
+export interface DraftStep {
+  name: string;
+  kind: "do" | "expect_text";
+  text: string;
+}
+export interface DraftTest {
+  title: string;
+  claims: string[];
+  steps: DraftStep[];
+}
+export interface DraftSpec {
+  name: string;
+  url: string;
+  description: string | null;
+  claims: { id: string; text: string }[];
+  tests: DraftTest[];
+}
+
+export interface SpecCheck {
+  ok: boolean;
+  problems: string[];
+  hash?: string;
+  specText?: string;
+  claims?: { id: string; text: string }[];
+  tests?: TestView[];
+  estimate?: { credits: number; cap: number };
+}
+
+export interface GuestRunResult {
+  status: string;
+  counts: Record<string, number>;
+  reasons: string[];
+  runUsable: boolean;
+  claims: { id: string; text: string | null; status: string }[];
+  tests: { file: string; title: string | null; claims: string[]; status: string; reasons: string[]; durationS: number | null; failureMessage: string | null; failureStepIndex: number | null }[];
+  credits: { estimate: number; actual: number | null };
+  startedAt: string;
+  endedAt: string;
+  certified: false;
+}
+
+export interface GuestRun {
+  id: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  refunded: boolean;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  error: { code: string; message: string } | null;
+  result: GuestRunResult | null;
+}
+
+export interface GuestProject {
+  id: string;
+  name: string;
+  url: string;
+  description: string | null;
+  createdAt: string;
+  approvedTestHash: string;
+  approvedAt: string | null;
+  source: "ai" | "form";
+  notes: string | null;
+  specText: string;
+  claims: { id: string; text: string }[];
+  tests: TestView[];
+  estimate: Estimate | null;
+  runs?: GuestRun[];
+}

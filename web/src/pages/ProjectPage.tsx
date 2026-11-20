@@ -12,8 +12,8 @@ import type { ProjectDetail, VersionView } from "../types";
 import { useData } from "../useData";
 import type { SignInRequired } from "../api";
 
-export function ProjectPage({ id, pending, onSignIn }: { id: string; pending: number; onSignIn: (e: SignInRequired) => void }) {
-  const { value, reload } = useData(() => api.project(id), [id], { onSignIn });
+export function ProjectPage({ id, pending, onSignIn, load, sample = false }: { id: string; pending: number; onSignIn: (e: SignInRequired) => void; load?: () => Promise<ProjectDetail>; sample?: boolean }) {
+  const { value, reload } = useData(load ?? (() => api.project(id)), [id], { onSignIn });
   const [picked, setPicked] = useState<number | null>(null);
 
   if (value.state === "loading") {
@@ -40,12 +40,20 @@ export function ProjectPage({ id, pending, onSignIn }: { id: string; pending: nu
       <TopBar
         title={d.project.name}
         eyebrow={
-          <>
-            <Link href="/app/projects">Projects</Link>
-            <I.ChevronRight size={13} aria-hidden="true" />
-            <span className="mono">{d.project.id}</span>
-            {value.refreshing ? <span className="refreshing" aria-label="Refreshing" /> : null}
-          </>
+          sample ? (
+            <>
+              <span>Sample project · read-only</span>
+              <I.ChevronRight size={13} aria-hidden="true" />
+              <span>A real Greenlight project, approved by its owner</span>
+            </>
+          ) : (
+            <>
+              <Link href="/app/projects">Projects</Link>
+              <I.ChevronRight size={13} aria-hidden="true" />
+              <span className="mono">{d.project.id}</span>
+              {value.refreshing ? <span className="refreshing" aria-label="Refreshing" /> : null}
+            </>
+          )
         }
       >
         {v ? <ApprovalPill v={v} /> : null}
@@ -59,7 +67,13 @@ export function ProjectPage({ id, pending, onSignIn }: { id: string; pending: nu
             ))}
           </div>
         ) : null}
-        <ApprovalsBell pending={pending} />
+        {sample ? (
+          <Link href="/app/try/new" className="btn">
+            Test your own app
+          </Link>
+        ) : (
+          <ApprovalsBell pending={pending} />
+        )}
       </TopBar>
 
       {!v ? (

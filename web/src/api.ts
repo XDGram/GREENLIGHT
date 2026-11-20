@@ -1,4 +1,4 @@
-import type { ProjectDetail, ProjectSummary, Session } from "./types";
+import type { DraftSpec, GuestLimits, GuestMe, GuestProject, GuestRun, ProjectDetail, ProjectSummary, Session, SpecCheck } from "./types";
 
 /** Thrown when the server says the Vercel session is missing or has expired. */
 export class SignInRequired extends Error {
@@ -8,6 +8,7 @@ export class SignInRequired extends Error {
 }
 
 export class ApiError extends Error {
+  problems: string[] = [];
   constructor(public status: number, public code: string, message: string) {
     super(message);
   }
@@ -32,6 +33,37 @@ async function get<T>(path: string): Promise<T> {
   }
   return body as T;
 }
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body ?? {}), cache: "no-store" });
+  let data: unknown = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const e = (data as { error?: { code?: string; message?: string; details?: { problems?: string[] } } } | null)?.error;
+    const err = new ApiError(res.status, e?.code ?? "error", e?.message ?? `Request failed (HTTP ${res.status}).`);
+    err.problems = e?.details?.problems ?? [];
+    throw err;
+  }
+  return data as T;
+}
+
+/** Guest demo: no sign-up; the server remembers this browser with a cookie. */
+export const guestApi = {
+  me: () => get<GuestMe>("/app/api/guest/me"),
+  start: () => post<{ guest: GuestMe["guest"]; limits: GuestLimits }>("/app/api/guest/start", {}),
+  sample: () => get<ProjectDetail>("/app/api/guest/sample"),
+  projects: () => get<{ projects: GuestProject[] }>("/app/api/guest/projects").then((r) => r.projects),
+  project: (id: string) => get<{ project: GuestProject; limits: GuestLimits }>(`/app/api/guest/projects/${encodeURIComponent(id)}`),
+  draft: (body: { name: string; url: string; requirements: string }) => post<{ draft: DraftSpec; notes: string | null; pageRead: boolean; check: SpecCheck }>("/app/api/guest/draft", body),
+  preview: (spec: DraftSpec) => post<SpecCheck>("/app/api/guest/preview", spec),
+  create: (spec: DraftSpec & { source: "ai" | "form"; notes?: string | null }) => post<GuestProject>("/app/api/guest/projects", spec),
+  approve: (id: string, confirmHash: string) => post<{ project: GuestProject }>(`/app/api/guest/projects/${encodeURIComponent(id)}/approve`, { confirmHash }),
+  run: (id: string) => post<{ run: GuestRun; limits: GuestLimits }>(`/app/api/guest/projects/${encodeURIComponent(id)}/runs`, {}),
+};
 
 export const api = {
   session: () => get<Session>("/app/api/session"),
