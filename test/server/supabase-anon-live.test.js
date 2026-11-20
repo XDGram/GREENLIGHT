@@ -5,7 +5,7 @@
 // nothing of Greenlight's over the real Data API and Storage API, and the server must refuse
 // to use it as its own key. Read-only: every request here is refused by Supabase.
 
-import { test } from "node:test";
+import { test, before } from "node:test";
 import assert from "node:assert/strict";
 import { loadConfig } from "../../src/server/config.js";
 import { SupabaseStore } from "../../src/server/supabase/store.js";
@@ -30,7 +30,19 @@ const call = async (path, { method = "GET", headers = {}, body } = {}) => {
 const rpc = (fn, args, schema = "greenlight_api") =>
   call(`/rest/v1/rpc/${fn}`, { method: "POST", headers: { "content-type": "application/json", "content-profile": schema, "accept-profile": schema }, body: JSON.stringify(args) });
 
+// Guard: an egress proxy that injects the SERVER key into every request to this host would turn
+// these probes into service-role calls (and the write probes below into real writes). Prove the
+// requests really run as anon before anything else; otherwise fail every test without writing.
+let injected = null;
+before(async () => {
+  if (!LIVE) return;
+  const r = await rpc("greenlight_authenticate", { p_token_sha256: "0".repeat(64) });
+  injected = r.status === 200 ? "requests reach Supabase with the server key (an egress proxy injects it); run this suite without the proxy, e.g. without NODE_USE_ENV_PROXY" : null;
+});
+const guard = () => assert.equal(injected, null, injected ?? "");
+
 test("live: the publishable key is refused as the server key (config) and fails readiness", { skip }, async () => {
+  guard();
   assert.throws(() => loadConfig({ SUPABASE_URL: URL_, SUPABASE_SERVICE_ROLE_KEY: PUB }), /publishable key/);
   // Even if code bypassed the config check, Supabase gives it nothing.
   const h = await new SupabaseStore({ url: URL_, serviceRoleKey: PUB }).health();
@@ -39,6 +51,7 @@ test("live: the publishable key is refused as the server key (config) and fails 
 });
 
 test("live: every Greenlight RPC is denied to the publishable key (42501)", { skip }, async () => {
+  guard();
   const calls = [
     ["greenlight_authenticate", { p_token_sha256: "0".repeat(64) }],
     ["greenlight_list_projects", { p_account: "greenlight-e2e-a" }],
@@ -56,6 +69,7 @@ test("live: every Greenlight RPC is denied to the publishable key (42501)", { sk
 });
 
 test("live: the private greenlight schema is not exposed; public schema has no Greenlight functions", { skip }, async () => {
+  guard();
   const r = await call("/rest/v1/accounts", { headers: { "accept-profile": "greenlight" } });
   assert.equal(r.status, 406);
   assert.equal(r.json?.code, "PGRST106");
@@ -66,6 +80,7 @@ test("live: the private greenlight schema is not exposed; public schema has no G
 });
 
 test("live: the evidence bucket is invisible to the publishable key", { skip }, async () => {
+  guard();
   const info = await call(`/storage/v1/bucket/${BUCKET}`, { headers: { authorization: `Bearer ${PUB}` } });
   assert.ok(info.status >= 400, `bucket info: ${info.status}`);
   assert.match(info.text, /not found/i);

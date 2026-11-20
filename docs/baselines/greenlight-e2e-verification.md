@@ -34,8 +34,26 @@ environment, so the HTTP paths (PostgREST and Storage with the key) are covered 
 | Revocation | all 3 test tokens revoked; `greenlight_authenticate` returns null for each in a new statement (the function is `STABLE`, so within the revoking statement it still sees the old snapshot; every API request is its own statement) |
 | Ceaser | `policies_md5`, `relacl_md5`, `constraints_md5`, `indexes_md5` equal the reference values in [ceaser-after-greenlight.md](ceaser-after-greenlight.md); `communities` 3, `posts` 124 |
 
-## Rows left in Greenlight's tables (permanent by design)
+## Rows left by the SQL replay (permanent by design)
 
 Accounts `greenlight-e2e-a`, `greenlight-e2e-b`; users `e2e-owner`, `e2e-agent`, `e2e-other`; 3 revoked
 tokens; project `prj_834501c8031744a3a449f357343a158c` with versions 1 and 2 and the approval of version 1.
 No jobs, runs, records or evidence objects. No certification.
+
+## Live HTTP run with the secret key (2026-11-20)
+
+The secret key was saved as a network secret for `ncbrsrklofofdqdftwjw.supabase.co` (header `apikey`) and
+injected by the session's egress proxy; the processes held only a placeholder (`NODE_USE_ENV_PROXY=1`).
+
+| Suite / check | Result |
+|---|---|
+| `supabase-anon-live.test.js` (publishable key, direct) | 4/4: every RPC `42501`, `greenlight` schema `PGRST106`, no Greenlight function in `public`, bucket not found to anon (info, list, public URL, upload); publishable key refused as the server key |
+| `supabase-live.test.js` (secret key, real server code) | 3/3: readiness; DB tokens, roles, account isolation (404s, account taken from the token), projects, versions, write-once approval, hash-mismatch refusal; a job through to a stored **failed** record with run, claims and tests; evidence uploaded to `greenlight-evidence`, downloaded and SHA-256-matched, overwrite refused, `/evidence` re-verification ok; public view without storage path, account or key; restart (new store and job runner, `recover()`) reads everything back; finished job and record changes refused; revocation immediate |
+| `bin/greenlight-server.js` started twice | `/v1/ready` → `ok` (database and storage), unauthenticated `/v1/projects` → 401, SIGTERM exit 0, no key material in logs |
+| Ceaser after the runs | fingerprints unchanged, `communities` 3, `posts` 124, buckets: only `greenlight-evidence` |
+| Greenlight after the runs | 0 active tokens, 0 certified records; 2 failed runs (one per suite run), each with 5 evidence objects |
+
+A first attempt ran the publishable-key suite through the proxy; the proxy put the server key on those
+requests, so the denial assertions failed at their first request (before any write probe, nothing was
+written). The suite now verifies that its requests really run as anon before probing, and `npm run
+test:live` starts it without the proxy.

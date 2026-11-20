@@ -56,7 +56,11 @@ Header handling follows the key type: a `sb_secret_…` key is not a JWT, so it 
 header (Supabase rejects it as a `Bearer` token); a legacy `service_role` JWT is sent in `apikey` and
 `Authorization`. Where an egress proxy injects the key into the `apikey` header for the Supabase host, set
 `SUPABASE_SERVICE_ROLE_KEY` to a placeholder of the same form (for example `sb_secret_placeholder…`): the
-proxy replaces it and the real key never enters the process.
+proxy replaces it and the real key never enters the process. Node's built-in `fetch` ignores
+`HTTPS_PROXY` unless `NODE_USE_ENV_PROXY=1` is set (Node ≥ 22.21 / 24): without it, requests go direct,
+carry only the placeholder, and readiness reports `database: unauthorized`. (Do not run the publishable-key
+suite through such a proxy: the proxy would put the server key on its requests too; the suite detects this
+and refuses to run, and `npm run test:live` starts it without `NODE_USE_ENV_PROXY`.)
 
 The key is stored as a non-enumerable config property, so serialised config, logs and errors never contain it. Errors from Supabase are scrubbed of it. The frontend never talks to Supabase directly: it uses the Greenlight API with Greenlight tokens. The anon key is not needed, and it has no access to anything Greenlight stores.
 
@@ -177,7 +181,9 @@ its record and run, evidence upload, download, SHA-256 verification and refused 
 view's redaction, a restart (new store and job runner, `recover()`), refused changes to finished jobs and
 records, and revocation.
 
-Database-level verification already done on Ceaser (2026-11-20) without the key: see
+**Both suites passed against Ceaser on 2026-11-20** with the secret key injected by the session's egress
+proxy (7/7), and the server binary started, reported ready, refused unauthenticated requests and restarted
+cleanly with nothing secret in its logs. Earlier database-level verification of all 20 RPCs: see
 [baselines/greenlight-e2e-verification.md](baselines/greenlight-e2e-verification.md).
 
 ## Operational notes

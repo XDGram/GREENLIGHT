@@ -17,7 +17,7 @@
   "scripts": {
     "test": "node --test \"test/**/*.test.js\"",
     "server": "node bin/greenlight-server.js",
-    "test:live": "GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-anon-live.test.js test/server/supabase-live.test.js"
+    "test:live": "env -u NODE_USE_ENV_PROXY GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-anon-live.test.js && GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-live.test.js"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.5.13"
