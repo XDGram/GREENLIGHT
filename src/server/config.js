@@ -184,6 +184,24 @@ export function loadConfig(env = process.env) {
     Object.defineProperty(webApproval, "clientSecret", { value: env.GREENLIGHT_VERCEL_APP_CLIENT_SECRET || null, enumerable: false });
     Object.freeze(webApproval);
   }
+  // Claude API (AI-drafted claims and tests). The key is non-enumerable: never serialised or logged.
+  const ai = { model: env.GREENLIGHT_AI_MODEL || env.GREENLIGHT_GUEST_AI_MODEL || "claude-opus-5-5" };
+  Object.defineProperty(ai, "apiKey", { value: env.ANTHROPIC_API_KEY || null, enumerable: false });
+  Object.freeze(ai);
+  // Normal users: Sign in with Google (OpenID Connect, src/server/approval-web.js). Each Google
+  // identity gets its own account (g-<hash>) and must approve its tests in the browser.
+  let google = null;
+  if (env.GREENLIGHT_GOOGLE_CLIENT_ID) {
+    if (!supabase) throw new Error("Sign in with Google needs Supabase persistence");
+    assertPublicBaseUrl(env.GREENLIGHT_PUBLIC_BASE_URL);
+    if (!env.GREENLIGHT_GOOGLE_CLIENT_SECRET) throw new Error("Sign in with Google needs GREENLIGHT_GOOGLE_CLIENT_SECRET (server-side only)");
+    if (typeof env.GREENLIGHT_APPROVAL_SIGNING_KEY !== "string" || env.GREENLIGHT_APPROVAL_SIGNING_KEY.length < 32) {
+      throw new Error("Sign in with Google needs GREENLIGHT_APPROVAL_SIGNING_KEY (a random secret of at least 32 characters, server-side only)");
+    }
+    google = { clientId: String(env.GREENLIGHT_GOOGLE_CLIENT_ID) };
+    Object.defineProperty(google, "clientSecret", { value: env.GREENLIGHT_GOOGLE_CLIENT_SECRET, enumerable: false });
+    Object.freeze(google);
+  }
   // Accounts whose certifications need a signed browser approval (owner-token approvals refused).
   // Fail closed: if browser approval is not configured, these accounts cannot be approved at all.
   const listed = (env.GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS ?? "xdgram").split(",").map((x) => x.trim()).filter(Boolean);
@@ -198,8 +216,9 @@ export function loadConfig(env = process.env) {
     const sample = env.GREENLIGHT_GUEST_SAMPLE_PROJECT || null;
     if (sample && !/^prj_[0-9a-f]{32}$/.test(sample)) throw new Error("GREENLIGHT_GUEST_SAMPLE_PROJECT must be a project id (prj_...)");
     guest = {
-      runsPerGuest: num(env.GREENLIGHT_GUEST_RUNS_PER_GUEST, 1),
-      runsPerDay: num(env.GREENLIGHT_GUEST_RUNS_PER_DAY, 3),
+      // Demo checks read the live page over HTTP; they never run Kane or spend credits.
+      runsPerGuest: num(env.GREENLIGHT_GUEST_RUNS_PER_GUEST, 10),
+      runsPerDay: num(env.GREENLIGHT_GUEST_RUNS_PER_DAY, 500),
       maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, 150), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150)),
       projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
       aiPerGuest: num(env.GREENLIGHT_GUEST_AI_PER_GUEST, 8),
@@ -214,6 +233,8 @@ export function loadConfig(env = process.env) {
   const cfg = {
     store: supabase ? "supabase" : "file",
     guest,
+    google,
+    ai,
     webApproval,
     browserApprovalAccounts,
     supabase,
@@ -238,7 +259,7 @@ export function loadConfig(env = process.env) {
     maxBodyBytes: 256 * 1024,
   };
   // Approval signing key: non-enumerable, never serialised, logged or sent to clients.
-  if (webApproval) Object.defineProperty(cfg, "approvalSigningKey", { value: env.GREENLIGHT_APPROVAL_SIGNING_KEY, enumerable: false });
+  if (webApproval || google) Object.defineProperty(cfg, "approvalSigningKey", { value: env.GREENLIGHT_APPROVAL_SIGNING_KEY, enumerable: false });
   // Kane credentials (sandbox mode): non-enumerable like the Supabase key, never logged or serialised.
   if (execution === "sandbox") {
     Object.defineProperty(cfg, "kaneCredentials", { value: Object.freeze({ username: env.GREENLIGHT_KANE_USERNAME, accessKey: env.GREENLIGHT_KANE_ACCESS_KEY }), enumerable: false });

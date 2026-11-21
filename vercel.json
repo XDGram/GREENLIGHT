@@ -33,6 +33,14 @@
       "destination": "/api"
     },
     {
+      "source": "/api/auth/google/:path*",
+      "destination": "/api"
+    },
+    {
+      "source": "/mcp",
+      "destination": "/api"
+    },
+    {
       "source": "/app/api/:path*",
       "destination": "/api"
     },
@@ -41,7 +49,7 @@
       "destination": "/app/index.html"
     },
     {
-      "source": "/app/:path((?!api/|assets/|favicon\\.svg$).*)",
+      "source": "/app/:path((?!api/|assets/|downloads/|favicon\\.svg$).*)",
       "destination": "/app/index.html"
     }
   ],

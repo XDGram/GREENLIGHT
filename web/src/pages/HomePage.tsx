@@ -142,7 +142,7 @@ export function HomePage({ session, projects, reload }: { session: Session; proj
               {list.length === 0 ? (
                 <Empty title="No projects yet">
                   <span>
-                    Propose one with <code className="mono">greenlight submit</code>.
+                    <Link href="/app/projects/new">Add your first project</Link>: its live URL, GitHub repository and what it should do.
                   </span>
                 </Empty>
               ) : (

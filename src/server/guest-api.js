@@ -2,8 +2,9 @@
 //
 // A guest is a random id in a signed, HttpOnly, 30-day cookie (__Host-gl_guest), so the browser
 // is remembered. Guests can read the sample project, add their own apps (tests from the form or
-// written by the AI), approve their own tests and start a capped number of real Kane runs. Their
-// data is kept apart from the certification tables, so nothing a guest does can certify anything.
+// written by the AI), approve their own tests and run a capped number of demo checks (guest-check.js:
+// an HTTP read of the start page; never Kane, never credits). Their data is kept apart from the
+// certification tables, so nothing a guest does can certify anything.
 //
 //   GET  /app/api/guest/me                       guest (or null), limits, what is available
 //   POST /app/api/guest/start                    create the guest (sets the cookie)
@@ -14,7 +15,7 @@
 //   POST /app/api/guest/projects                 save an app with its tests
 //   GET  /app/api/guest/projects/:id             one app: tests, approval, runs
 //   POST /app/api/guest/projects/:id/approve     approve the tests (type the hash back)
-//   POST /app/api/guest/projects/:id/runs        start a real run (limits apply)
+//   POST /app/api/guest/projects/:id/runs        run a demo check (no browser, no credits; limits apply)
 //
 // Every POST must come from this site (Origin and Sec-Fetch-Site) as JSON.
 
@@ -135,21 +136,35 @@ export function createGuestApi({ config, store, startRun, now = () => new Date()
     return createHmac("sha256", key).update(`ip|${ip}`).digest("hex");
   };
 
+  let paused = false;
   async function limits(guest) {
     const today = await store.guestRunsToday();
+    paused = await guestPaused();
     return {
       runsPerGuest: g.runsPerGuest,
       runsLeft: guest ? Math.max(0, g.runsPerGuest - guest.runsUsed) : g.runsPerGuest,
       runsPerDay: g.runsPerDay,
       runsLeftToday: Math.max(0, g.runsPerDay - today),
       maxCreditsPerRun: g.maxCreditsPerRun,
+      demoCheck: true,
+      paused: paused === true,
       projectsPerGuest: g.projectsPerGuest,
       aiPerGuest: g.aiPerGuest,
       aiLeft: guest ? Math.max(0, g.aiPerGuest - guest.aiUsed) : g.aiPerGuest,
-      aiAvailable: Boolean(g.anthropicApiKey) || Boolean(ai.client),
+      aiAvailable: Boolean(config.ai?.apiKey ?? g.anthropicApiKey) || Boolean(ai.client),
       maxTests: GUEST_LIMITS.tests,
       maxClaims: GUEST_LIMITS.claims,
     };
+  }
+
+  /** Administrator switch (admin console): settings key guest.checks_paused. */
+  async function guestPaused() {
+    if (typeof store.getSettings !== "function") return false;
+    try {
+      return (await store.getSettings())?.["guest.checks_paused"] === true;
+    } catch {
+      return false; // settings table not migrated yet: not paused
+    }
   }
 
   async function requireGuest(req) {
@@ -200,7 +215,7 @@ export function createGuestApi({ config, store, startRun, now = () => new Date()
       const requirements = String(body.requirements ?? "").trim();
       if (requirements.length < 20) throw new GreenlightError("invalid_request", "Describe what the app does in a sentence or two (at least 20 characters).");
       if (requirements.length > 4000) throw new GreenlightError("invalid_request", "Keep the description under 4,000 characters.");
-      if (!g.anthropicApiKey && !ai.client) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server; use the form.");
+      if (!(config.ai?.apiKey ?? g.anthropicApiKey) && !ai.client) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server; use the form.");
       await store.guestUseAi(guest.id, g.aiPerGuest);
       const { draft, pageRead } = await draftTests({ name, url: appUrl, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl });
       const structured = { name: draft.name?.trim() || name, url: appUrl, description: draft.description ?? null, claims: draft.claims ?? [], tests: draft.tests ?? [] };
@@ -246,6 +261,7 @@ export function createGuestApi({ config, store, startRun, now = () => new Date()
         return sendJson(res, 200, { project: projectView(p, await store.guestListRuns(id), config) });
       }
       if (action === "/runs" && isPost) {
+        if (await guestPaused()) throw new GreenlightError("guest_limit_reached", "Demo checks are paused by the administrator right now. Everything else in the demo still works.");
         const p = await store.guestGetProject(id, guest.id);
         checkGuestSpec(p.specText, config); // still within the demo's rules and credit cap
         const run = await store.guestStartRun({ id: `grn_${hex32()}`, projectId: id, guestId: guest.id, status: "queued", approvedTestHash: p.approvedTestHash }, g.runsPerGuest, g.runsPerDay);
@@ -254,7 +270,7 @@ export function createGuestApi({ config, store, startRun, now = () => new Date()
           await startRun(run.id);
         } catch (err) {
           log({ event: "guest_run_dispatch_failed", run: run.id, error: String(err?.message ?? err) });
-          await store.guestUpdateRun(run.id, "failed", { error: errorBody("sandbox_dispatch_failed", "The run could not be started; nothing ran and it does not count against your limit.") }, { refund: true }).catch(() => {});
+          await store.guestUpdateRun(run.id, "failed", { error: errorBody("internal_error", "The demo check could not be started; it does not count against your limit.") }, { refund: true }).catch(() => {});
         }
         return sendJson(res, 202, { run: runView(await store.guestGetRun(run.id)), limits: await limits(await store.guestGet(guest.id)) });
       }

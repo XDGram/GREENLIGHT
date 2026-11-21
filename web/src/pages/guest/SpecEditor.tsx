@@ -25,7 +25,7 @@ export function emptyDraft(): DraftSpec {
 }
 
 /** Editable claims and tests. Every change goes back up through onChange (a new object). */
-export function SpecEditor({ value, onChange, maxClaims, maxTests }: { value: DraftSpec; onChange: (v: DraftSpec) => void; maxClaims: number; maxTests: number }) {
+export function SpecEditor({ value, onChange, maxClaims, maxTests, maxSteps = 8 }: { value: DraftSpec; onChange: (v: DraftSpec) => void; maxClaims: number; maxTests: number; maxSteps?: number }) {
   const set = (patch: Partial<DraftSpec>) => onChange({ ...value, ...patch });
   const setTest = (i: number, t: DraftTest) => set({ tests: value.tests.map((x, n) => (n === i ? t : x)) });
   const setStep = (i: number, j: number, s: DraftStep) => setTest(i, { ...value.tests[i]!, steps: value.tests[i]!.steps.map((x, n) => (n === j ? s : x)) });
@@ -114,10 +114,10 @@ export function SpecEditor({ value, onChange, maxClaims, maxTests }: { value: Dr
             ))}
           </ol>
           <div className="tags">
-            <button type="button" className="btn ghost sm" disabled={t.steps.length >= 8} onClick={() => setTest(i, { ...t, steps: [...t.steps, { name: `Step ${t.steps.length + 1}`, kind: "do", text: "" }] })}>
+            <button type="button" className="btn ghost sm" disabled={t.steps.length >= maxSteps} onClick={() => setTest(i, { ...t, steps: [...t.steps, { name: `Step ${t.steps.length + 1}`, kind: "do", text: "" }] })}>
               Add action
             </button>
-            <button type="button" className="btn ghost sm" disabled={t.steps.length >= 8} onClick={() => setTest(i, { ...t, steps: [...t.steps, { name: "Check the page", kind: "expect_text", text: "" }] })}>
+            <button type="button" className="btn ghost sm" disabled={t.steps.length >= maxSteps} onClick={() => setTest(i, { ...t, steps: [...t.steps, { name: "Check the page", kind: "expect_text", text: "" }] })}>
               Add expected text
             </button>
           </div>

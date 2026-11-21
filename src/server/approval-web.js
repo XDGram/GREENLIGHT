@@ -1,4 +1,11 @@
-// Human approval in the browser, with an identity the server verifies itself.
+// Browser sign-in and human approval, with identities the server verifies itself.
+//
+// Two sign-ins, one session cookie:
+//   - Sign in with Google (normal users): any Google account; each Google identity gets its own
+//     Greenlight account (g-<hash>, src/server/approval-policy.js googleAccount) whose single
+//     owner user is that person. Session role "user".
+//   - Sign in with Vercel (administrators): only the Vercel subjects listed in GREENLIGHT_APPROVERS.
+//     Session role "admin". Nothing a Google user does can produce an admin session.
 //
 // Identity: "Sign in with Vercel" (OAuth 2.0 authorization code + PKCE, OpenID Connect). The
 // ID token is verified here against Vercel's published JWKS (signature, issuer
@@ -21,8 +28,8 @@
 import { createHmac, createHash, randomBytes, timingSafeEqual, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { GreenlightError } from "../cli/errors.js";
 import { projectFromText } from "../spec/generate.js";
-import { buildApproval, selfHash, WEB_APPROVAL_CHANNEL } from "./models.js";
-import { signApproval } from "./approval-policy.js";
+import { buildApproval, selfHash, WEB_IDENTITY_PROVIDERS } from "./models.js";
+import { signApproval, googleAccount } from "./approval-policy.js";
 import { APP_API_PREFIX, handleAppApi, sendJson } from "./app-api.js";
 
 export const VERCEL_ISSUER = "https://vercel.com";
@@ -36,11 +43,19 @@ export const VERCEL_JWKS_URL = "https://vercel.com/.well-known/jwks";
  */
 export const CALLBACK_PATH = "/api/auth/callback";
 
+export const GOOGLE_ISSUERS = ["https://accounts.google.com", "accounts.google.com"];
+export const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+export const GOOGLE_JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
+export const GOOGLE_LOGIN_PATH = "/api/auth/google/login";
+export const GOOGLE_CALLBACK_PATH = "/api/auth/google/callback";
+
 const OAUTH_COOKIE = "__Host-gl_oauth";
 const SESSION_COOKIE = "__Host-gl_session";
 const SPEC_COOKIE = "__Host-gl_spec";
 const OAUTH_TTL_MS = 10 * 60_000;
-const SESSION_TTL_MS = 15 * 60_000;
+const SESSION_TTL_MS = 15 * 60_000; // administrators (Sign in with Vercel)
+const USER_SESSION_TTL_MS = 12 * 3600_000; // users (Sign in with Google)
 const SKEW_S = 60;
 const PAGE = /^\/approve\/(prj_[0-9a-f]{32})\/([1-9][0-9]{0,8})$/;
 const ACTION = /^\/approve\/(prj_[0-9a-f]{32})\/([1-9][0-9]{0,8})\/(test-specification|server-version)$/;
@@ -110,7 +125,12 @@ export function createJwksCache({ fetchImpl = (...a) => globalThis.fetch(...a), 
  * Verify a Vercel ID token. Returns its claims or throws. Only RS256 and ES256 are accepted
  * ("none" and HMAC algorithms are refused, so a token cannot be signed with a public key).
  */
-export async function verifyVercelIdToken(idToken, { clientId, nonce, nowMs, getJwks }) {
+export async function verifyVercelIdToken(idToken, opts) {
+  return verifyIdToken(idToken, { ...opts, issuers: [VERCEL_ISSUER] });
+}
+
+/** Verify an OpenID Connect ID token from one of `issuers`. Returns its claims or throws. */
+export async function verifyIdToken(idToken, { clientId, nonce, nowMs, getJwks, issuers }) {
   const parts = String(idToken ?? "").split(".");
   if (parts.length !== 3) throw new Error("malformed token");
   let header;
@@ -136,7 +156,7 @@ export async function verifyVercelIdToken(idToken, { clientId, nonce, nowMs, get
   const ok = header.alg === "RS256" ? cryptoVerify("RSA-SHA256", data, publicKey, sig) : cryptoVerify("SHA256", data, { key: publicKey, dsaEncoding: "ieee-p1363" }, sig);
   if (!ok) throw new Error("bad signature");
   const nowS = Math.floor(nowMs / 1000);
-  if (claims.iss !== VERCEL_ISSUER) throw new Error("wrong issuer");
+  if (!issuers.includes(claims.iss)) throw new Error("wrong issuer");
   const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
   if (!aud.includes(clientId)) throw new Error("wrong audience");
   if (typeof claims.exp !== "number" || claims.exp + SKEW_S < nowS) throw new Error("expired");
@@ -189,19 +209,24 @@ async function readForm(req, maxBytes = 8 * 1024) {
 /**
  * @returns {(req, res, url) => Promise<boolean>} true when the request was an /approve request.
  */
-export function createApprovalWeb({ config, store, now = () => new Date(), fetchImpl = (...a) => globalThis.fetch(...a), getJwks, log = () => {} }) {
+export function createApprovalWeb({ config, store, jobs = null, now = () => new Date(), fetchImpl = (...a) => globalThis.fetch(...a), getJwks, getGoogleJwks, log = () => {}, appDeps = {} }) {
   const web = config.webApproval;
+  const google = config.google ?? null;
   const base = config.publicBaseUrl ? config.publicBaseUrl.replace(/\/+$/, "") : null;
   const origin = base ? new URL(base).origin : null;
-  const key = web ? createHmac("sha256", String(config.supabase?.serviceRoleKey ?? "")).update("greenlight-web-approval-v1").digest() : null;
+  const key = web || google ? createHmac("sha256", String(config.supabase?.serviceRoleKey ?? "")).update("greenlight-web-approval-v1").digest() : null;
   const jwks = getJwks ?? createJwksCache({ fetchImpl, now: () => now().getTime() });
+  const googleJwks = getGoogleJwks ?? createJwksCache({ fetchImpl, url: GOOGLE_JWKS_URL, now: () => now().getTime() });
   const redirectUri = base ? `${base}${CALLBACK_PATH}` : null;
+  const googleRedirectUri = base ? `${base}${GOOGLE_CALLBACK_PATH}` : null;
 
   const csrfFor = (sid, action, projectId, version, hash) => createHmac("sha256", key).update(`csrf|${sid}|${action}|${projectId}|${version}|${hash}`).digest("base64url");
 
   function session(req) {
     const s = verifyValue(key, parseCookies(req.headers.cookie)[SESSION_COOKIE], now().getTime());
-    return s && s.kind === "session" ? s : null;
+    if (!s || s.kind !== "session") return null;
+    // Sessions from before roles existed were Vercel approver sessions.
+    return { ...s, provider: s.provider ?? "vercel", role: s.role ?? "admin" };
   }
 
   function sameOrigin(req) {
@@ -213,6 +238,7 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
   async function login(req, res, url) {
     const next = url.searchParams.get("next") ?? "";
     if (!PAGE.test(next) && !APP_NEXT.test(next)) return send(res, 400, "<h1>Bad request</h1><p>Unknown approval page.</p>");
+    if (!web) return send(res, 404, "<h1>Administrator sign-in is not configured</h1>");
     const state = b64u(randomBytes(32));
     const nonce = b64u(randomBytes(32));
     const verifier = b64u(randomBytes(48));
@@ -257,6 +283,8 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
     }
     const s = {
       kind: "session",
+      provider: "vercel",
+      role: "admin",
       sid: b64u(randomBytes(24)),
       sub: claims.sub,
       account: approver.account,
@@ -269,6 +297,64 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
     };
     log({ event: "approval_signin", subject: claims.sub, user: approver.user });
     return redirect(res, o.next, { "set-cookie": [clear, cookie(SESSION_COOKIE, signValue(key, s), SESSION_TTL_MS / 1000)] });
+  }
+
+  async function googleLogin(req, res, url) {
+    const next = url.searchParams.get("next") ?? "/app";
+    if (!PAGE.test(next) && !APP_NEXT.test(next)) return send(res, 400, "<h1>Bad request</h1><p>Unknown page.</p>");
+    const state = b64u(randomBytes(32));
+    const nonce = b64u(randomBytes(32));
+    const verifier = b64u(randomBytes(48));
+    const value = signValue(key, { kind: "oauth", provider: "google", state, nonce, verifier, next, exp: now().getTime() + OAUTH_TTL_MS });
+    const q = new URLSearchParams({ client_id: google.clientId, redirect_uri: googleRedirectUri, response_type: "code", scope: "openid email profile", code_challenge: sha256b64u(verifier), code_challenge_method: "S256", state, nonce, prompt: "select_account" });
+    return redirect(res, `${GOOGLE_AUTHORIZE_URL}?${q}`, { "set-cookie": cookie(OAUTH_COOKIE, value, OAUTH_TTL_MS / 1000) });
+  }
+
+  async function googleCallback(req, res, url) {
+    const clear = cookie(OAUTH_COOKIE, "", 0);
+    const o = verifyValue(key, parseCookies(req.headers.cookie)[OAUTH_COOKIE], now().getTime());
+    if (!o || o.kind !== "oauth" || o.provider !== "google" || !safeEq(url.searchParams.get("state") ?? "", o.state)) {
+      return send(res, 400, `<h1>Sign-in expired or invalid</h1><p><a href="/app">Start again</a>.</p>`, { "set-cookie": clear });
+    }
+    const code = url.searchParams.get("code");
+    if (!code) return redirect(res, "/app?signin=cancelled", { "set-cookie": clear });
+    let claims;
+    try {
+      const body = new URLSearchParams({ grant_type: "authorization_code", client_id: google.clientId, client_secret: google.clientSecret, code, code_verifier: o.verifier, redirect_uri: googleRedirectUri });
+      const r = await fetchImpl(GOOGLE_TOKEN_URL, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" }, body: body.toString(), redirect: "error", signal: AbortSignal.timeout(15_000) });
+      const t = await r.json().catch(() => null);
+      if (!r.ok || typeof t?.id_token !== "string") throw new Error(`token exchange failed (HTTP ${r.status})`);
+      claims = await verifyIdToken(t.id_token, { clientId: google.clientId, nonce: o.nonce, nowMs: now().getTime(), getJwks: googleJwks, issuers: GOOGLE_ISSUERS });
+    } catch (err) {
+      log({ event: "google_signin_failed", error: String(err?.message ?? err) });
+      return send(res, 401, `<h1>Sign-in could not be verified</h1><p><a href="/app">Try again</a>.</p>`, { "set-cookie": clear });
+    }
+    const email = typeof claims.email === "string" && claims.email_verified !== false ? claims.email : null;
+    const name = typeof claims.name === "string" ? claims.name.slice(0, 200) : null;
+    let who;
+    try {
+      who = await store.webSignIn({ provider: "google", subject: claims.sub, account: googleAccount(claims.sub), email, name });
+    } catch (err) {
+      log({ event: "google_signin_store_failed", error: String(err?.message ?? err) });
+      return send(res, 503, `<h1>Sign-in is temporarily unavailable</h1><p><a href="/app">Try again</a>.</p>`, { "set-cookie": clear });
+    }
+    const s = {
+      kind: "session",
+      provider: "google",
+      role: "user",
+      sid: b64u(randomBytes(24)),
+      sub: claims.sub,
+      account: who.account,
+      user: who.user,
+      username: email,
+      email,
+      name,
+      picture: typeof claims.picture === "string" && /^https:\/\/[a-z0-9.-]+\.googleusercontent\.com\//.test(claims.picture) ? claims.picture.slice(0, 500) : null,
+      authAt: now().toISOString(),
+      exp: now().getTime() + USER_SESSION_TTL_MS,
+    };
+    log({ event: "google_signin", account: who.account, created: who.created === true });
+    return redirect(res, o.next, { "set-cookie": [clear, cookie(SESSION_COOKIE, signValue(key, s), USER_SESSION_TTL_MS / 1000)] });
   }
 
   async function load(s, projectId, n) {
@@ -297,7 +383,8 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
     const claims = derived.spec.claims.map((c) => `<li><b>${esc(c.id)}</b>: ${esc(c.text)}</li>`).join("");
     let actions;
     if (approval) {
-      actions = `<p class="ok"><b>Already approved</b> by ${esc(approval.approvedBy)} at ${esc(approval.approvedAt)}${approval.channel === WEB_APPROVAL_CHANNEL ? ` (Vercel subject <code>${esc(approval.identity?.subject)}</code>)` : ""}. Approvals are write-once.</p>`;
+      const prov = approval.identity?.provider;
+      actions = `<p class="ok"><b>Already approved</b> by ${esc(approval.approvedBy)} at ${esc(approval.approvedAt)}${prov && WEB_IDENTITY_PROVIDERS[prov]?.channel === approval.channel ? ` (signed in with ${prov === "google" ? "Google" : "Vercel"}${approval.identity.username ? ` as ${esc(approval.identity.username)}` : ""})` : ""}. Approvals are write-once.</p>`;
     } else if (!consistent) {
       actions = `<p class="bad"><b>Refused:</b> the stored specification does not produce the version's recorded hash. Nothing can be approved.</p>`;
     } else {
@@ -311,7 +398,7 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
           : `<p>Approve the test specification first.</p>`
       }</div>`;
     }
-    return send(res, 200, `<h1>Greenlight approval</h1><p>Signed in with Vercel as <b>${esc(s.username ?? s.email ?? s.sub)}</b> (Greenlight owner <b>${esc(s.user)}</b>, account ${esc(s.account)}). Session ends ${esc(new Date(s.exp).toISOString())}.</p>${notice}
+    return send(res, 200, `<p><a href="/app/projects/${esc(project.id)}">← Back to ${esc(project.name)}</a></p><h1>Greenlight approval</h1><p>Signed in with ${s.provider === "google" ? "Google" : "Vercel"} as <b>${esc(s.username ?? s.email ?? s.sub)}</b> (Greenlight owner <b>${esc(s.user)}</b>, account ${esc(s.account)}). Session ends ${esc(new Date(s.exp).toISOString())}.</p>${notice}
 <h2>${esc(project.name)}</h2><p>${esc(desc)}</p><p>Live URL: <code>${esc(derived.spec.project.url)}</code> · Server version ${esc(n)} · submitted by ${esc(v.submittedBy)} at ${esc(v.submittedAt)}</p>
 <h3>Claims</h3><ul>${claims}</ul><h3>Tests</h3>${tests}<h3>greenlight.yaml</h3><pre>${esc(v.specText)}</pre>${actions}`);
   }
@@ -342,8 +429,8 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
       approvedBy: s.user,
       now: confirmedAt,
       extra: {
-        channel: WEB_APPROVAL_CHANNEL,
-        identity: { provider: "vercel", issuer: VERCEL_ISSUER, subject: s.sub, username: s.username, email: s.email, name: s.name, authenticatedAt: s.authAt },
+        channel: WEB_IDENTITY_PROVIDERS[s.provider].channel,
+        identity: { provider: s.provider, issuer: WEB_IDENTITY_PROVIDERS[s.provider].issuer, subject: s.sub, username: s.username, email: s.email, name: s.name, authenticatedAt: s.authAt },
         confirmations: {
           testSpecification: { hash: spec.hash, specFileSha256: spec.specFileSha256, confirmedAt: spec.confirmedAt },
           serverVersion: { hash: v.approvedTestHash, confirmedAt: confirmedAt.toISOString() },
@@ -360,20 +447,34 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
       throw err;
     }
     log({ event: "approval_recorded", subject: s.sub, user: s.user, projectId: project.id, version: v.version, recordSha256: record.recordSha256 });
-    return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (Vercel subject <code>${esc(s.sub)}</code>).</p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(spec.confirmedAt)}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(confirmedAt.toISOString())}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
+    return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (signed in with ${s.provider === "google" ? "Google" : "Vercel"} as ${esc(s.username ?? s.sub)}).</p><p><a href="/app/projects/${esc(project.id)}/verify">Continue to verification →</a></p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(spec.confirmedAt)}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(confirmedAt.toISOString())}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
   }
 
   return async function handle(req, res, url) {
     const isApp = url.pathname.startsWith(APP_API_PREFIX);
-    if (!isApp && url.pathname !== CALLBACK_PATH && url.pathname !== "/approve" && !url.pathname.startsWith("/approve/")) return false;
-    if (!web) {
+    const isGoogle = url.pathname === GOOGLE_LOGIN_PATH || url.pathname === GOOGLE_CALLBACK_PATH;
+    if (!isApp && !isGoogle && url.pathname !== CALLBACK_PATH && url.pathname !== "/approve" && !url.pathname.startsWith("/approve/")) return false;
+    if (isGoogle) {
+      if (!google || req.method !== "GET") send(res, 404, "<h1>Not found</h1><p>Sign in with Google is not configured on this server.</p>");
+      else {
+        try {
+          if (url.pathname === GOOGLE_LOGIN_PATH) await googleLogin(req, res, url);
+          else await googleCallback(req, res, url);
+        } catch (err) {
+          log({ event: "google_signin_error", error: String(err?.stack ?? err) });
+          send(res, 500, "<h1>Internal error</h1>");
+        }
+      }
+      return true;
+    }
+    if (!web && !google) {
       if (isApp) sendJson(res, 404, { error: { code: "not_found", message: "Web sign-in is not configured on this server." } });
       else send(res, 404, "<h1>Not found</h1>");
       return true;
     }
     if (isApp) {
       try {
-        await handleAppApi({ req, res, url, s: session(req), store, config, sameOrigin, clearSessionCookie: cookie(SESSION_COOKIE, "", 0) });
+        await handleAppApi({ req, res, url, s: session(req), store, config, sameOrigin, clearSessionCookie: cookie(SESSION_COOKIE, "", 0), jobs, now, log, fetchImpl, ...appDeps });
       } catch (err) {
         log({ event: "app_api_error", path: url.pathname, error: String(err?.stack ?? err) });
         sendJson(res, 500, { error: { code: "internal_error", message: "Internal error." } });
@@ -382,7 +483,10 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
     }
     try {
       if (req.method === "GET" && url.pathname === "/approve/login") await login(req, res, url);
-      else if (req.method === "GET" && url.pathname === CALLBACK_PATH) await callback(req, res, url);
+      else if (req.method === "GET" && url.pathname === CALLBACK_PATH) {
+        if (web) await callback(req, res, url);
+        else send(res, 404, "<h1>Not found</h1>");
+      }
       else {
         const p = PAGE.exec(url.pathname);
         const a = ACTION.exec(url.pathname);
@@ -392,7 +496,8 @@ export function createApprovalWeb({ config, store, now = () => new Date(), fetch
         }
         const s = session(req);
         if (!s) {
-          if (p) redirect(res, `/approve/login?next=${encodeURIComponent(url.pathname)}`);
+          if (p && google) send(res, 401, `<h1>Sign in to review these tests</h1><p><a href="${GOOGLE_LOGIN_PATH}?next=${encodeURIComponent(url.pathname)}">Sign in with Google</a>${web ? ` · <a href="/approve/login?next=${encodeURIComponent(url.pathname)}">Administrator sign-in (Vercel)</a>` : ""}</p>`);
+          else if (p) redirect(res, `/approve/login?next=${encodeURIComponent(url.pathname)}`);
           else send(res, 401, "<h1>Sign in first</h1>");
           return true;
         }

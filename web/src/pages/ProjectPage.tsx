@@ -72,20 +72,152 @@ export function ProjectPage({ id, pending, onSignIn, load, sample = false }: { i
             Test your own app
           </Link>
         ) : (
-          <ApprovalsBell pending={pending} />
+          <>
+            <ApprovalsBell pending={pending} />
+            <Link href={`/app/projects/${d.project.id}/tests`} className="btn ghost">
+              <I.Pencil size={14} aria-hidden="true" /> {v ? "Edit tests" : "Write tests"}
+            </Link>
+            {v ? (
+              <Link href={`/app/projects/${d.project.id}/verify`} className="btn">
+                <I.Play size={14} aria-hidden="true" /> Verify
+              </Link>
+            ) : null}
+          </>
         )}
       </TopBar>
 
+      {sample ? (
+        <p className="small" style={{ margin: 0 }}>
+          This is how a real project looks inside Greenlight: approved claims, the exact browser tests behind them, the credit estimate and every run. You can read everything here; nothing in the demo can change it.
+        </p>
+      ) : null}
+
       {!v ? (
         <section className="card">
-          <Empty title="No test specification yet">
-            <span>Submit a greenlight.yaml for this project with <code className="mono">greenlight submit</code>.</span>
+          <Empty title="No claims or tests yet">
+            <span>Draft the claims and browser tests for {d.project.name}, review them, and approve the exact version you want verified.</span>
+            {!sample ? (
+              <Link href={`/app/projects/${d.project.id}/tests`} className="btn">
+                Write claims and tests
+              </Link>
+            ) : null}
           </Empty>
         </section>
       ) : (
         <VersionView detail={d} v={v} />
       )}
+
+      {!sample && d.details ? <DetailsCard detail={d} onChanged={reload} /> : null}
+      {!sample && d.records.length ? <RunsCard detail={d} /> : null}
     </>
+  );
+}
+
+function DetailsCard({ detail, onChanged }: { detail: ProjectDetail; onChanged: () => void }) {
+  const dd = detail.details!;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const recheck = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.repositoryCheck(detail.project.id);
+      onChanged();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const rc = dd.repositoryCheck;
+  return (
+    <section className="card" aria-labelledby="details-h">
+      <div className="card-head">
+        <h2 id="details-h" className="card-title lg">
+          Project details
+        </h2>
+        <button type="button" className="btn ghost sm" onClick={recheck} disabled={busy || !dd.repository}>
+          {busy ? <span className="spinner" aria-hidden="true" /> : <I.RefreshCw size={14} aria-hidden="true" />} Check repository
+        </button>
+      </div>
+      <dl className="kv-list">
+        <dt>Live URL</dt>
+        <dd>
+          <a href={detail.project.url} target="_blank" rel="noopener noreferrer">
+            {detail.project.url}
+          </a>
+        </dd>
+        <dt>Repository</dt>
+        <dd>
+          {dd.repository ? (
+            <a href={dd.repository} target="_blank" rel="noopener noreferrer">
+              {dd.repository.replace("https://github.com/", "")}
+            </a>
+          ) : (
+            "—"
+          )}{" "}
+          · branch <span className="mono">{dd.branch ?? "main"}</span>
+        </dd>
+        <dt>Latest commit</dt>
+        <dd>
+          {rc?.status === "ok" && rc.head ? (
+            <>
+              <span className="mono">{rc.head.sha.slice(0, 12)}</span> · {rc.head.message} · checked {formatDateTime(rc.checkedAt)}
+            </>
+          ) : (
+            rc?.message ?? "Not checked yet."
+          )}
+        </dd>
+        {dd.description ? (
+          <>
+            <dt>Description</dt>
+            <dd>{dd.description}</dd>
+          </>
+        ) : null}
+        <dt>Should do</dt>
+        <dd style={{ whiteSpace: "pre-wrap" }}>{dd.purpose ?? "—"}</dd>
+        <dt>Test credentials</dt>
+        <dd>{dd.hasCredentials ? `Stored encrypted${dd.credentialsUpdatedAt ? ` (${formatDateTime(dd.credentialsUpdatedAt)})` : ""}; never shown again` : "None"}</dd>
+      </dl>
+      {err ? (
+        <p className="small" role="alert" style={{ margin: 0 }}>
+          {err}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function RunsCard({ detail }: { detail: ProjectDetail }) {
+  return (
+    <section className="card" aria-labelledby="runs-h">
+      <div className="card-head">
+        <h2 id="runs-h" className="card-title lg">
+          Verification history
+        </h2>
+        <span className="small">{detail.records.length} runs</span>
+      </div>
+      <ul className="list">
+        {detail.records.map((r) => (
+          <li key={r.id} className="list-row">
+            <span className={`pill-icon ${r.certified ? "" : "outline"}`} aria-hidden="true">
+              {r.certified ? <I.Check size={14} strokeWidth={2.4} /> : <I.X size={14} />}
+            </span>
+            <div className="list-main">
+              <b>
+                <Link href={`/app/projects/${detail.project.id}/runs/${r.id}`}>{formatDateTime(r.startedAt)}</Link> · version {r.testVersion}
+              </b>
+              <span>
+                {r.claims.filter((c) => c.status === "passed").length} of {r.claims.length} claims passed
+                {r.deployment ? ` · ${r.deployment.commit.slice(0, 7)}` : ""}
+                {r.credits?.actual != null ? ` · ${credits(r.credits.actual)} credits` : ""}
+              </span>
+            </div>
+            <Tag form={r.certified ? "solid" : "outline"}>{r.certified ? "Certified" : claimStatusLabel(r.status)}</Tag>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

@@ -158,6 +158,16 @@ export class SupabaseStore {
     return { runId, ok: r.ok, problems: r.problems, files: run.files.length };
   }
 
+  /** One stored run file, downloaded and checked against its recorded SHA-256 and size. */
+  async getRunFile(runId, name) {
+    const run = await this.getRun(runId);
+    const f = run.files.find((x) => x.name === name);
+    if (!f) throw new GreenlightError("not_found", "No such evidence file.");
+    const bytes = await this.db.storage.download(this.bucket, `${run.storagePrefix}/${f.name}`);
+    if (bytes.length !== f.bytes || sha256(bytes) !== f.sha256) throw new GreenlightError("run_record_invalid", "The stored evidence file does not match its recorded hash.");
+    return { name: f.name, sha256: f.sha256, bytes };
+  }
+
   /** Remove the job's local in-flight evidence after its record is committed (only inside workRoot). */
   async cleanupRun({ jobId }) {
     const dir = this.evidenceRoot(jobId);
@@ -175,6 +185,44 @@ export class SupabaseStore {
   }
   async listRecords(projectId) {
     return this.db.rpc("greenlight_list_records", { p_project_id: assertId("project", projectId) });
+  }
+
+  // ---- web accounts (Sign in with Google), project details, tokens, settings, admin
+  async webSignIn({ provider, subject, account, email, name }) {
+    return this.db.rpc("greenlight_web_sign_in", { p_provider: provider, p_subject: subject, p_account: account, p_email: email ?? null, p_name: name ?? null });
+  }
+  async putProjectDetails(projectId, account, doc, by) {
+    return this.db.rpc("greenlight_put_project_details", { p_project_id: assertId("project", projectId), p_account: account, p_doc: doc, p_by: by });
+  }
+  async getProjectDetails(projectId) {
+    return this.db.rpc("greenlight_get_project_details", { p_project_id: assertId("project", projectId) });
+  }
+  async issueToken(account, role, tokenSha256, label) {
+    return this.db.rpc("greenlight_issue_token", { p_account: account, p_role: role, p_token_sha256: tokenSha256, p_label: label });
+  }
+  async listAccountTokens(account) {
+    return this.db.rpc("greenlight_list_account_tokens", { p_account: account });
+  }
+  async revokeAccountToken(account, id) {
+    return this.db.rpc("greenlight_revoke_account_token", { p_account: account, p_id: id });
+  }
+  async getSettings() {
+    return this.db.rpc("greenlight_get_settings", {});
+  }
+  async setSetting(key, value, by) {
+    return this.db.rpc("greenlight_set_setting", { p_key: key, p_value: value, p_by: by });
+  }
+  async adminEvent(actor, action, target, detail = {}) {
+    return this.db.rpc("greenlight_admin_event", { p_actor: actor, p_action: action, p_target: target ?? null, p_detail: detail });
+  }
+  async adminOverview() {
+    return this.db.rpc("greenlight_admin_overview", {});
+  }
+  async adminList(kind, limit = 100) {
+    return this.db.rpc("greenlight_admin_list", { p_kind: kind, p_limit: limit });
+  }
+  async adminRevokeToken(id, actor) {
+    return this.db.rpc("greenlight_admin_revoke_token", { p_id: id, p_actor: actor });
   }
 
   // ---- guest demo (separate tables; never certification data)

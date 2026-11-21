@@ -19,12 +19,24 @@ export function ProjectsPage({ projects, reload }: { projects: Loadable<ProjectS
       <TopBar title="Projects" eyebrow={`${list.length} in this account`}>
         <SearchPill value={q} onChange={(v) => navigate(v ? `/app/projects?q=${encodeURIComponent(v)}` : "/app/projects")} />
         <ApprovalsBell pending={pending} />
+        <Link href="/app/projects/new" className="btn">
+          <I.Plus size={15} aria-hidden="true" /> Add project
+        </Link>
       </TopBar>
       {projects.state === "loading" ? <LoadingRows /> : null}
       {projects.state === "error" ? <ErrorNotice error={projects.error} onRetry={reload} /> : null}
       {projects.state === "ready" && shown.length === 0 ? (
         <section className="card">
-          <Empty title={q ? `No project matches “${q}”` : "No projects yet"}>{q ? null : <span>Propose one with <code className="mono">greenlight submit</code>.</span>}</Empty>
+          <Empty title={q ? `No project matches “${q}”` : "No projects yet"}>
+            {q ? null : (
+              <>
+                <span>Add the app you want to verify: its live URL, GitHub repository and what it should do.</span>
+                <Link href="/app/projects/new" className="btn">
+                  <I.Plus size={15} aria-hidden="true" /> Add project
+                </Link>
+              </>
+            )}
+          </Empty>
         </section>
       ) : null}
       <div className="grid-cards">

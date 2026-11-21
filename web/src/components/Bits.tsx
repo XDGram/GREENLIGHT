@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { Form } from "../state";
 import * as I from "./Icons";
 
@@ -74,6 +74,85 @@ export function LoadingRows() {
         <Skeleton height={260} flex="1 1 300px" />
         <Skeleton height={260} flex="999 1 560px" />
       </div>
+    </div>
+  );
+}
+
+export function Notice({ children, action, icon }: { children: ReactNode; action?: ReactNode; icon?: ReactNode }) {
+  return (
+    <div className="notice" role="status">
+      {icon ?? <I.CircleAlert size={18} aria-hidden="true" />}
+      <p>{children}</p>
+      {action}
+    </div>
+  );
+}
+
+export function FormError({ error }: { error: { message: string; problems?: string[] } | null }) {
+  if (!error) return null;
+  return (
+    <div className="notice" role="alert">
+      <I.CircleAlert size={18} aria-hidden="true" />
+      <p>
+        {error.message}
+        {error.problems?.length ? (
+          <>
+            <br />
+            {error.problems.join(" ")}
+          </>
+        ) : null}
+      </p>
+    </div>
+  );
+}
+
+/** Copy text to the clipboard, with a visible confirmation. */
+export function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn ghost sm"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text).then(() => {
+          setDone(true);
+          window.setTimeout(() => setDone(false), 1600);
+        });
+      }}
+    >
+      {done ? <I.Check size={14} aria-hidden="true" /> : <I.Copy size={14} aria-hidden="true" />}
+      {done ? "Copied" : label}
+    </button>
+  );
+}
+
+export function CodeBlock({ title, code }: { title: string; code: string }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+      <div className="code-head">
+        <span>{title}</span>
+        <CopyButton text={code} />
+      </div>
+      <pre className="code">{code}</pre>
+    </div>
+  );
+}
+
+/** Pass / fail / unknown as form, not colour. */
+export function ResultMark({ status }: { status: string | null | undefined }) {
+  const kind = status === "passed" || status === "found" ? "pass" : status === "failed" || status === "app_failure" || status === "missing" ? "fail" : "unknown";
+  return (
+    <span className={`result-mark ${kind}`} aria-hidden="true">
+      {kind === "pass" ? <I.Check size={12} strokeWidth={2.6} /> : kind === "fail" ? <I.X size={12} strokeWidth={2.6} /> : null}
+    </span>
+  );
+}
+
+export function DemoBanner({ children }: { children: ReactNode }) {
+  return (
+    <div className="demo-banner" role="note">
+      <span className="guest-badge">DEMO</span>
+      <span>{children}</span>
     </div>
   );
 }

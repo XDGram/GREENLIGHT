@@ -1,25 +1,62 @@
-// Read-only JSON for the Greenlight web app (/app), for a person signed in with Vercel.
+// JSON for the Greenlight web app (/app), for a person signed in with Google (role "user") or an
+// administrator signed in with Vercel (role "admin").
 //
-// The app never holds an API token. Every request is authorised by the same signed, HttpOnly
-// session cookie the approval pages use (Sign in with Vercel, GREENLIGHT_APPROVERS), and is
-// scoped to that session's Greenlight account: another account's project is "not found".
-// Nothing here writes: approving still happens only on the server-rendered /approve pages
-// (two typed hashes, CSRF tokens, write-once storage), and certification still needs the API.
+// The app never holds an API token. Every request is authorised by the signed, HttpOnly session
+// cookie (src/server/approval-web.js) and is scoped to that session's Greenlight account: another
+// account's project is "not found". Every write must be same-origin JSON.
 //
-//   GET  /app/api/session                 who is signed in, and until when
-//   GET  /app/api/projects                the account's projects with their current state
-//   GET  /app/api/projects/:projectId     one project: versions, claims, tests, estimate, jobs, records
-//   POST /app/api/logout                  end the session (same-origin only)
+// What this API can NOT do, by design:
+//   - approve tests: approval happens only on the server-rendered /approve pages (two typed
+//     hashes, CSRF tokens, signed write-once record);
+//   - certify without an explicit spend confirmation: POST .../certifications needs confirmSpend,
+//     and the job re-checks approval, the deployed commit and the credit cap before Kane runs;
+//   - publish anything: public records exist only for certification runs that really ran.
+//
+//   GET  /app/api/session                         who is signed in, role, features
+//   POST /app/api/logout
+//   GET  /app/api/projects                        the account's projects
+//   POST /app/api/projects                        add a project (name, live URL, GitHub URL, branch, ...)
+//   GET  /app/api/projects/:id                    versions, claims, tests, estimate, jobs, records, details
+//   POST /app/api/projects/:id/details            edit repository, branch, description, credentials
+//   POST /app/api/projects/:id/repository-check   GitHub: repository and branch head
+//   POST /app/api/projects/:id/deployment-check   live /greenlight.json: deployed commit
+//   POST /app/api/projects/:id/draft              AI: claims and tests from the description (not saved)
+//   POST /app/api/projects/:id/preview            structured tests -> greenlight.yaml, hash, estimate
+//   POST /app/api/projects/:id/versions           save a new immutable test version (pending approval)
+//   POST /app/api/projects/:id/certifications     start a verification run {version, commit, confirmSpend}
+//   GET  /app/api/jobs/:id                        job progress
+//   GET  /app/api/projects/:id/records/:rid       one run: claims, tests, failures, evidence files
+//   GET  /app/api/projects/:id/records/:rid/files/<name>   one evidence file (hash re-checked)
+//   GET  /app/api/projects/:id/records/:rid/integrity      re-download and re-hash all evidence
+//   GET  /app/api/tokens                          API tokens (Claude Code, MCP)
+//   POST /app/api/tokens                          create one {role: agent|owner, label} (shown once)
+//   POST /app/api/tokens/:id/revoke
+//   GET  /app/api/integrations                    Claude API, Claude Code, MCP status
+//   /app/api/admin/*                              administrators only (src/server/admin-api.js)
 
-import { GreenlightError } from "../cli/errors.js";
-import { projectFromText } from "../spec/generate.js";
+import { createCipheriv, createHash, createHmac, randomBytes } from "node:crypto";
+import { GreenlightError, errorBody, ERRORS } from "../cli/errors.js";
+import { projectFromText, toApprovedTests } from "../spec/generate.js";
+import { SpecError } from "../spec/schema.js";
 import { catalogFromSpec } from "../report/failure-report.js";
 import { estimateRun } from "../credits/estimate.js";
-import { verifyRecordIntegrity } from "./models.js";
+import { isLocalOrPrivateHost } from "../deploy/host.js";
+import { TestrunStream, assessCompleteness } from "../kane/testrun-stream.js";
+import { evaluateRun } from "../verify/classify.js";
+import { SCHEMAS, verifyRecordIntegrity } from "./models.js";
 import { browserApprovalRequired, verifyBrowserApproval } from "./approval-policy.js";
+import { prepareCertification } from "./certify.js";
+import { buildSpecYaml, USER_LIMITS } from "./guest-spec.js";
+import { draftTests } from "./guest-ai.js";
+import { parseRepoUrl, checkBranch, checkRepository, probeDeployment } from "./repo.js";
+import { handleAdminApi } from "./admin-api.js";
 
 export const APP_API_PREFIX = "/app/api/";
-const PROJECT = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})$/;
+const PROJECT = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})(?:\/(details|repository-check|deployment-check|draft|preview|versions|certifications))?$/;
+const RECORD = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})\/records\/(vr_[0-9a-f]{32})(?:\/(integrity)|\/files\/([A-Za-z0-9._/-]{1,300}))?$/;
+const JOB = /^\/app\/api\/jobs\/(job_[0-9a-f]{32})$/;
+const TOKEN = /^\/app\/api\/tokens\/([0-9a-f]{16})\/revoke$/;
+const AI_PER_HOUR = 20;
 
 export function sendJson(res, status, body, headers = {}) {
   res.statusCode = status;
@@ -30,6 +67,24 @@ export function sendJson(res, status, body, headers = {}) {
   res.setHeader("referrer-policy", "same-origin");
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
   res.end(status === 204 ? undefined : JSON.stringify(body));
+}
+
+export async function readJson(req, maxBytes = 256 * 1024) {
+  if (!/^application\/json\b/i.test(String(req.headers["content-type"] ?? ""))) throw new GreenlightError("invalid_request", "Send JSON.");
+  let size = 0;
+  const chunks = [];
+  for await (const c of req) {
+    size += c.length;
+    if (size > maxBytes) throw new GreenlightError("payload_too_large", "Request too large.");
+    chunks.push(c);
+  }
+  try {
+    const v = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+    if (!v || typeof v !== "object" || Array.isArray(v)) throw new Error("not an object");
+    return v;
+  } catch {
+    throw new GreenlightError("invalid_request", "Invalid JSON.");
+  }
 }
 
 const approvalLink = (projectId, version) => `/approve/${projectId}/${version}`;
@@ -58,6 +113,8 @@ function approvalView(config, project, v, a) {
   };
 }
 
+const testsOf = (spec) => catalogFromSpec(spec).tests;
+
 function versionView(config, project, v, a) {
   let spec = null;
   try {
@@ -65,7 +122,7 @@ function versionView(config, project, v, a) {
   } catch {
     spec = null; // a stored spec that no longer parses is shown without tests or estimate
   }
-  const catalog = spec ? catalogFromSpec(spec) : null;
+  const catalog = spec ? testsOf(spec) : null;
   return {
     version: v.version,
     approvedTestHash: v.approvedTestHash,
@@ -76,8 +133,9 @@ function versionView(config, project, v, a) {
     approval: approvalView(config, project, v, a),
     approveUrl: a ? null : approvalLink(project.id, v.version),
     description: spec?.project?.description ?? null,
+    url: spec?.project?.url ?? null,
     claims: v.claims.map((c) => ({ id: c.id, text: c.text })),
-    tests: (catalog?.tests ?? v.tests.map((t) => ({ file: t.file, title: null, claims: t.claims, steps: [] }))).map((t) => {
+    tests: (catalog ?? v.tests.map((t) => ({ file: t.file, title: null, claims: t.claims, steps: [] }))).map((t) => {
       const stored = v.tests.find((x) => x.file === t.file);
       return { file: t.file, title: t.title, claims: t.claims, sha256: stored?.sha256 ?? null, steps: t.steps.map((s) => ({ name: s.name, kind: s.kind, text: s.text })) };
     }),
@@ -85,13 +143,14 @@ function versionView(config, project, v, a) {
   };
 }
 
-const jobView = (j) => ({ id: j.id, version: j.version, status: j.status, outcome: j.outcome ?? null, requestedBy: j.requestedBy ?? null, createdAt: j.createdAt, startedAt: j.startedAt ?? null, finishedAt: j.finishedAt ?? null, recordId: j.recordId ?? null, error: j.error ? { code: j.error.code ?? null, message: j.error.message ?? null } : null });
+export const jobView = (j) => ({ id: j.id, projectId: j.projectId, version: j.version, status: j.status, outcome: j.outcome ?? null, requestedBy: j.requestedBy ?? null, commit: j.request?.commit ?? null, confirmSpend: j.request?.confirmSpend ?? null, createdAt: j.createdAt, startedAt: j.startedAt ?? null, finishedAt: j.finishedAt ?? null, recordId: j.recordId ?? null, error: j.error ? { code: j.error.code ?? null, message: j.error.message ?? null } : null });
 
-function recordView(r, config) {
+export function recordView(r, config) {
   const base = config.publicBaseUrl ? config.publicBaseUrl.replace(/\/+$/, "") : "";
   return {
     id: r.id,
     testVersion: r.testVersion,
+    approvedTestHash: r.approvedTestHash ?? null,
     status: r.status,
     certified: r.certified === true,
     notCertifiedBecause: r.notCertifiedBecause ?? [],
@@ -101,8 +160,10 @@ function recordView(r, config) {
     endedAt: r.execution?.endedAt ?? null,
     credits: r.credits ? { actual: r.credits.actualSpend ?? null, estimate: r.credits.estimate ?? null } : null,
     evidenceStatus: r.evidence?.status ?? null,
+    recordSha256: r.recordSha256 ?? null,
     integrity: verifyRecordIntegrity(r).ok,
-    publicUrl: `${base}/v1/public/records/${r.id}`,
+    // Public records exist for certified runs only; other runs stay private history.
+    publicUrl: r.certified === true ? `${base}/v1/public/records/${r.id}` : null,
   };
 }
 
@@ -136,6 +197,21 @@ async function summary(config, store, project, jobs) {
   };
 }
 
+/** Editable project details as the app sees them: credentials are never returned. */
+function detailsView(d) {
+  if (!d) return null;
+  return {
+    description: d.description ?? null,
+    purpose: d.purpose ?? null,
+    repository: d.repository ?? null,
+    branch: d.branch ?? null,
+    repositoryCheck: d.repositoryCheck ?? null,
+    hasCredentials: Boolean(d.credentials),
+    credentialsUpdatedAt: d.credentials?.updatedAt ?? null,
+    updatedAt: d.updatedAt ?? null,
+  };
+}
+
 /** One project with its versions (claims, tests, estimate, approval), jobs and records. */
 export async function projectDetail(config, store, project, { publicView = false } = {}) {
   const jobs = await projectJobs(store, [project.id]);
@@ -149,48 +225,447 @@ export async function projectDetail(config, store, project, { publicView = false
     versions.push(view);
   }
   const records = (await store.listRecords(project.id)).map((r) => recordView(r, config)).sort((x, y) => String(y.startedAt ?? "").localeCompare(String(x.startedAt ?? "")));
+  let details = null;
+  if (!publicView && typeof store.getProjectDetails === "function") {
+    try {
+      details = detailsView(await store.getProjectDetails(project.id));
+    } catch {
+      details = null; // details table not migrated yet
+    }
+  }
   return {
     project: { id: project.id, name: project.name, url: project.url, createdAt: project.createdAt, createdBy: project.createdBy },
+    details,
     versions,
     jobs: jobs.map(jobView),
     records,
   };
 }
 
+// ---------------------------------------------------------------- helpers
+
+function liveUrl(v) {
+  let u;
+  try {
+    u = new URL(String(v ?? "").trim());
+  } catch {
+    throw new GreenlightError("invalid_request", "Live URL: enter the full address, starting with https://");
+  }
+  if (!/^https?:$/.test(u.protocol) || u.username || u.password || u.search || u.hash) throw new GreenlightError("invalid_request", "Live URL: http(s), without a username, password, query or fragment.");
+  if (isLocalOrPrivateHost(u.hostname)) throw new GreenlightError("url_not_allowed", "Live URL: use the app's public address; localhost and private addresses are never tested.");
+  return u.href;
+}
+
+const text = (v, max, field, { required = false } = {}) => {
+  const t = typeof v === "string" ? v.trim() : "";
+  if (!t) {
+    if (required) throw new GreenlightError("invalid_request", `${field} is required.`);
+    return null;
+  }
+  if (t.length > max) throw new GreenlightError("invalid_request", `${field} is longer than ${max} characters.`);
+  return t;
+};
+
+/** AES-256-GCM with a key derived from the server's Supabase key: stored encrypted, never returned. */
+function sealCredentials(config, creds, now) {
+  const username = text(creds?.username, 200, "Test username");
+  const password = typeof creds?.password === "string" ? creds.password : "";
+  const notes = text(creds?.notes, 500, "Credential notes");
+  if (!username && !password && !notes) return null;
+  if (password.length > 500) throw new GreenlightError("invalid_request", "Test password is too long.");
+  const key = createHmac("sha256", String(config.supabase?.serviceRoleKey ?? "")).update("greenlight-test-credentials-v1").digest();
+  const iv = randomBytes(12);
+  const c = createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([c.update(JSON.stringify({ username, password, notes }), "utf8"), c.final()]);
+  return { alg: "A256GCM", iv: iv.toString("base64"), tag: c.getAuthTag().toString("base64"), ct: ct.toString("base64"), updatedAt: now.toISOString() };
+}
+
+function specFromBody(body, project) {
+  if (typeof body.specText === "string") {
+    if (body.specText.length > 200_000) throw new GreenlightError("invalid_request", "greenlight.yaml is too large (200 kB at most).");
+    return body.specText;
+  }
+  const draft = body.draft && typeof body.draft === "object" ? body.draft : body;
+  return buildSpecYaml({ ...draft, name: draft.name || project.name, url: draft.url || project.url }, USER_LIMITS);
+}
+
+function deriveOrProblems(specText) {
+  try {
+    return { derived: projectFromText(specText), problems: [] };
+  } catch (err) {
+    if (err instanceof SpecError) return { derived: null, problems: err.errors };
+    return { derived: null, problems: [String(err?.message ?? err)] };
+  }
+}
+
+function previewOf(specText, config) {
+  const { derived, problems } = deriveOrProblems(specText);
+  if (!derived) return { ok: false, specText, problems };
+  const estimate = estimateFor(derived.spec, config);
+  const over = estimate.cap !== null && estimate.credits > estimate.cap;
+  return {
+    ok: true,
+    specText,
+    hash: derived.hash,
+    claims: derived.spec.claims.map((c) => ({ id: c.id, text: c.text })),
+    tests: testsOf(derived.spec).map((t) => ({ file: t.file, title: t.title, claims: t.claims, steps: t.steps.map((s) => ({ name: s.name, kind: s.kind, text: s.text })) })),
+    estimate,
+    problems: [],
+    warnings: over ? [`Estimated ${estimate.credits} credits is over this server's limit of ${estimate.cap} per run; certification would be refused. Use fewer tests or steps.`] : [],
+  };
+}
+
+/** Validate a greenlight.yaml and store it as the project's next immutable version (pending approval). */
+export async function proposeVersion({ store, project, specText, by, now }) {
+  const { derived, problems } = deriveOrProblems(specText);
+  if (!derived) throw new GreenlightError("spec_invalid", "The tests don't follow Greenlight's rules yet.", { problems });
+  return store.addVersion(project.id, {
+    schema: SCHEMAS.testVersion,
+    projectId: project.id,
+    approvedTestHash: derived.hash,
+    specText,
+    specFileSha256: derived.specFileSha256,
+    project: { name: derived.spec.project.name, url: derived.spec.project.url },
+    claims: derived.spec.claims.map((c) => ({ id: c.id, text: c.text })),
+    tests: derived.rendered.map((r) => ({ file: r.file, claims: r.claims, sha256: r.sha256, content: r.content })),
+    submittedBy: by,
+    submittedAt: now().toISOString(),
+  });
+}
+
+/**
+ * Per-test results re-derived from the run's stored, hash-checked Kane output (failure step and
+ * Kane's own failure message). Null when the output is not available.
+ */
+async function testResults(store, record, version) {
+  if (typeof store.getRunFile !== "function" || !record.execution?.runId) return null;
+  try {
+    // The run manifest is stored as a hash-checked file (the run row holds only its hash).
+    const manifest = JSON.parse((await store.getRunFile(record.execution.runId, "manifest.json")).bytes.toString("utf8"));
+    const run = { manifest };
+    const { bytes } = await store.getRunFile(record.execution.runId, "kane-stdout.ndjson");
+    const stream = new TestrunStream();
+    for (const line of bytes.toString("utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        stream.apply(JSON.parse(line));
+      } catch {
+        // non-JSON lines are ignored, as during the run
+      }
+    }
+    const snap = stream.snapshot();
+    const k = run.manifest?.kane ?? {};
+    const derived = projectFromText(version.specText);
+    const runResult = { exitCode: k.exitCode ?? null, timedOut: k.timedOut === true, aborted: false, stream: snap, completeness: assessCompleteness(snap, { exitCode: k.exitCode ?? null, signal: null, timedOut: k.timedOut === true, versionMismatch: false, spawnError: null }) };
+    const evaluation = evaluateRun(runResult, toApprovedTests(derived.rendered));
+    const catalog = new Map(testsOf(derived.spec).map((t) => [t.file, t]));
+    // The status of each test is the one recorded at run time (run manifest); the stored Kane
+    // output only adds the failure step and message.
+    const recorded = new Map((run.manifest?.result?.tests ?? []).map((t) => [t.file, t.status]));
+    return evaluation.tests.map((t) => {
+      const status = recorded.get(t.file) ?? t.status;
+      const c = catalog.get(t.file);
+      const idx = t.kane?.failureStepIndex ?? null;
+      const step = Number.isInteger(idx) && idx >= 1 ? c?.steps[idx - 1] ?? null : null;
+      return {
+        file: t.file,
+        title: c?.title ?? null,
+        claims: t.claims,
+        status,
+        reasons: status === "passed" ? [] : t.reasons ?? [],
+        durationS: t.kane?.durationS ?? null,
+        failureMessage: status === "passed" ? null : t.kane?.failureMessage ?? null,
+        failedStep: step && status !== "passed" ? { index: idx, name: step.name, kind: step.kind, text: step.text } : null,
+        steps: c ? c.steps.map((s) => ({ name: s.name, kind: s.kind, text: s.text })) : [],
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+const CONTENT_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", json: "application/json", ndjson: "application/x-ndjson", txt: "text/plain", md: "text/plain", log: "text/plain", zip: "application/zip", gz: "application/gzip" };
+
+// ---------------------------------------------------------------- handler
+
+const aiUse = new Map(); // account -> {start, count}: a soft hourly limit per server instance
+
 /**
  * Handle an /app/api/ request for a verified session `s` (null when signed out).
- * @returns {Promise<void>}
  */
-export async function handleAppApi({ req, res, url, s, store, config, sameOrigin, clearSessionCookie }) {
+export async function handleAppApi({ req, res, url, s, store, config, sameOrigin, clearSessionCookie, jobs = null, now = () => new Date(), log = () => {}, fetchImpl = (...a) => globalThis.fetch(...a), ai = {}, checkHost }) {
   const path = url.pathname;
+  const isPost = req.method === "POST";
   try {
     if (path === "/app/api/logout") {
-      if (req.method !== "POST") return sendJson(res, 405, { error: { code: "method_not_allowed", message: "Use POST." } }, { allow: "POST" });
+      if (!isPost) return sendJson(res, 405, { error: { code: "method_not_allowed", message: "Use POST." } }, { allow: "POST" });
       if (!sameOrigin(req)) return sendJson(res, 403, { error: { code: "forbidden", message: "Cross-site request." } });
       return sendJson(res, 204, null, { "set-cookie": clearSessionCookie });
     }
-    if (req.method !== "GET") return sendJson(res, 405, { error: { code: "method_not_allowed", message: "Read-only." } }, { allow: "GET" });
-    if (!s) return sendJson(res, 401, { error: { code: "sign_in_required", message: "Sign in with Vercel to continue." }, loginUrl: "/approve/login?next=%2Fapp" });
-
-    if (path === "/app/api/session") {
-      return sendJson(res, 200, { user: s.user, account: s.account, username: s.username ?? null, name: s.name ?? null, authenticatedAt: s.authAt ?? null, expiresAt: new Date(s.exp).toISOString(), maxCreditsPerRun: config.maxCreditsPerRun ?? null });
+    if (req.method !== "GET" && !isPost) return sendJson(res, 405, { error: { code: "method_not_allowed", message: "Use GET or POST." } }, { allow: "GET, POST" });
+    if (isPost && !sameOrigin(req)) return sendJson(res, 403, { error: { code: "forbidden", message: "Cross-site request." } });
+    if (!s) {
+      return sendJson(res, 401, {
+        error: { code: "sign_in_required", message: "Sign in to continue." },
+        loginUrl: config.google ? "/api/auth/google/login?next=%2Fapp" : "/approve/login?next=%2Fapp",
+        google: Boolean(config.google),
+      });
     }
-    if (path === "/app/api/projects") {
+
+    if (path.startsWith("/app/api/admin/")) {
+      if (s.role !== "admin") return sendJson(res, 403, { error: { code: "forbidden", message: "Administrators only." } });
+      return await handleAdminApi({ req, res, url, s, store, config, jobs, now, log, sendJson, readJson });
+    }
+
+    if (path === "/app/api/session" && !isPost) {
+      return sendJson(res, 200, {
+        provider: s.provider,
+        role: s.role,
+        user: s.user,
+        account: s.account,
+        username: s.username ?? null,
+        email: s.email ?? null,
+        name: s.name ?? null,
+        picture: s.picture ?? null,
+        authenticatedAt: s.authAt ?? null,
+        expiresAt: new Date(s.exp).toISOString(),
+        maxCreditsPerRun: config.maxCreditsPerRun ?? null,
+        features: { ai: Boolean(config.ai?.apiKey) || Boolean(ai.client), google: Boolean(config.google), certification: Boolean(jobs), admin: s.role === "admin" },
+      });
+    }
+
+    if (path === "/app/api/projects" && !isPost) {
       const projects = await store.listProjects(s.account);
-      const jobs = await projectJobs(store, projects.map((p) => p.id));
+      const pj = await projectJobs(store, projects.map((p) => p.id));
       const out = [];
-      for (const p of projects) out.push(await summary(config, store, p, jobs));
+      for (const p of projects) out.push(await summary(config, store, p, pj));
       out.sort((x, y) => String(y.createdAt).localeCompare(String(x.createdAt)));
       return sendJson(res, 200, { projects: out });
     }
+
+    if (path === "/app/api/projects" && isPost) {
+      const body = await readJson(req);
+      const name = text(body.name, 120, "Project name", { required: true });
+      if (/[\r\n]/.test(name)) throw new GreenlightError("invalid_request", "Project name must be one line.");
+      const appUrl = liveUrl(body.url);
+      const repo = parseRepoUrl(body.repository);
+      const branch = checkBranch(body.branch);
+      const description = text(body.description, 1000, "Description");
+      const purpose = text(body.purpose, 4000, "What the app should do", { required: true });
+      if (purpose.length < 20) throw new GreenlightError("invalid_request", "Describe what the app should do in a sentence or two (at least 20 characters).");
+      const at = now();
+      const repositoryCheck = await checkRepository({ owner: repo.owner, repo: repo.repo, branch, fetchImpl, now });
+      const project = await store.createProject({ name, url: appUrl, account: s.account, createdBy: s.user, now: at });
+      const doc = { description, purpose, repository: repo.url, branch, repositoryCheck, credentials: sealCredentials(config, body.credentials, at) };
+      await store.putProjectDetails(project.id, s.account, doc, s.user);
+      log({ event: "project_created", account: s.account, projectId: project.id });
+      return sendJson(res, 201, await projectDetail(config, store, project));
+    }
+
+    const jm = JOB.exec(path);
+    if (jm && !isPost) {
+      const job = await store.getJob(jm[1]);
+      await store.getProject(job.projectId, s.account); // scoping: 404 for other accounts
+      await jobs?.onJobRead?.(job);
+      return sendJson(res, 200, { job: jobView(job) });
+    }
+
+    const rm = RECORD.exec(path);
+    if (rm && !isPost) {
+      const [, projectId, recordId, integrity, fileName] = rm;
+      const project = await store.getProject(projectId, s.account);
+      const record = await store.getRecord(recordId);
+      if (record.projectId !== project.id) throw new GreenlightError("not_found", "No such run.");
+      if (integrity) {
+        const ev = await store.verifyRunEvidence(record.execution.runId);
+        return sendJson(res, 200, { ok: ev.ok, problems: ev.problems, files: ev.files, record: verifyRecordIntegrity(record).ok, checkedAt: now().toISOString() });
+      }
+      if (fileName) {
+        if (fileName.split("/").some((p) => !p || p === "." || p === "..")) throw new GreenlightError("not_found", "No such evidence file.");
+        const f = await store.getRunFile(record.execution.runId, fileName);
+        const ext = fileName.split(".").pop().toLowerCase();
+        const type = CONTENT_TYPES[ext] ?? "application/octet-stream";
+        const inline = type.startsWith("image/");
+        res.statusCode = 200;
+        res.setHeader("content-type", type);
+        res.setHeader("cache-control", "private, no-store");
+        res.setHeader("content-security-policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox");
+        res.setHeader("x-content-type-options", "nosniff");
+        res.setHeader("content-disposition", `${inline ? "inline" : "attachment"}; filename="${fileName.split("/").pop().replace(/[^A-Za-z0-9._-]/g, "_")}"`);
+        res.setHeader("x-greenlight-sha256", f.sha256);
+        res.end(f.bytes);
+        return;
+      }
+      const version = await store.getVersion(project.id, record.testVersion);
+      let files = [];
+      try {
+        const run = await store.getRun(record.execution.runId);
+        files = run.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256, kind: /\.(png|jpe?g|webp)$/i.test(f.name) ? "image" : f.name === "kane-stdout.ndjson" ? "log" : f.name === "kane-stderr.txt" ? "log" : f.name === "manifest.json" ? "manifest" : "file" }));
+      } catch {
+        files = [];
+      }
+      return sendJson(res, 200, {
+        record: recordView(record, config),
+        approval: record.approval ?? null,
+        execution: record.execution ?? null,
+        evidence: record.evidence ?? null,
+        credits: record.credits ?? null,
+        claims: (record.claims ?? []).map((c) => ({ id: c.id, text: c.text, status: c.status, tests: c.tests ?? [] })),
+        tests: await testResults(store, record, version),
+        files,
+      });
+    }
+
     const m = PROJECT.exec(path);
     if (m) {
-      const project = await store.getProject(m[1], s.account); // other accounts: not_found
-      return sendJson(res, 200, await projectDetail(config, store, project));
+      const [, projectId, action] = m;
+      const project = await store.getProject(projectId, s.account); // other accounts: not_found
+      if (!action && !isPost) return sendJson(res, 200, await projectDetail(config, store, project));
+      if (!isPost) throw new GreenlightError("not_found", "Not found.");
+      const body = await readJson(req);
+
+      if (action === "details") {
+        const old = (await store.getProjectDetails(project.id).catch(() => null)) ?? {};
+        const doc = { ...old };
+        delete doc.updatedAt;
+        delete doc.updatedBy;
+        if (body.description !== undefined) doc.description = text(body.description, 1000, "Description");
+        if (body.purpose !== undefined) doc.purpose = text(body.purpose, 4000, "What the app should do", { required: true });
+        if (body.repository !== undefined || body.branch !== undefined) {
+          const repo = parseRepoUrl(body.repository ?? old.repository);
+          doc.repository = repo.url;
+          doc.branch = checkBranch(body.branch ?? old.branch);
+          doc.repositoryCheck = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: doc.branch, fetchImpl, now });
+        }
+        if (body.clearCredentials === true) doc.credentials = null;
+        else if (body.credentials !== undefined) doc.credentials = sealCredentials(config, body.credentials, now()) ?? old.credentials ?? null;
+        await store.putProjectDetails(project.id, s.account, doc, s.user);
+        return sendJson(res, 200, await projectDetail(config, store, project));
+      }
+
+      if (action === "repository-check") {
+        const d = await store.getProjectDetails(project.id).catch(() => null);
+        if (!d?.repository) throw new GreenlightError("invalid_request", "Add the project's GitHub repository first.");
+        const repo = parseRepoUrl(d.repository);
+        const check = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now });
+        const doc = { ...d, repositoryCheck: check };
+        delete doc.updatedAt;
+        delete doc.updatedBy;
+        await store.putProjectDetails(project.id, s.account, doc, s.user);
+        return sendJson(res, 200, { repositoryCheck: check });
+      }
+
+      if (action === "deployment-check") {
+        const target = typeof body.url === "string" && body.url ? liveUrl(body.url) : project.url;
+        return sendJson(res, 200, { deployment: await probeDeployment({ url: target, fetchImpl, ...(checkHost ? { checkHost } : {}), now }) });
+      }
+
+      if (action === "draft") {
+        if (!config.ai?.apiKey && !ai.client) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server; write the claims and tests yourself.");
+        const u = aiUse.get(s.account);
+        const t = now().getTime();
+        if (!u || t - u.start > 3600_000) aiUse.set(s.account, { start: t, count: 1 });
+        else if (++u.count > AI_PER_HOUR) throw new GreenlightError("rate_limited", "AI drafting limit reached for this hour; write or edit the tests yourself.");
+        const d = await store.getProjectDetails(project.id).catch(() => null);
+        const requirements = text(body.requirements, 4000, "Requirements") ?? d?.purpose ?? null;
+        if (!requirements || requirements.length < 20) throw new GreenlightError("invalid_request", "Describe what the app should do (at least 20 characters).");
+        const { draft, pageRead } = await draftTests({ name: project.name, url: project.url, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, maxTests: 5 });
+        const structured = { name: project.name, url: project.url, description: draft.description ?? d?.description ?? null, claims: draft.claims ?? [], tests: draft.tests ?? [] };
+        let check;
+        try {
+          check = previewOf(buildSpecYaml(structured, USER_LIMITS), config);
+        } catch (err) {
+          check = { ok: false, problems: [err instanceof GreenlightError ? err.message : "The draft could not be turned into tests."] };
+        }
+        return sendJson(res, 200, { draft: structured, notes: draft.notes ?? null, pageRead, check });
+      }
+
+      if (action === "preview") {
+        let specText;
+        try {
+          specText = specFromBody(body, project);
+        } catch (err) {
+          if (err instanceof GreenlightError) return sendJson(res, 200, { ok: false, problems: [err.message] });
+          throw err;
+        }
+        return sendJson(res, 200, previewOf(specText, config));
+      }
+
+      if (action === "versions") {
+        const v = await proposeVersion({ store, project, specText: specFromBody(body, project), by: s.user, now });
+        log({ event: "version_proposed", account: s.account, projectId: project.id, version: v.version });
+        return sendJson(res, 201, { version: versionView(config, project, v, null) });
+      }
+
+      if (action === "certifications") {
+        if (!jobs) throw new GreenlightError("server_not_configured", "Verification runs are not available on this server.");
+        if (!Number.isInteger(body.version) || body.version < 1) throw new GreenlightError("invalid_request", "Choose the approved test version to verify.");
+        if (body.confirmSpend !== undefined && (!Number.isFinite(body.confirmSpend) || body.confirmSpend <= 0)) throw new GreenlightError("invalid_request", "confirmSpend must be a positive number of credits.");
+        const request = {
+          commit: typeof body.commit === "string" ? body.commit.trim().toLowerCase() : body.commit,
+          confirmSpend: body.confirmSpend,
+          approvedTestHash: typeof body.approvedTestHash === "string" ? body.approvedTestHash : undefined,
+        };
+        if (body.environment !== undefined) {
+          if (!["preview", "production"].includes(body.environment)) throw new GreenlightError("invalid_request", "environment must be preview or production.");
+          request.environment = body.environment;
+        }
+        if (request.approvedTestHash === undefined) delete request.approvedTestHash;
+        // Everything that can be checked before spending (the job checks it all again).
+        await prepareCertification({ store, project, versionNo: body.version, request, config });
+        const job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: s.user });
+        log({ event: "certification_requested", account: s.account, projectId: project.id, version: body.version, jobId: job.id, confirmSpend: request.confirmSpend });
+        return sendJson(res, 202, { job: jobView(job) });
+      }
+      throw new GreenlightError("not_found", "Not found.");
     }
+
+    if (path === "/app/api/tokens" && !isPost) {
+      return sendJson(res, 200, { tokens: await store.listAccountTokens(s.account) });
+    }
+    if (path === "/app/api/tokens" && isPost) {
+      const body = await readJson(req);
+      const role = body.role === "owner" ? "owner" : body.role === "agent" ? "agent" : null;
+      if (!role) throw new GreenlightError("invalid_request", "role must be agent (Claude Code, MCP) or owner.");
+      const label = text(body.label, 80, "Label", { required: true });
+      const token = `gl_${randomBytes(32).toString("base64url")}`;
+      const sha = createHash("sha256").update(token).digest("hex");
+      const t = await store.issueToken(s.account, role, sha, label);
+      log({ event: "token_issued", account: s.account, role, id: t.id });
+      return sendJson(res, 201, { token, ...t, note: "Copy this token now. Greenlight stores only its SHA-256 and cannot show it again." });
+    }
+    const tm = TOKEN.exec(path);
+    if (tm && isPost) {
+      await store.revokeAccountToken(s.account, tm[1]);
+      log({ event: "token_revoked", account: s.account, id: tm[1] });
+      return sendJson(res, 200, { revoked: tm[1] });
+    }
+
+    if (path === "/app/api/integrations" && !isPost) {
+      const base = config.publicBaseUrl ? config.publicBaseUrl.replace(/\/+$/, "") : "";
+      let tokens = [];
+      try {
+        tokens = (await store.listAccountTokens(s.account)).filter((t) => !t.revokedAt);
+      } catch {
+        tokens = [];
+      }
+      return sendJson(res, 200, {
+        claudeApi: { configured: Boolean(config.ai?.apiKey), model: config.ai?.model ?? null, usedFor: "Drafting claims and browser tests from your description. You review and edit everything before approving." },
+        claudeCode: {
+          apiUrl: base,
+          skillFiles: ["/app/downloads/greenlight/SKILL.md", "/app/downloads/greenlight/references/greenlight-yaml.md", "/app/downloads/greenlight/references/examples.md"],
+          activeAgentTokens: tokens.filter((t) => t.role === "agent").length,
+        },
+        mcp: { url: `${base}/mcp`, transport: "streamable-http", auth: "bearer", activeTokens: tokens.length },
+      });
+    }
+
     return sendJson(res, 404, { error: { code: "not_found", message: "Not found." } });
   } catch (err) {
-    if (err instanceof GreenlightError && err.code === "not_found") return sendJson(res, 404, { error: { code: "not_found", message: "Not found." } });
+    if (err instanceof GreenlightError) {
+      const status = ERRORS[err.code]?.http ?? 400;
+      return sendJson(res, status === 200 ? 400 : status, { error: errorBody(err.code, err.message, err.details) });
+    }
     throw err;
   }
 }

@@ -11,6 +11,8 @@ import { isLocalOrPrivateHost } from "../deploy/host.js";
 import { guestEstimate } from "./guest-run.js";
 
 export const GUEST_LIMITS = Object.freeze({ claims: 8, tests: 4, steps: 8, text: 400, name: 80, description: 400 });
+/** Signed-in users: larger specs (the per-run credit cap still applies at certification). */
+export const USER_LIMITS = Object.freeze({ claims: 30, tests: 20, steps: 12, text: 400, name: 120, description: 1000 });
 
 const q = (s) => JSON.stringify(String(s));
 const str = (v, max, field) => {
@@ -38,19 +40,19 @@ export function guestUrl(v) {
  * @param {object} input {name, url, description?, claims:[{id?,text}], tests:[{id?,title,claims:[id],steps:[{name,kind,text}]}]}
  * @returns {string} greenlight.yaml
  */
-export function buildSpecYaml(input) {
-  const name = str(input?.name, GUEST_LIMITS.name, "App name");
+export function buildSpecYaml(input, L = GUEST_LIMITS) {
+  const name = str(input?.name, L.name, "App name");
   const url = guestUrl(input?.url);
-  const description = typeof input?.description === "string" && input.description.trim() ? str(input.description, GUEST_LIMITS.description, "Description") : null;
+  const description = typeof input?.description === "string" && input.description.trim() ? str(input.description, L.description, "Description") : null;
   const claimsIn = Array.isArray(input?.claims) ? input.claims : [];
   const testsIn = Array.isArray(input?.tests) ? input.tests : [];
   if (!claimsIn.length) throw new GreenlightError("invalid_request", "Add at least one claim.");
   if (!testsIn.length) throw new GreenlightError("invalid_request", "Add at least one test.");
-  if (claimsIn.length > GUEST_LIMITS.claims) throw new GreenlightError("invalid_request", `The demo allows at most ${GUEST_LIMITS.claims} claims.`);
-  if (testsIn.length > GUEST_LIMITS.tests) throw new GreenlightError("invalid_request", `The demo allows at most ${GUEST_LIMITS.tests} tests.`);
+  if (claimsIn.length > L.claims) throw new GreenlightError("invalid_request", `At most ${L.claims} claims are allowed here.`);
+  if (testsIn.length > L.tests) throw new GreenlightError("invalid_request", `At most ${L.tests} tests are allowed here.`);
 
   // Claim ids are assigned in order (CLM-001...); tests refer to claims by id or by position.
-  const claims = claimsIn.map((c, i) => ({ given: typeof c?.id === "string" ? c.id.trim() : null, id: `CLM-${String(i + 1).padStart(3, "0")}`, text: str(c?.text, GUEST_LIMITS.text, `Claim ${i + 1}`) }));
+  const claims = claimsIn.map((c, i) => ({ given: typeof c?.id === "string" ? c.id.trim() : null, id: `CLM-${String(i + 1).padStart(3, "0")}`, text: str(c?.text, L.text, `Claim ${i + 1}`) }));
   const claimId = (ref) => claims.find((c) => c.given === ref || c.id === ref)?.id ?? null;
   const usedIds = new Set();
   const lines = ["version: 1", "project:", `  name: ${q(name)}`];
@@ -59,7 +61,7 @@ export function buildSpecYaml(input) {
   for (const c of claims) lines.push(`  - id: ${c.id}`, `    text: ${q(c.text)}`);
   lines.push("tests:");
   testsIn.forEach((t, i) => {
-    const title = str(t?.title, GUEST_LIMITS.text, `Test ${i + 1} title`);
+    const title = str(t?.title, L.text, `Test ${i + 1} title`);
     let id = String(t?.id ?? title).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 50).replace(/-+$/g, "") || `test-${i + 1}`;
     while (usedIds.has(id)) id = `${id.slice(0, 46)}-${i + 1}`.replace(/-+/g, "-");
     usedIds.add(id);
@@ -67,13 +69,13 @@ export function buildSpecYaml(input) {
     if (!refs.length) throw new GreenlightError("invalid_request", `Test ${i + 1} must check at least one claim.`);
     const steps = Array.isArray(t?.steps) ? t.steps : [];
     if (!steps.length) throw new GreenlightError("invalid_request", `Test ${i + 1} needs steps.`);
-    if (steps.length > GUEST_LIMITS.steps) throw new GreenlightError("invalid_request", `Test ${i + 1} has more than ${GUEST_LIMITS.steps} steps.`);
+    if (steps.length > L.steps) throw new GreenlightError("invalid_request", `Test ${i + 1} has more than ${L.steps} steps.`);
     lines.push(`  - id: ${id}`, `    title: ${q(title)}`, `    claims: [${[...new Set(refs)].join(", ")}]`, "    steps:");
     steps.forEach((s, n) => {
       const kind = s?.kind === "expect_text" ? "expect_text" : s?.kind === "do" ? "do" : null;
       if (!kind) throw new GreenlightError("invalid_request", `Test ${i + 1}, step ${n + 1}: choose "do" or "expect text".`);
       const sName = typeof s?.name === "string" && s.name.trim() ? s.name.trim().slice(0, 80) : `Step ${n + 1}`;
-      lines.push(`      - name: ${q(sName)}`, `        ${kind}: ${q(str(s?.text, GUEST_LIMITS.text, `Test ${i + 1}, step ${n + 1}`))}`);
+      lines.push(`      - name: ${q(sName)}`, `        ${kind}: ${q(str(s?.text, L.text, `Test ${i + 1}, step ${n + 1}`))}`);
     });
   });
   return `${lines.join("\n")}\n`;

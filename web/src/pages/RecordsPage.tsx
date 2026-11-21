@@ -27,7 +27,7 @@ export function RecordsPage({ projects, onSignIn }: { projects: Loadable<Project
 
   return (
     <>
-      <TopBar title="Records" eyebrow="Every verification run, passed or not, with its evidence">
+      <TopBar title="Runs" eyebrow="Every verification run, passed or not, with its evidence">
         <Pill icon={<I.Records size={14} />} title={`${certified} certified`} sub={`${rows.length} runs`} />
       </TopBar>
       {projects.state === "loading" || value.state === "loading" || (value.state === "ready" && value.data === null) ? <LoadingRows /> : null}
@@ -36,7 +36,7 @@ export function RecordsPage({ projects, onSignIn }: { projects: Loadable<Project
         <section className="card">
           {rows.length === 0 ? (
             <Empty title="No runs yet">
-              <span>A record is written every time a certification run reaches Kane, whether it passes or not.</span>
+              <span>A record is written every time a verification run reaches the browser, whether it passes or not. Start one from a project’s Verify page.</span>
             </Empty>
           ) : (
             <ul className="list">
@@ -47,7 +47,7 @@ export function RecordsPage({ projects, onSignIn }: { projects: Loadable<Project
                   </span>
                   <div className="list-main">
                     <b>
-                      <Link href={`/app/projects/${projectId}`}>{name}</Link> · version {r.testVersion}
+                      <Link href={`/app/projects/${projectId}/runs/${r.id}`}>{name}</Link> · version {r.testVersion}
                     </b>
                     <span>
                       {formatDateTime(r.startedAt)}
@@ -59,7 +59,7 @@ export function RecordsPage({ projects, onSignIn }: { projects: Loadable<Project
                     <Tag form={r.certified ? "solid" : "outline"}>{r.certified ? "Certified" : claimStatusLabel(r.status)}</Tag>
                     <Tag form={r.integrity ? "outline" : "dashed"}>{r.integrity ? "Record intact" : "Integrity failed"}</Tag>
                   </span>
-                  {r.certified ? (
+                  {r.certified && r.publicUrl ? (
                     <a className="btn ghost sm" href={r.publicUrl} target="_blank" rel="noopener noreferrer">
                       Public record <I.ArrowUpRight size={14} aria-hidden="true" />
                     </a>

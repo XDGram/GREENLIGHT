@@ -82,7 +82,7 @@ export function NewAppPage({ limits }: { limits: GuestLimits | null }) {
   return (
     <>
       <TopBar title="Test your app" eyebrow="Guest workspace · nothing to sign up for">
-        <Pill form="outline" icon={<I.Play size={14} />} title={`${limits?.runsLeft ?? 0} real run left`} sub={`${limits?.runsLeftToday ?? 0} left today for all guests`} />
+        <Pill form="outline" icon={<I.Play size={14} />} title={`${limits?.runsLeft ?? 0} demo checks left`} sub="Free · no credits are spent" />
       </TopBar>
 
       <section className="card" aria-labelledby="app-h">
@@ -105,7 +105,7 @@ export function NewAppPage({ limits }: { limits: GuestLimits | null }) {
             <input id="app-name" value={draft?.name ?? name} onChange={(e) => (draft ? setDraft({ ...draft, name: e.target.value }) : setName(e.target.value))} placeholder="e.g. Watchdog" maxLength={80} />
           </label>
           <label className="field">
-            <span>Public address (the live site Kane will open)</span>
+            <span>Public address (your live site)</span>
             <input id="app-url" type="url" inputMode="url" value={draft?.url ?? url} onChange={(e) => (draft ? setDraft({ ...draft, url: e.target.value }) : setUrl(e.target.value))} placeholder="https://your-app.example.com/" />
           </label>
         </div>
@@ -175,7 +175,7 @@ export function NewAppPage({ limits }: { limits: GuestLimits | null }) {
             </h2>
             {check?.estimate ? (
               <span style={{ fontSize: 12, color: "var(--on-dark-muted)" }}>
-                Estimated {credits(check.estimate.credits)} of {check.estimate.cap} credits
+                A real run would cost ~{credits(check.estimate.credits)} credits · the demo spends 0
               </span>
             ) : null}
           </div>
@@ -199,7 +199,7 @@ export function NewAppPage({ limits }: { limits: GuestLimits | null }) {
               Save app
             </button>
           </div>
-          <p style={{ margin: 0, fontSize: 12, color: "var(--on-dark-muted)" }}>Saving doesn’t run anything. You review and approve the tests next, then decide whether to start the real run.</p>
+          <p style={{ margin: 0, fontSize: 12, color: "var(--on-dark-muted)" }}>Saving doesn’t run anything. You review and approve the tests next, then run a free demo check.</p>
         </section>
       ) : null}
     </>

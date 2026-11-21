@@ -1,5 +1,6 @@
 // Guest demo (/app/api/guest/*) on the real migrations (PGlite) with the real store, HTTP server
-// and guest pipeline. Kane, balances, DNS and the AI are fakes. No network, Kane or credits.
+// and the demo check. Kane, balances, DNS, the app's start page and the AI are fakes. No network,
+// Kane or credits; the tests assert that guests never reach Kane.
 
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -10,6 +11,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { loadConfig, createServerContext, startServer, sha256Hex, SupabaseStore, createSupabaseClient } from "../../src/server/index.js";
 import { buildSpecYaml } from "../../src/server/guest-spec.js";
 import { visibleText } from "../../src/server/guest-ai.js";
+import { checkAgainstPage } from "../../src/server/guest-check.js";
 import { projectFromText } from "../../src/spec/generate.js";
 import { fabricatedRun } from "../verify/helpers.js";
 import { createFakeSupabase } from "./fake-supabase.js";
@@ -35,7 +37,9 @@ const FORM = {
   ],
 };
 
-async function setup({ env = {}, kaneStatus = "passed", ai } = {}) {
+const START_PAGE = "<html><body><h1>Watchdog</h1><p>Paste a link and click Check a link.</p><nav>Threat memory</nav></body></html>";
+
+async function setup({ env = {}, kaneStatus = "passed", ai, page = START_PAGE } = {}) {
   const fake = await createFakeSupabase();
   closers.push(() => fake.close());
   const admin = createSupabaseClient({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, fetchImpl: fake.fetch });
@@ -62,10 +66,19 @@ async function setup({ env = {}, kaneStatus = "passed", ai } = {}) {
   };
   const store = new SupabaseStore({ url: fake.url, serviceRoleKey: fake.serviceRoleKey, fetchImpl: fake.fetch, workRoot: workDir });
   const ctx = await createServerContext({ config, deps, store });
-  const server = await startServer({ config, ...ctx, now: deps.now, guestDeps: ai ? { ai } : {} });
+  const pageFetches = [];
+  const check = {
+    checkHost: async () => {},
+    fetchImpl: async (u) => {
+      pageFetches.push(String(u));
+      if (page === null) return new Response("nope", { status: 500 });
+      return new Response(page, { status: 200, headers: { "content-type": "text/html; charset=utf-8" } });
+    },
+  };
+  const server = await startServer({ config, ...ctx, now: deps.now, guestDeps: { ...(ai ? { ai } : {}), check } });
   closers.push(() => new Promise((r) => server.close(r)));
   const url = `http://127.0.0.1:${server.address().port}`;
-  return { fake, admin, url, ctx, kaneCalls, store };
+  return { fake, admin, url, ctx, kaneCalls, store, pageFetches };
 }
 
 /** A browser: one cookie jar, same-origin headers on writes. */
@@ -109,7 +122,7 @@ test("guest mode is off by default and needs Supabase and an https public URL", 
   assert.equal(loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir() }).guest, null);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir(), GREENLIGHT_GUEST_MODE: "on" }), /needs Supabase/);
   const c = loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_xxxxxxxxxxxxxxxxxxxxxxxx", GREENLIGHT_PUBLIC_BASE_URL: BASE, GREENLIGHT_GUEST_MODE: "on", ANTHROPIC_API_KEY: "sk-ant-test-secret" });
-  assert.deepEqual([c.guest.runsPerGuest, c.guest.runsPerDay, c.guest.maxCreditsPerRun], [1, 3, 150]);
+  assert.deepEqual([c.guest.runsPerGuest, c.guest.runsPerDay, c.guest.maxCreditsPerRun], [10, 500, 150]);
   assert.ok(!JSON.stringify(c).includes("sk-ant-test-secret"), "the Anthropic key never serialises");
 });
 
@@ -125,7 +138,7 @@ test("a guest starts without signing up, is remembered, and keeps to their own d
   assert.match(s.headers.get("set-cookie"), /^__Host-gl_guest=[^;]+; Path=\/; Secure; HttpOnly; SameSite=Lax; Max-Age=2592000$/);
   const me = await b.go("GET", "/app/api/guest/me");
   assert.equal(me.body.guest.id, s.body.guest.id, "remembered by the cookie");
-  assert.deepEqual([me.body.limits.runsLeft, me.body.limits.runsLeftToday, me.body.limits.maxCreditsPerRun], [1, 3, 150]);
+  assert.deepEqual([me.body.limits.runsLeft, me.body.limits.runsLeftToday, me.body.limits.demoCheck], [10, 500, true]);
   assert.equal((await b.go("POST", "/app/api/guest/start", {})).body.guest.id, s.body.guest.id, "starting again keeps the same guest");
 
   // A forged or edited cookie is ignored.
@@ -168,28 +181,44 @@ test("a guest starts without signing up, is remembered, and keeps to their own d
   assert.ok(ap.body.project.approvedAt);
   assert.equal((await b.go("POST", `/app/api/guest/projects/${id}/approve`, { confirmHash: ok.body.hash })).status, 409, "write-once");
 
-  // A real run (fake Kane): queued -> succeeded, with per-claim results; never a certification.
+  // A demo check: the start page is read over HTTP; Kane never runs and nothing is spent.
   const r = await b.go("POST", `/app/api/guest/projects/${id}/runs`, {});
   assert.equal(r.status, 202, JSON.stringify(r.body));
-  await h.ctx.jobs.idle();
   const detail = await b.go("GET", `/app/api/guest/projects/${id}`);
   const run = detail.body.project.runs[0];
   assert.equal(run.status, "succeeded", JSON.stringify(run.error));
-  assert.equal(run.result.status, "passed");
-  assert.deepEqual(run.result.claims.map((c) => [c.id, c.status]), [["CLM-001", "passed"], ["CLM-002", "passed"]]);
-  assert.deepEqual([run.result.certified, run.result.notCertifiedBecause], [false, ["guest_demo_run"]]);
-  assert.equal(h.kaneCalls.length, 1);
-  assert.ok(h.kaneCalls[0].args.includes("https://watchdog.example.com/"));
+  assert.equal(run.result.kind, "demo_check");
+  // Both tests interact (click) before their expected text, so nothing can be checked without a browser.
+  assert.equal(run.result.status, "couldnt_verify");
+  assert.deepEqual(run.result.tests.map((t) => t.status), ["not_checked", "not_checked"]);
+  assert.deepEqual(run.result.tests[0].steps.map((x) => x.result), ["start_page_loaded", "action_not_performed", "not_checked"]);
+  assert.deepEqual([run.result.page.read, run.result.credits], [true, { estimate: 0, actual: 0 }]);
+  assert.deepEqual([run.result.certified, run.result.notCertifiedBecause], [false, ["guest_demo_check"]]);
+  assert.equal(h.kaneCalls.length, 0, "Kane is never run for guests");
+  assert.deepEqual(h.pageFetches, ["https://watchdog.example.com/"]);
   for (const t of ["jobs", "runs", "certification_records", "approvals"]) assert.deepEqual(await h.fake.sql(`select count(*)::int as n from greenlight.${t}`), [{ n: 0 }], `${t} untouched`);
-
-  // Limits: one run per guest.
-  const again = await b.go("POST", `/app/api/guest/projects/${id}/runs`, {});
-  assert.deepEqual([again.status, again.body.error.code], [429, "guest_limit_reached"]);
-  assert.equal((await b.go("GET", "/app/api/guest/me")).body.limits.runsLeft, 0);
+  assert.equal((await b.go("GET", "/app/api/guest/me")).body.limits.runsLeft, 9);
 });
 
-test("limits: 3 runs a day across guests, refunds when Kane never ran, new sessions per network", async () => {
-  const h = await setup({ env: { GREENLIGHT_GUEST_RUNS_PER_DAY: "2", GREENLIGHT_GUEST_SESSIONS_PER_IP_HOUR: "3" } });
+test("demo check: expected texts before any interaction are checked against the start page", () => {
+  const yaml = buildSpecYaml({
+    ...FORM,
+    tests: [
+      { title: "Home", claims: ["a"], steps: [{ name: "Open", kind: "do", text: "Open the start page." }, { name: "Heading", kind: "expect_text", text: "Watchdog" }] },
+      { title: "Missing", claims: ["b"], steps: [{ name: "Open", kind: "do", text: "Go to the start page." }, { name: "Text", kind: "expect_text", text: "Only Reppo-verified threats block other users." }] },
+    ],
+  });
+  const spec = projectFromText(yaml).spec;
+  const r = checkAgainstPage(spec, "Watchdog\nPaste a link");
+  assert.deepEqual(r.tests.map((t) => t.status), ["passed", "failed"]);
+  assert.deepEqual(r.claims.map((c) => c.status), ["passed", "failed"]);
+  assert.equal(r.status, "failed");
+  const unread = checkAgainstPage(spec, null);
+  assert.deepEqual([unread.status, unread.tests.map((t) => t.status)], ["couldnt_verify", ["not_checked", "not_checked"]]);
+});
+
+test("limits: demo checks per day across guests, an unreadable page, the admin pause, new sessions per network", async () => {
+  const h = await setup({ env: { GREENLIGHT_GUEST_RUNS_PER_DAY: "2", GREENLIGHT_GUEST_SESSIONS_PER_IP_HOUR: "3" }, page: null });
   const guests = [];
   for (let i = 0; i < 3; i++) {
     const b = browser(h, { ip: `198.51.100.${i + 1}` });
@@ -198,25 +227,22 @@ test("limits: 3 runs a day across guests, refunds when Kane never ran, new sessi
     await b.go("POST", `/app/api/guest/projects/${p.body.id}/approve`, { confirmHash: p.body.approvedTestHash });
     guests.push({ b, id: p.body.id });
   }
-  // A run whose host check fails before Kane: failed and refunded.
-  const h2deps = h.ctx.jobs.deps;
-  const realCheck = h2deps.checkHost;
-  h2deps.checkHost = async () => {
-    throw new Error("private");
-  };
-  await guests[0].b.go("POST", `/app/api/guest/projects/${guests[0].id}/runs`, {});
-  await h.ctx.jobs.idle();
-  const failed = (await guests[0].b.go("GET", `/app/api/guest/projects/${guests[0].id}`)).body.project.runs[0];
-  assert.deepEqual([failed.status, failed.refunded, failed.error.code], ["failed", true, "url_not_allowed"]);
-  assert.equal((await guests[0].b.go("GET", "/app/api/guest/me")).body.limits.runsLeft, 1, "refunded");
-  h2deps.checkHost = realCheck;
+  // The administrator can pause demo checks; nothing runs and nothing counts.
+  await h.admin.rpc("greenlight_set_setting", { p_key: "guest.checks_paused", p_value: true, p_by: "test" });
+  const paused = await guests[0].b.go("POST", `/app/api/guest/projects/${guests[0].id}/runs`, {});
+  assert.deepEqual([paused.status, paused.body.error.code], [429, "guest_limit_reached"]);
+  assert.equal((await guests[0].b.go("GET", "/app/api/guest/me")).body.limits.paused, true);
+  await h.admin.rpc("greenlight_set_setting", { p_key: "guest.checks_paused", p_value: false, p_by: "test" });
 
+  // A start page that cannot be read: the check completes and says nothing could be checked.
   assert.equal((await guests[0].b.go("POST", `/app/api/guest/projects/${guests[0].id}/runs`, {})).status, 202);
+  const unread = (await guests[0].b.go("GET", `/app/api/guest/projects/${guests[0].id}`)).body.project.runs[0];
+  assert.deepEqual([unread.status, unread.result.page.read, unread.result.status], ["succeeded", false, "couldnt_verify"]);
+
   assert.equal((await guests[1].b.go("POST", `/app/api/guest/projects/${guests[1].id}/runs`, {})).status, 202);
-  await h.ctx.jobs.idle();
   const third = await guests[2].b.go("POST", `/app/api/guest/projects/${guests[2].id}/runs`, {});
   assert.deepEqual([third.status, third.body.error.code], [429, "guest_limit_reached"], "daily cap across guests");
-  assert.equal(h.kaneCalls.length, 2);
+  assert.equal(h.kaneCalls.length, 0);
 
   // New sessions per network address per hour.
   const ip = "192.0.2.50";

@@ -611,7 +611,7 @@ test("web app data (/app/api): read-only JSON behind the Vercel session, scoped 
   for (const p of ["/app/api/session", "/app/api/projects", `/app/api/projects/${projectId}`]) {
     const r = await b.go("GET", p, { headers: { authorization: `Bearer ${OWNER_TOKEN}` } });
     assert.equal(r.status, 401, p);
-    assert.deepEqual(JSON.parse(r.text), { error: { code: "sign_in_required", message: "Sign in with Vercel to continue." }, loginUrl: "/approve/login?next=%2Fapp" });
+    assert.deepEqual(JSON.parse(r.text), { error: { code: "sign_in_required", message: "Sign in to continue." }, loginUrl: "/approve/login?next=%2Fapp", google: false });
     assert.equal(r.headers.get("cache-control"), "no-store");
   }
 
@@ -646,11 +646,11 @@ test("web app data (/app/api): read-only JSON behind the Vercel session, scoped 
   const raw = JSON.stringify([sj, list, detail]);
   for (const secret of [KEY, SIGNING_KEY, OWNER_TOKEN, "specText"]) assert.ok(!raw.includes(secret), `no ${secret} in app data`);
 
-  // Another account's project is not found; unknown paths 404; nothing is writable.
+  // Another account's project is not found; unknown paths 404; writes need same-origin JSON.
   assert.equal((await b.go("GET", `/app/api/projects/${foreign.body.id}`)).status, 404);
   assert.equal((await b.go("GET", "/app/api/projects/prj_123")).status, 404);
   assert.equal((await b.go("GET", "/app/api/nope")).status, 404);
-  assert.equal((await b.go("POST", "/app/api/projects", { form: { a: "1" } })).status, 405);
+  assert.equal((await b.go("POST", "/app/api/projects", { form: { a: "1" } })).status, 400, "JSON only");
 
   // Approval state appears once the version is approved through the browser flow.
   const pagePath = `/approve/${projectId}/1`;

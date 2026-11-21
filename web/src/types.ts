@@ -1,13 +1,17 @@
-// Shapes returned by the server's read-only /app/api routes (src/server/app-api.js).
+// Shapes returned by the server's /app/api routes (src/server/app-api.js, admin-api.js, guest-api.js).
 
 export interface Session {
+  provider: "google" | "vercel";
+  role: "user" | "admin";
   user: string;
   account: string;
   username: string | null;
+  email: string | null;
   name: string | null;
   authenticatedAt: string | null;
   expiresAt: string;
   maxCreditsPerRun: number | null;
+  features: { ai: boolean; google: boolean; certification: boolean; admin: boolean };
 }
 
 export interface PendingApproval {
@@ -19,7 +23,10 @@ export interface PendingApproval {
 
 export interface Job {
   id: string;
+  projectId?: string;
   version: number;
+  commit?: string | null;
+  confirmSpend?: number | null;
   status: "queued" | "running" | "succeeded" | "failed" | string;
   outcome: string | null;
   requestedBy: string | null;
@@ -45,7 +52,9 @@ export interface RecordSummary {
   credits: { actual: number | null; estimate: number | null } | null;
   evidenceStatus: string | null;
   integrity: boolean;
-  publicUrl: string;
+  recordSha256?: string | null;
+  approvedTestHash?: string | null;
+  publicUrl: string | null;
 }
 
 export interface ProjectSummary {
@@ -115,13 +124,43 @@ export interface VersionView {
   approval: Approval | null;
   approveUrl: string | null;
   description: string | null;
+  url?: string | null;
   claims: { id: string; text: string }[];
   tests: TestView[];
   estimate: Estimate | null;
 }
 
+export interface RepositoryCheck {
+  status: "ok" | "not_found_or_private" | "branch_not_found" | "unavailable";
+  checkedAt: string;
+  message?: string;
+  repo?: { fullName: string; private: boolean; defaultBranch: string | null; htmlUrl: string };
+  head?: { sha: string; message: string; author: string | null; date: string | null; url: string | null };
+}
+
+export interface ProjectDetails {
+  description: string | null;
+  purpose: string | null;
+  repository: string | null;
+  branch: string | null;
+  repositoryCheck: RepositoryCheck | null;
+  hasCredentials: boolean;
+  credentialsUpdatedAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface DeploymentProbe {
+  status: "ok" | "missing" | "protected" | "invalid" | "unreachable";
+  checkedAt: string;
+  commit?: string;
+  environment?: string | null;
+  reason?: string;
+  endpoint?: string;
+}
+
 export interface ProjectDetail {
   project: { id: string; name: string; url: string; createdAt: string; createdBy: string };
+  details?: ProjectDetails | null;
   versions: VersionView[];
   jobs: Job[];
   records: RecordSummary[];
@@ -130,6 +169,8 @@ export interface ProjectDetail {
 // ---------------------------------------------------------------- guest demo (/app/api/guest)
 
 export interface GuestLimits {
+  demoCheck?: boolean;
+  paused?: boolean;
   runsPerGuest: number;
   runsLeft: number;
   runsPerDay: number;
@@ -170,20 +211,107 @@ export interface DraftSpec {
 export interface SpecCheck {
   ok: boolean;
   problems: string[];
+  warnings?: string[];
   hash?: string;
   specText?: string;
   claims?: { id: string; text: string }[];
   tests?: TestView[];
-  estimate?: { credits: number; cap: number };
+  estimate?: { credits: number; cap: number | null };
+}
+
+export interface RunTest {
+  file: string;
+  title: string | null;
+  claims: string[];
+  status: string;
+  reasons: string[];
+  durationS: number | null;
+  failureMessage: string | null;
+  failedStep: { index: number; name: string; kind: string; text: string } | null;
+  steps: TestStep[];
+}
+
+export interface RunFile {
+  name: string;
+  bytes: number;
+  sha256: string;
+  kind: "image" | "log" | "manifest" | "file";
+}
+
+export interface RunDetail {
+  record: RecordSummary;
+  approval: { method: string; approvedAt: string; recordSha256: string } | null;
+  execution: { runId: string | null; runKind: string | null; startedAt: string | null; endedAt: string | null; kane: { version: string | null; executionId: string | null; exitCode: number | null } | null; freshAuthoring?: boolean } | null;
+  evidence: { status: string | null; packSha256: string | null; packBytes: number | null; validation: string | null; kaneStdoutSha256: string | null; runManifestSha256: string | null } | null;
+  credits: { actualSpend: number | null; kaneReportedSpend: number | null; estimate: number | null; status: string | null } | null;
+  claims: { id: string; text: string | null; status: string; tests: string[] }[];
+  tests: RunTest[] | null;
+  files: RunFile[];
+}
+
+export interface ApiToken {
+  id: string;
+  role: "owner" | "agent";
+  user: string;
+  label: string;
+  createdAt: string;
+  revokedAt: string | null;
+}
+
+export interface Integrations {
+  claudeApi: { configured: boolean; model: string | null; usedFor: string };
+  claudeCode: { apiUrl: string; skillFiles: string[]; activeAgentTokens: number };
+  mcp: { url: string; transport: string; auth: string; activeTokens: number };
+}
+
+export interface AdminOverview {
+  overview: {
+    accounts: number;
+    users: number;
+    projects: number;
+    versions: number;
+    approvals: number;
+    jobs: Record<string, number> | null;
+    records: number;
+    certified: number;
+    creditsSpent: number;
+    creditsEstimated: number;
+    activeTokens: number;
+    guestSessions: number;
+    guestProjects: number;
+    guestRuns24h: number;
+    evidenceBytes: number;
+  };
+  limits: { maxCreditsPerRun: number | null; reserve: number | null; maxQueuedJobs: number | null; guest: { runsPerGuest: number; runsPerDay: number; projectsPerGuest: number; aiPerGuest: number } | null };
+  at: string;
+}
+
+export interface AdminHealth {
+  database: string;
+  storage: string;
+  ok: boolean;
+  execution: string;
+  stuckJobs: { id: string; projectId: string; status: string; since: string }[];
+  configuration: Record<string, boolean | string | null>;
+  checkedAt: string;
+}
+
+export interface DemoCheckStep {
+  name: string;
+  kind: string;
+  text: string;
+  result: "found" | "missing" | "not_checked" | "action_not_performed" | "start_page_loaded";
 }
 
 export interface GuestRunResult {
+  kind?: "demo_check";
+  page?: { url: string; read: boolean; characters: number };
   status: string;
-  counts: Record<string, number>;
-  reasons: string[];
-  runUsable: boolean;
+  counts?: Record<string, number>;
+  reasons?: string[];
+  runUsable?: boolean;
   claims: { id: string; text: string | null; status: string }[];
-  tests: { file: string; title: string | null; claims: string[]; status: string; reasons: string[]; durationS: number | null; failureMessage: string | null; failureStepIndex: number | null }[];
+  tests: { file: string; title: string | null; claims: string[]; status: string; reasons?: string[]; durationS?: number | null; failureMessage?: string | null; failureStepIndex?: number | null; steps?: DemoCheckStep[] }[];
   credits: { estimate: number; actual: number | null };
   startedAt: string;
   endedAt: string;

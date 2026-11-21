@@ -13,11 +13,11 @@ import { assertPublicHost } from "../deploy/host.js";
 const PAGE_BYTES = 400_000;
 const PAGE_CHARS = 12_000;
 
-const SYSTEM = `You write verification tests for Greenlight. Greenlight runs each test in a real browser against a live web app (with Kane, an AI test runner) and reports, claim by claim, whether the app does what its developer says it does.
+const system = (maxTests) => `You write verification tests for Greenlight. Greenlight runs each test in a real browser against a live web app (with Kane, an AI test runner) and reports, claim by claim, whether the app does what its developer says it does.
 
 From the developer's requirements and the text of the app's start page, produce:
 - claims: short plain-language statements of what the app does, each one checkable in the browser by someone with no account.
-- tests: at most 3, each with at most 3 steps, together covering the most important claims.
+- tests: at most ${maxTests}, each with at most 3 steps, together covering the most important claims.
 
 Rules for steps:
 - A step is either "do" (an action a user takes, in plain English: open, click, type, choose) or "expect_text" (text that must be visible on the page afterwards).
@@ -129,8 +129,8 @@ export async function readStartPage(url, { fetchImpl = globalThis.fetch, checkHo
  * Draft claims and tests for a guest's app.
  * @returns {{draft: object, pageRead: boolean}}
  */
-export async function draftTests({ name, url, requirements, config, client, fetchImpl }) {
-  const apiKey = config.guest?.anthropicApiKey;
+export async function draftTests({ name, url, requirements, config, client, fetchImpl, maxTests = 3 }) {
+  const apiKey = config.ai?.apiKey ?? config.guest?.anthropicApiKey;
   if (!client && !apiKey) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server.");
   const anthropic = client ?? new Anthropic({ apiKey, timeout: 45_000, maxRetries: 0 });
   const page = await readStartPage(url, fetchImpl ? { fetchImpl } : {});
@@ -150,11 +150,11 @@ export async function draftTests({ name, url, requirements, config, client, fetc
   let response;
   try {
     response = await anthropic.beta.messages.create({
-      model: config.guest.aiModel,
+      model: config.ai?.model ?? config.guest.aiModel,
       max_tokens: 8000,
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
-      system: SYSTEM,
+      system: system(maxTests),
       output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
       messages: [{ role: "user", content: user }],
     });

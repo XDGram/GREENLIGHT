@@ -18,7 +18,7 @@
     "test": "node --test \"test/**/*.test.js\"",
     "server": "node bin/greenlight-server.js",
     "test:live": "env -u NODE_USE_ENV_PROXY GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-anon-live.test.js && GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-live.test.js",
-    "build": "vite build --config web/vite.config.ts",
+    "build": "vite build --config web/vite.config.ts && node scripts/copy-downloads.js",
     "dev:web": "vite --config web/vite.config.ts",
     "typecheck:web": "tsc -p web/tsconfig.json"
   },

@@ -24,6 +24,8 @@
 import http from "node:http";
 import { createApprovalWeb } from "./approval-web.js";
 import { createGuestApi, GUEST_PREFIX } from "./guest-api.js";
+import { runDemoCheck } from "./guest-check.js";
+import { createMcpHandler } from "./mcp.js";
 import { sendJson } from "./app-api.js";
 import { GreenlightError, errorBody, httpFor } from "../cli/errors.js";
 import { SpecError } from "../spec/schema.js";
@@ -109,9 +111,16 @@ const versionView = (v, { withContent = false } = {}) => ({
  */
 export function createApp({ config, store, jobs, now = () => new Date(), log = () => {}, runtime = null, approvalDeps = {}, guestDeps = {} }) {
   const limiter = new RateLimiter({ perMinute: config.rateLimitPerMinute });
-  const approvalWeb = createApprovalWeb({ config, store, now, log, ...approvalDeps });
+  // The web app (/app/api, cookie sessions) loads several resources per page: a wider per-IP window.
+  const webLimiter = new RateLimiter({ perMinute: config.rateLimitPerMinute * 5 });
+  const approvalWeb = createApprovalWeb({ config, store, jobs, now, log, ...approvalDeps });
   // Guest demo (GREENLIGHT_GUEST_MODE=on, Supabase only): its own cookie, tables and limits.
-  const guestApi = config.guest && config.store === "supabase" ? createGuestApi({ config, store, now, log, startRun: (runId) => jobs.startGuestRun(runId), ...guestDeps }) : null;
+  // Guest runs are demo checks (guest-check.js): an HTTP read of the start page, never Kane, never credits.
+  const { check: checkDeps = {}, ...guestRest } = guestDeps;
+  const startRun = (runId) => runDemoCheck({ store, runId, now, log, ...checkDeps });
+  const guestApi = config.guest && config.store === "supabase" ? createGuestApi({ config, store, now, log, startRun, ...guestRest }) : null;
+
+  const mcp = createMcpHandler({ config, store, now, log });
 
   const routes = [
     ["GET", /^\/v1\/health$/, null, async () => [200, { ok: true, schema: "greenlight.health/v1" }]],
@@ -291,10 +300,21 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       return fail(res, "internal_error", "Authentication is temporarily unavailable.");
     }
     const key = principal ? `p:${principal.account}:${principal.name}` : `ip:${req.socket?.remoteAddress ?? "unknown"}`;
-    const rl = limiter.take(key);
+    const rl = (!principal && url.pathname.startsWith("/app/api/") ? webLimiter : limiter).take(key);
     if (!rl.ok) {
       res.setHeader("retry-after", String(rl.retryAfterS));
       return fail(res, "rate_limited", "Too many requests.");
+    }
+    // MCP endpoint (bearer tokens, JSON-RPC).
+    if (url.pathname === "/mcp") {
+      try {
+        await mcp(req, res, url);
+      } catch (err) {
+        log({ event: "mcp_error", error: String(err?.stack ?? err) });
+        if (!res.headersSent) json(res, 500, { jsonrpc: "2.0", id: null, error: { code: -32603, message: "Internal error" } });
+      }
+      log({ event: "request", method: req.method, path: url.pathname, status: res.statusCode, ms: Date.now() - started, principal: principal?.name ?? null });
+      return;
     }
     // Guest demo API (own cookie); off unless guest mode is enabled.
     if (url.pathname.startsWith(GUEST_PREFIX)) {

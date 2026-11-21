@@ -35,8 +35,9 @@ Apply in order, with the Supabase CLI (`supabase db push`) or the dashboard's SQ
 2. `supabase/migrations/20261119140100_greenlight_rpc.sql`
 3. `supabase/migrations/20261119140200_greenlight_evidence_bucket.sql`
 4. `supabase/migrations/20261120190000_greenlight_guest.sql` (guest demo: three new tables, additive; nothing existing changes)
+5. `supabase/migrations/20261121090000_greenlight_platform.sql` (web platform: Google identities, project details, settings, admin events; additive)
 
-All four run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
+All five run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
 
 ## Configuration (server environment only)
 
@@ -84,7 +85,11 @@ Every table is in the private schema `greenlight`. It is not exposed through the
 | `record_tests` | per-record, per-claim test results | **immutable** |
 | `guest_sessions` | guest demo sessions: id (in a signed cookie), hashed network address, runs and AI uses | limits enforced in the RPCs under an advisory lock |
 | `guest_projects` | a guest's app: url, spec text, hash, the guest's own approval | **never** used for certification; approval write-once |
-| `guest_runs` | a guest's real Kane runs and their results | forward-only status; per-guest and 24-hour caps; refunded when Kane never started |
+| `guest_runs` | a guest's demo checks (an HTTP read of the start page; no Kane, no credits) and their results | forward-only status; per-guest and 24-hour caps; refunded when the check never started |
+| `web_identities` | Sign in with Google identities: provider, subject, their account (`g-<hash>`) and owner user, email, last sign-in | one account per Google identity; no admin role exists here |
+| `project_details` | editable project details: GitHub repository, branch, description, what the app should do, last repository check, AES-GCM-encrypted test credentials | the original `projects.doc` never changes; credentials are never returned by the API |
+| `settings` | operational switches changed in the admin console (e.g. `guest.checks_paused`) | every change is also written to `admin_events` |
+| `admin_events` | administrator actions (settings, token revocations) | **append-only** |
 
 Immutability is enforced by triggers (UPDATE, DELETE and TRUNCATE are refused with SQLSTATE `GLIMM`), not by application code.
 

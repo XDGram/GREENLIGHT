@@ -5,28 +5,47 @@ import { createContext, useCallback, useContext, useEffect, useState, type Ancho
 export type Route =
   | { name: "home" }
   | { name: "projects" }
+  | { name: "project_new" }
   | { name: "project"; id: string }
+  | { name: "project_tests"; id: string }
+  | { name: "project_verify"; id: string }
+  | { name: "project_run"; id: string; recordId: string }
   | { name: "approvals" }
   | { name: "records" }
+  | { name: "integrations" }
+  | { name: "account" }
+  | { name: "admin" }
+  | { name: "admin_list"; kind: AdminKind }
   | { name: "demo" }
   | { name: "try" }
   | { name: "try_new" }
   | { name: "try_project"; id: string }
   | { name: "not_found" };
 
+export const ADMIN_KINDS = ["users", "projects", "jobs", "records", "tokens", "events", "guests"] as const;
+export type AdminKind = (typeof ADMIN_KINDS)[number];
+
 export function parse(pathname: string): Route {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/app" || p === "") return { name: "home" };
   if (p === "/app/projects") return { name: "projects" };
-  const m = /^\/app\/projects\/(prj_[0-9a-f]{32})$/.exec(p);
-  if (m) return { name: "project", id: m[1] };
+  if (p === "/app/projects/new") return { name: "project_new" };
+  const m = /^\/app\/projects\/(prj_[0-9a-f]{32})(?:\/(tests|verify))?$/.exec(p);
+  if (m) return m[2] === "tests" ? { name: "project_tests", id: m[1]! } : m[2] === "verify" ? { name: "project_verify", id: m[1]! } : { name: "project", id: m[1]! };
+  const r = /^\/app\/projects\/(prj_[0-9a-f]{32})\/runs\/(vr_[0-9a-f]{32})$/.exec(p);
+  if (r) return { name: "project_run", id: r[1]!, recordId: r[2]! };
   if (p === "/app/approvals") return { name: "approvals" };
   if (p === "/app/records") return { name: "records" };
+  if (p === "/app/integrations") return { name: "integrations" };
+  if (p === "/app/account") return { name: "account" };
+  if (p === "/app/admin") return { name: "admin" };
+  const a = /^\/app\/admin\/([a-z]+)$/.exec(p);
+  if (a && (ADMIN_KINDS as readonly string[]).includes(a[1]!)) return { name: "admin_list", kind: a[1] as AdminKind };
   if (p === "/app/demo") return { name: "demo" };
   if (p === "/app/try") return { name: "try" };
   if (p === "/app/try/new") return { name: "try_new" };
   const g = /^\/app\/try\/(gpj_[0-9a-f]{32})$/.exec(p);
-  if (g) return { name: "try_project", id: g[1] };
+  if (g) return { name: "try_project", id: g[1]! };
   return { name: "not_found" };
 }
 

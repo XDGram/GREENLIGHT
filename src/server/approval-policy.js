@@ -5,6 +5,8 @@
 // that (1) is an intact web approval of exactly the tests, (2) carries a valid HMAC-SHA256
 // signature made with GREENLIGHT_APPROVAL_SIGNING_KEY, which only the server holds (database or
 // API access alone cannot produce one), and (3) was given by a configured approver of that account.
+// Every Google account (g-<hash>, Sign in with Google) also requires one, given by the Google
+// identity that account belongs to.
 // Owner-token approvals are refused for those accounts. Other accounts keep the existing rules.
 
 import { createHmac, createHash, timingSafeEqual } from "node:crypto";
@@ -33,12 +35,23 @@ export function approvalSignatureValid(key, record) {
   return timingSafeEqual(want, Buffer.from(s.value, "hex"));
 }
 
-export const browserApprovalRequired = (config, account) => Boolean(account) && config.browserApprovalAccounts.includes(account);
+/** The Greenlight account of a Google identity: g- and the first 24 hex of SHA-256(subject). */
+export const googleAccount = (subject) => `g-${createHash("sha256").update(`greenlight-google:${subject}`).digest("hex").slice(0, 24)}`;
+export const isGoogleAccount = (account) => /^g-[0-9a-f]{24}$/.test(String(account ?? ""));
+
+/** Configured accounts and every Google account: only signed browser approvals certify. */
+export const browserApprovalRequired = (config, account) => Boolean(account) && (config.browserApprovalAccounts.includes(account) || isGoogleAccount(account));
 
 /** {ok, reason}: is this a verified browser approval by an approver of `account` for exactly `hash`? */
 export function verifyBrowserApproval(config, approval, hash, account) {
   if (!approval) return { ok: false, reason: "no_approval" };
   if (!webApprovalValidFor(approval, hash)) return { ok: false, reason: approval.channel ? "not_valid_for_these_tests" : "not_a_browser_approval" };
+  if (approval.identity.provider === "google") {
+    // A Google user approves only their own account's tests, as its single owner user.
+    if (!config.google || !approvalSignatureValid(config.approvalSigningKey, approval)) return { ok: false, reason: approval.signature ? "signature_invalid" : "unsigned" };
+    if (!isGoogleAccount(account) || googleAccount(approval.identity.subject) !== account || approval.approvedBy !== "owner") return { ok: false, reason: "not_an_approver_of_this_account" };
+    return { ok: true, reason: null };
+  }
   if (!config.webApproval || !approvalSignatureValid(config.approvalSigningKey, approval)) return { ok: false, reason: approval.signature ? "signature_invalid" : "unsigned" };
   const approver = config.webApproval.approvers.find((a) => a.account === account && a.vercelSub === approval.identity.subject);
   if (!approver || approver.user !== approval.approvedBy) return { ok: false, reason: "not_an_approver_of_this_account" };

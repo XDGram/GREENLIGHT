@@ -39,6 +39,12 @@ export const SCHEMAS = Object.freeze({
 export const SERVER_APPROVAL_METHOD = "server-owner";
 /** Server approvals given in the browser after Sign in with Vercel (src/server/approval-web.js). */
 export const WEB_APPROVAL_CHANNEL = "web-sign-in-with-vercel";
+export const GOOGLE_APPROVAL_CHANNEL = "web-sign-in-with-google";
+/** Browser sign-in providers whose approvals the server accepts: channel and ID-token issuer. */
+export const WEB_IDENTITY_PROVIDERS = Object.freeze({
+  vercel: Object.freeze({ channel: WEB_APPROVAL_CHANNEL, issuer: "https://vercel.com" }),
+  google: Object.freeze({ channel: GOOGLE_APPROVAL_CHANNEL, issuer: "https://accounts.google.com" }),
+});
 export const JOB_STATUS = Object.freeze({ QUEUED: "queued", RUNNING: "running", SUCCEEDED: "succeeded", FAILED: "failed" });
 
 /** Hash of a JSON object without its own `recordSha256`. */
@@ -76,7 +82,7 @@ export function approvalValidFor(approval, approvedTestHash) {
 }
 
 /**
- * A server approval given in the browser by a verified human (Sign in with Vercel), with both
+ * A server approval given in the browser by a verified human (Sign in with Vercel or Google), with both
  * exact hashes confirmed separately, test specification first. Intact and for exactly `hash`.
  */
 export function webApprovalValidFor(approval, hash) {
@@ -86,8 +92,9 @@ export function webApprovalValidFor(approval, hash) {
   const v = Date.parse(c?.serverVersion?.confirmedAt ?? "");
   return Boolean(
     approvalValidFor(approval, hash) &&
-      approval.channel === WEB_APPROVAL_CHANNEL &&
-      id?.provider === "vercel" && id.issuer === "https://vercel.com" && typeof id.subject === "string" && id.subject.length > 0 &&
+      Object.hasOwn(WEB_IDENTITY_PROVIDERS, id?.provider ?? "") &&
+      approval.channel === WEB_IDENTITY_PROVIDERS[id.provider].channel &&
+      id.issuer === WEB_IDENTITY_PROVIDERS[id.provider].issuer && typeof id.subject === "string" && id.subject.length > 0 &&
       c?.testSpecification?.hash === hash && c?.serverVersion?.hash === hash &&
       Number.isFinite(t) && Number.isFinite(v) && t <= v,
   );

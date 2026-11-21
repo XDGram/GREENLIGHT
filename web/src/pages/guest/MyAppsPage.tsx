@@ -13,7 +13,7 @@ export function MyAppsPage({ limits }: { limits: GuestLimits | null }) {
   return (
     <>
       <TopBar title="My apps" eyebrow="Guest workspace · remembered on this browser">
-        <Pill form="outline" icon={<I.Play size={14} />} title={`${limits?.runsLeft ?? 0} real run left`} sub={`${limits?.runsLeftToday ?? 0} left today for all guests`} />
+        <Pill form="outline" icon={<I.Play size={14} />} title={`${limits?.runsLeft ?? 0} demo checks left`} sub="Free · no credits are spent" />
         <Link href="/app/try/new" className="btn">
           Add an app
         </Link>
@@ -23,7 +23,7 @@ export function MyAppsPage({ limits }: { limits: GuestLimits | null }) {
       {value.state === "ready" && list.length === 0 ? (
         <section className="card">
           <Empty title="No apps yet">
-            <span>Add your app’s public address and describe what it does. Greenlight writes the tests, you approve them, and Kane checks the live site.</span>
+            <span>Add your app’s public address and describe what it does. Greenlight writes the tests, you approve them, and a free demo check reads your live site.</span>
             <Link href="/app/try/new" className="btn" style={{ marginTop: 8 }}>
               Add an app
             </Link>

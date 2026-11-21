@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ApiError, guestApi } from "../../api";
-import { Empty, ErrorNotice, LoadingRows, Pill, Tag } from "../../components/Bits";
+import { Empty, ResultMark, ErrorNotice, LoadingRows, Pill, Tag } from "../../components/Bits";
 import { ChromeOrb } from "../../components/Chrome";
 import * as I from "../../components/Icons";
 import { TopBar } from "../../components/Shell";
@@ -58,7 +58,7 @@ export function GuestProjectPage({ id, onLimits }: { id: string; onLimits: (l: G
         }
       >
         <Pill form={p.approvedAt ? "solid" : "outline"} icon={p.approvedAt ? <I.Check size={14} strokeWidth={2.4} /> : <I.Clock size={14} />} title={p.approvedAt ? "Tests approved" : "Needs your approval"} sub={p.approvedAt ? relative(p.approvedAt) : "Step 1"} />
-        {p.estimate ? <Pill form="outline" icon={<I.Coins size={14} />} title={`${credits(p.estimate.credits)} credits`} sub={`Estimate · demo cap ${p.estimate.cap}`} /> : null}
+        {p.estimate ? <Pill form="dashed" icon={<I.Coins size={14} />} title={`~${credits(p.estimate.credits)} credits`} sub="A real run’s estimate · the demo spends 0" /> : null}
       </TopBar>
 
       <div className="row">
@@ -98,14 +98,14 @@ function PathCard({ step, last }: { step: number; last?: GuestRun }) {
   const steps = [
     { label: "Tests saved", note: "Claims and tests for your app" },
     { label: "Approved by you", note: "You confirm the exact tests" },
-    { label: "Real Kane run", note: "A browser tests the live site" },
+    { label: "Demo check", note: "Reads your live start page · no credits" },
     { label: "Results", note: last?.status === "failed" ? "The run stopped" : "Claim by claim" },
   ];
   return (
     <section className="card" aria-labelledby="gpath-h" style={{ flex: "2 1 460px" }}>
       <div className="card-head">
         <h2 id="gpath-h" className="label">
-          <I.LayoutGrid size={16} aria-hidden="true" /> How a demo run works
+          <I.LayoutGrid size={16} aria-hidden="true" /> How the demo works
         </h2>
       </div>
       <div className="steps" style={{ gridTemplateColumns: "repeat(4, minmax(0, 1fr))" }} role="img" aria-label={`Step ${step} of 4`}>
@@ -128,7 +128,7 @@ function PathCard({ step, last }: { step: number; last?: GuestRun }) {
         ))}
       </ol>
       <p className="small" style={{ margin: 0 }}>
-        Demo runs show how Greenlight checks an app. They are never certifications: those need the app owner’s signed approval and a check of the deployed commit.
+        A demo check shows how Greenlight reports claim by claim. It is not a browser run and never a certification: real verification runs the approved tests in a real browser on the deployed commit, after the owner’s signed approval and spend confirmation.
       </p>
     </section>
   );
@@ -186,8 +186,13 @@ function ApproveCard({ p, onDone }: { p: GuestProject; onDone: () => void }) {
 function RunCard({ p, limits, active, onStarted }: { p: GuestProject; limits: GuestLimits; active?: GuestRun; onStarted: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState(false);
-  const blocked = limits.runsLeft === 0 ? "You’ve used your real run for this browser." : limits.runsLeftToday === 0 ? "Today’s demo runs are used up for all guests. Explore the sample project, or come back tomorrow." : null;
+  const blocked = limits.paused
+    ? "Demo checks are paused by the administrator right now. Everything else in the demo still works."
+    : limits.runsLeft === 0
+      ? "You’ve used the demo checks for this browser."
+      : limits.runsLeftToday === 0
+        ? "Today’s demo checks are used up for all visitors. Explore the sample project, or come back tomorrow."
+        : null;
   const start = async () => {
     setBusy(true);
     setError(null);
@@ -198,7 +203,6 @@ function RunCard({ p, limits, active, onStarted }: { p: GuestProject; limits: Gu
       setError((e as ApiError).message);
     } finally {
       setBusy(false);
-      setConfirm(false);
     }
   };
   if (active) {
@@ -206,7 +210,7 @@ function RunCard({ p, limits, active, onStarted }: { p: GuestProject; limits: Gu
       <section className="notice" aria-live="polite">
         <span className="spinner" aria-hidden="true" />
         <p>
-          <b>{active.status === "queued" ? "Starting the browser…" : "Kane is testing your live site."}</b> A real browser is following your tests on {host(p.url)}. This usually takes a few minutes; the page updates by itself.
+          <b>Reading your live start page…</b> Greenlight is fetching {host(p.url)} and checking the expected texts it can see without a browser.
         </p>
       </section>
     );
@@ -215,15 +219,15 @@ function RunCard({ p, limits, active, onStarted }: { p: GuestProject; limits: Gu
     <section className="card" aria-labelledby="run-h">
       <div className="card-head">
         <h2 id="run-h" className="card-title lg">
-          Run it for real
+          Run a demo check
         </h2>
         <span className="tags">
-          <Tag form={limits.runsLeft ? "outline" : "dashed"}>{limits.runsLeft} run left for you</Tag>
-          <Tag form={limits.runsLeftToday ? "outline" : "dashed"}>{limits.runsLeftToday} left today</Tag>
+          <Tag form="solid">0 credits</Tag>
+          <Tag form={limits.runsLeft ? "outline" : "dashed"}>{limits.runsLeft} left for you</Tag>
         </span>
       </div>
       <p className="muted" style={{ margin: 0, maxWidth: "72ch" }}>
-        Kane opens your live site in a real browser, follows each test and checks every expected text. The run uses about {credits(p.estimate?.credits)} credits from Greenlight’s demo budget; nothing is charged to you.
+        Greenlight reads your live start page and checks the expected texts that come before any click or typing. Steps that need a real browser are listed as not checked: a real verification (signed in) runs every step in a browser.
       </p>
       {blocked ? (
         <div className="notice">
@@ -233,22 +237,10 @@ function RunCard({ p, limits, active, onStarted }: { p: GuestProject; limits: Gu
             See the sample project
           </Link>
         </div>
-      ) : confirm ? (
-        <div className="tags">
-          <button type="button" className="btn" disabled={busy} onClick={start}>
-            {busy ? <span className="spinner" aria-hidden="true" /> : <I.Play size={15} aria-hidden="true" />} Yes, start the run
-          </button>
-          <button type="button" className="btn ghost" disabled={busy} onClick={() => setConfirm(false)}>
-            Not yet
-          </button>
-          <span className="small" style={{ alignSelf: "center" }}>
-            This uses your one demo run.
-          </span>
-        </div>
       ) : (
         <div>
-          <button type="button" className="btn" onClick={() => setConfirm(true)}>
-            <I.Play size={15} aria-hidden="true" /> Start real run
+          <button type="button" className="btn" disabled={busy} onClick={start}>
+            {busy ? <span className="spinner" aria-hidden="true" /> : <I.Play size={15} aria-hidden="true" />} Run demo check
           </button>
         </div>
       )}
@@ -262,6 +254,85 @@ function RunCard({ p, limits, active, onStarted }: { p: GuestProject; limits: Gu
   );
 }
 
+const STEP_RESULT: Record<string, string> = {
+  found: "Found on the page",
+  missing: "Not on the page",
+  not_checked: "Not checked (needs a browser)",
+  action_not_performed: "Action not performed in a demo check",
+  start_page_loaded: "Start page read",
+};
+
+function DemoCheckResult({ run, p }: { run: GuestRun; p: GuestProject }) {
+  const r = run.result!;
+  const checked = r.tests.flatMap((t) => t.steps ?? []).filter((s) => s.result === "found" || s.result === "missing").length;
+  return (
+    <section className="card" aria-labelledby="res-h">
+      <div className="card-head">
+        <h2 id="res-h" className="card-title lg">
+          Demo check result
+        </h2>
+        <span className="small">
+          {formatDateTime(r.startedAt)} · {r.page?.read ? `start page read (${r.page.characters} characters of text)` : "the start page could not be read without a browser"}
+        </span>
+      </div>
+      <p className="muted" style={{ margin: 0, maxWidth: "75ch" }}>
+        {!r.page?.read
+          ? "The page probably needs JavaScript to show its text, so nothing could be checked here. A real browser run would load it fully."
+          : checked === 0
+            ? "Every expected text in these tests comes after a click or typed value, so none could be checked without a browser."
+            : r.status === "failed"
+              ? "At least one expected text was not on the start page. In a real project, the failure report goes to the developer’s coding agent to fix."
+              : `${checked} expected text${checked > 1 ? "s were" : " was"} checked against the start page. Steps that need interaction are not checked here.`}
+      </p>
+      <ul className="list">
+        {r.claims.map((c) => (
+          <li key={c.id} className="list-row">
+            <ResultMark status={c.status} />
+            <div className="list-main">
+              <b>{c.text}</b>
+              <span>
+                {c.id} · {c.status === "passed" ? "All its expected texts were found" : c.status === "failed" ? "An expected text was missing" : "Needs a real browser run to verify"}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="tests">
+        {r.tests.map((t) => (
+          <details key={t.file} className="test" open={t.status === "failed"}>
+            <summary>
+              <I.ChevronRight className="chev" size={16} aria-hidden="true" />
+              <ResultMark status={t.status} />
+              <span className="test-title">{t.title ?? t.file}</span>
+              <span className="tags">
+                <Tag form={t.status === "passed" ? "solid" : t.status === "failed" ? "outline" : "dashed"}>{t.status.replace(/_/g, " ")}</Tag>
+              </span>
+            </summary>
+            <ol className="step-list">
+              {(t.steps ?? []).map((s, n) => (
+                <li key={n} className={`step ${s.kind === "expect_text" ? "expect" : ""}`}>
+                  <span className="step-n" aria-hidden="true">
+                    {n + 1}
+                  </span>
+                  <div>
+                    <div className="step-name">
+                      {s.name} · {STEP_RESULT[s.result] ?? s.result}
+                    </div>
+                    <div className="step-text">{s.kind === "expect_text" ? `“${s.text}”` : s.text}</div>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </details>
+        ))}
+      </div>
+      <p className="small" style={{ margin: 0 }}>
+        Demo check · no browser · 0 credits · never a certification · fingerprint <span className="mono">{shortHash(p.approvedTestHash)}</span>
+      </p>
+    </section>
+  );
+}
+
 function ResultCard({ run, p }: { run: GuestRun; p: GuestProject }) {
   if (run.status === "queued" || run.status === "running") return null;
   if (run.status === "failed" || !run.result) {
@@ -269,11 +340,12 @@ function ResultCard({ run, p }: { run: GuestRun; p: GuestProject }) {
       <section className="notice" role="status">
         <I.CircleAlert size={20} aria-hidden="true" />
         <p>
-          <b>The run stopped before results.</b> {run.error?.message ?? "Something went wrong."} {run.refunded ? "Kane never started, so it doesn’t count against your run." : ""}
+          <b>The check stopped before results.</b> {run.error?.message ?? "Something went wrong."} {run.refunded ? "It doesn’t count against your limit." : ""}
         </p>
       </section>
     );
   }
+  if (run.result.kind === "demo_check") return <DemoCheckResult run={run} p={p} />;
   const r = run.result;
   const passed = r.claims.filter((c) => c.status === "passed").length;
   return (

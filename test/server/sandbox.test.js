@@ -276,9 +276,9 @@ test("vercel.json routes /v1 to the function, bundles the files the sandbox need
   assert.equal(v.functions["api/index.js"].includeFiles, "{src,bin}/**");
   assert.ok(v.functions["api/index.js"].maxDuration <= 300);
   const toFunction = v.rewrites.filter((r) => r.destination === "/api");
-  assert.deepEqual(toFunction, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }, { source: "/api/auth/callback", destination: "/api" }, { source: "/app/api/:path*", destination: "/api" }]);
+  assert.deepEqual(toFunction, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }, { source: "/api/auth/callback", destination: "/api" }, { source: "/api/auth/google/:path*", destination: "/api" }, { source: "/mcp", destination: "/api" }, { source: "/app/api/:path*", destination: "/api" }]);
   // Every other rewrite only serves the web app's own entry page (client-side routes under /app).
-  assert.deepEqual(v.rewrites.filter((r) => r.destination !== "/api"), [{ source: "/app", destination: "/app/index.html" }, { source: "/app/:path((?!api/|assets/|favicon\\.svg$).*)", destination: "/app/index.html" }]);
+  assert.deepEqual(v.rewrites.filter((r) => r.destination !== "/api"), [{ source: "/app", destination: "/app/index.html" }, { source: "/app/:path((?!api/|assets/|downloads/|favicon\\.svg$).*)", destination: "/app/index.html" }]);
   // Static files come only from public/. In the repository it holds nothing but .gitkeep; the
   // build writes the web app (from web/ only) to public/app, which is never committed. No source,
   // docs or config of the repository is ever served.
@@ -300,7 +300,7 @@ test("vercel.json routes /v1 to the function, bundles the files the sandbox need
   assert.equal(appHeaders["X-Frame-Options"], "DENY");
   const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.equal(pkg.dependencies["@vercel/sandbox"], "3.9.1", "exact version");
-  assert.equal(pkg.scripts.build, "vite build --config web/vite.config.ts");
+  assert.equal(pkg.scripts.build, "vite build --config web/vite.config.ts && node scripts/copy-downloads.js");
   assert.ok(Object.values(pkg.devDependencies).every((ver) => /^\d+\.\d+\.\d+$/.test(ver)), "exact versions for the web app's build tools");
 });
 
