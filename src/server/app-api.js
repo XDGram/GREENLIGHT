@@ -53,6 +53,7 @@ import { parseRepoUrl, checkBranch, checkRepository, checkCommit, probeDeploymen
 import { readLiveApp } from "./browse.js";
 import { analyzeProject, requirementsFrom, reviseTests } from "./understand.js";
 import { handleFixApi } from "./fix-centre.js";
+import { createAgentRequest } from "./agent-requests.js";
 import { handleAdminApi } from "./admin-api.js";
 
 export const APP_API_PREFIX = "/app/api/";
@@ -305,7 +306,7 @@ function deriveOrProblems(specText) {
   }
 }
 
-function previewOf(specText, config) {
+export function previewOf(specText, config) {
   const { derived, problems } = deriveOrProblems(specText);
   if (!derived) return { ok: false, specText, problems };
   const estimate = estimateFor(derived.spec, config);
@@ -409,8 +410,27 @@ export async function activity(store, actor, action, target, detail = {}) {
 }
 const actorOf = (s) => `${s.account}${s.email ? ` (${s.email})` : ""}`;
 
+/** Optional: an operator-configured AI key on the server. Without it, AI work goes to the developer's agent. */
+export const serverAi = (config, ai = {}) => Boolean(config.ai?.apiKey) || Boolean(ai.client);
+
+/** Credits for one run of the given tests (all approved tests when none are chosen). */
+export function runEstimate(spec, config, tests = null) {
+  const catalog = catalogFromSpec(spec);
+  const chosen = tests?.length ? catalog.tests.filter((t) => tests.includes(t.file)) : catalog.tests;
+  const e = estimateRun({ tests: chosen.map((t) => ({ file: t.file, author: true, steps: t.steps.length })) }, config.rates ? { rates: config.rates } : {});
+  return e.credits;
+}
+
 /** Guests' real Kane runs: on with guest mode, a job runner and the approval signing key. */
 export const guestRunsEnabled = (config) => Boolean(config.guest) && Boolean(config.approvalSigningKey);
+
+async function agentConnected(store, s) {
+  try {
+    return (await store.listAccountTokens(s.account)).some((t) => t.role === "agent" && !t.revokedAt);
+  } catch {
+    return false;
+  }
+}
 
 async function guestPaused(store) {
   try {
@@ -436,6 +456,8 @@ async function guestRunState(store, config, s) {
     leftForYou: Math.max(0, (g?.realRunsPerGuest ?? 0) - usage.usedByYou),
     leftToday: Math.max(0, (g?.realRunsPerDay ?? 0) - usage.usedToday),
     maxCreditsPerRun: g?.maxCreditsPerRun ?? null,
+    dailyCredits: g?.dailyCredits ?? null,
+    creditsLeftToday: Math.max(0, (g?.dailyCredits ?? 0) - Number(usage.creditsToday ?? 0)),
   };
 }
 
@@ -518,7 +540,15 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         authenticatedAt: s.authAt ?? null,
         expiresAt: new Date(s.exp).toISOString(),
         maxCreditsPerRun: config.maxCreditsPerRun ?? null,
-        features: { ai: Boolean(config.ai?.apiKey) || Boolean(ai.client), google: Boolean(config.google), certification: Boolean(jobs) && (s.role !== "guest" || guestRunsEnabled(config)), admin: s.role === "admin" },
+        features: {
+          // AI help comes from the developer's connected coding agent, or (optional) a server key.
+          ai: true,
+          aiMode: serverAi(config, ai) ? "server" : "agent",
+          agentConnected: await agentConnected(store, s),
+          google: Boolean(config.google),
+          certification: Boolean(jobs) && (s.role !== "guest" || guestRunsEnabled(config)),
+          admin: s.role === "admin",
+        },
         ...(s.role === "guest" ? { guestRuns: await guestRunState(store, config, s) } : {}),
       });
     }
@@ -610,7 +640,26 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
     }
 
     if (path.startsWith("/app/api/fixes")) {
-      return await handleFixApi({ req, res, url, s, store, config, jobs, now, log, ai, sendJson, readJson, activity, actorOf, getTestResults: (record, version) => testResults(store, record, version) });
+      return await handleFixApi({
+        req, res, url, s, store, config, jobs, now, log, ai, sendJson, readJson, activity, actorOf,
+        getTestResults: (record, version) => testResults(store, record, version),
+        queueAgent: serverAi(config, ai) ? null : async (fix, kind, extra = {}) => createAgentRequest({ store, s, project: await store.getProject(fix.projectId, s.account), fix, kind, ...extra }),
+      });
+    }
+
+    // Requests waiting for (or answered by) the developer's coding agent.
+    if (path === "/app/api/agent-requests" && !isPost) {
+      const projectId = url.searchParams.get("projectId");
+      return sendJson(res, 200, { requests: await store.agentRequestList(s.account, { projectId: projectId && /^prj_[0-9a-f]{32}$/.test(projectId) ? projectId : null }) });
+    }
+    const arm = /^\/app\/api\/agent-requests\/(ar_[0-9a-f]{32})(\/cancel)?$/.exec(path);
+    if (arm) {
+      if (arm[2] && isPost) return sendJson(res, 200, { request: await store.agentRequestCancel(arm[1], s.account) });
+      if (!arm[2] && !isPost) {
+        const r = await store.agentRequestGet(arm[1], s.account);
+        delete r.input; // the browser needs status and result, not the full context sent to the agent
+        return sendJson(res, 200, { request: r });
+      }
     }
 
     const am = APPROVE.exec(path);
@@ -684,9 +733,22 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       }
 
       if (action === "draft") {
-        if (!config.ai?.apiKey && !ai.client) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server; write the claims and tests yourself.");
-        takeAi(s, now);
         const d = await store.getProjectDetails(project.id).catch(() => null);
+        if (!serverAi(config, ai)) {
+          // No AI on the server: ask the developer's connected coding agent.
+          const revising = typeof body.instruction === "string" && body.instruction.trim() && body.current && typeof body.current === "object";
+          const req = await createAgentRequest({
+            store,
+            s,
+            project,
+            details: d,
+            kind: revising ? "revise_plan" : "draft_plan",
+            current: revising ? { claims: body.current.claims, tests: body.current.tests } : undefined,
+            instruction: revising ? text(body.instruction, 1500, "Request", { required: true }) : undefined,
+          });
+          return sendJson(res, 202, { agentRequest: req });
+        }
+        takeAi(s, now);
         // Revise: the developer asks Claude to change the current plan.
         if (typeof body.instruction === "string" && body.instruction.trim() && body.current && typeof body.current === "object") {
           const instruction = text(body.instruction, 1500, "Request", { required: true });
@@ -735,6 +797,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
           u.analyzedAt = null;
         } else if (step === "analyze") {
           if (!u.inspectedAt) throw new GreenlightError("invalid_request", "Inspect the app first.");
+          if (!serverAi(config, ai)) return sendJson(res, 202, { agentRequest: await createAgentRequest({ store, s, project, details: d, kind: "understand" }) });
           takeAi(s, now);
           u.analysis = await analyzeProject({ config, client: ai.client, project, details: d, inspection: u, log });
           u.analyzedAt = now().toISOString();
@@ -806,8 +869,17 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
             if (body.tests.length > 50 || !body.tests.every((t) => typeof t === "string" && /^[a-z0-9-]+_test\.md$/.test(t))) throw new GreenlightError("invalid_request", "tests: a list of test files from the approved version.");
             request.tests = [...new Set(body.tests)];
           }
-          await prepareCertification({ store, project, versionNo: body.version, request, config });
-          reservation = (await store.reserveGuestRun(project.account, config.guest.realRunsPerGuest, config.guest.realRunsPerDay)).reservation;
+          const { derived } = await prepareCertification({ store, project, versionNo: body.version, request, config });
+          // The cost of exactly this run, shown to the person before they confirm; their confirmation
+          // must cover it, and it must fit the per-run ceiling and today's shared budget.
+          const est = runEstimate(derived.spec, config, request.tests);
+          if (!Number.isFinite(body.confirmSpend) || body.confirmSpend < est) {
+            throw new GreenlightError("confirmation_required", `This run is estimated at ${est} credits; confirm that amount to start it.`, { estimate: est });
+          }
+          request.confirmSpend = Math.min(Math.ceil(est), config.guest.maxCreditsPerRun);
+          reservation = (
+            await store.reserveGuestRun(project.account, { credits: Math.ceil(est), perAccount: config.guest.realRunsPerGuest, perDay: config.guest.realRunsPerDay, dailyCredits: config.guest.dailyCredits, maxPerRun: config.guest.maxCreditsPerRun })
+          ).reservation;
         } else {
           // Everything that can be checked before spending (the job checks it all again).
           await prepareCertification({ store, project, versionNo: body.version, request, config });

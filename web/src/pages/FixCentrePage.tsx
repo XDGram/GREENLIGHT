@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, api, type SignInRequired } from "../api";
+import { AgentWait } from "../components/AgentWait";
 import { CodeBlock, Empty, ErrorNotice, FormError, LoadingRows, Notice, Tag } from "../components/Bits";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
 import { formatDateTime, relative } from "../format";
 import { FIX_STATUS_LABEL } from "../plain";
 import { Link } from "../router";
-import type { FixItem, RunDetail, Session } from "../types";
+import type { AgentRequest, FixItem, RunDetail, Session } from "../types";
 import { useData } from "../useData";
 
 const SUPPORT: Record<string, string> = {
@@ -98,12 +99,29 @@ function Fix({ fix, setFix, session }: { fix: FixItem; setFix: (f: FixItem) => v
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<{ message: string } | null>(null);
   const ai = session.features.ai;
+  const agentMode = session.features.aiMode !== "server";
+  const connected = Boolean(session.features.agentConnected);
+  const [waiting, setWaiting] = useState<AgentRequest | null>(null);
+  // Requests for this failure still waiting for the agent (e.g. after a reload) are picked up again.
+  useEffect(() => {
+    if (!agentMode) return;
+    api.agentRequests(fix.projectId).then((rs) => {
+      const open = rs.find((r) => r.fixId === fix.id && r.kind !== "answer_question" && (r.status === "queued" || r.status === "claimed"));
+      if (open) setWaiting(open);
+    }, () => {});
+  }, [agentMode, fix.projectId, fix.id]);
+  const refresh = async () => {
+    setWaiting(null);
+    setFix(await api.fix(fix.id));
+  };
   const e = fix.explanation;
   const act = async (action: "explain" | "proposal" | "send" | "dismiss" | "reopen") => {
     setBusy(action);
     setError(null);
     try {
-      setFix(await api.fixAction(fix.id, action));
+      const r = await api.fixAction(fix.id, action);
+      setFix(r.fix);
+      if (r.agentRequest) setWaiting(r.agentRequest);
     } catch (err) {
       setError({ message: (err as ApiError).message });
     } finally {
@@ -137,7 +155,7 @@ function Fix({ fix, setFix, session }: { fix: FixItem; setFix: (f: FixItem) => v
                 What went wrong
               </h2>
               <button type="button" className="btn ghost sm" onClick={() => act("explain")} disabled={busy !== null}>
-                {busy === "explain" ? <span className="spinner" aria-hidden="true" /> : <I.RefreshCw size={14} aria-hidden="true" />} Explain again
+                {busy === "explain" ? <span className="spinner" aria-hidden="true" /> : <I.RefreshCw size={14} aria-hidden="true" />} {agentMode ? (fix.explanation?.source === "facts_only" ? "Ask my agent to explain" : "Ask my agent again") : "Explain again"}
               </button>
             </div>
             {e ? (
@@ -164,6 +182,8 @@ function Fix({ fix, setFix, session }: { fix: FixItem; setFix: (f: FixItem) => v
             ) : (
               <p className="small">No explanation yet.</p>
             )}
+            {e?.source === "facts_only" ? <p className="small" style={{ margin: 0 }}>These are the facts from the run. {agentMode ? "Ask your coding agent for a likely cause and a fix." : ""}</p> : null}
+            {e?.source === "agent" ? <p className="small" style={{ margin: 0 }}>Explained by your coding agent.</p> : null}
             {fix.explanationError ? <p className="small" style={{ margin: 0 }}>The AI explanation failed ({fix.explanationError}); the facts above come straight from the run.</p> : null}
           </section>
 
@@ -193,11 +213,10 @@ function Fix({ fix, setFix, session }: { fix: FixItem; setFix: (f: FixItem) => v
               <>
                 <p style={{ margin: 0, fontSize: 13.5 }}>Generate an implementation proposal: the change to make, where to look, what it might affect, and a task written for your coding agent. Nothing in your code changes.</p>
                 <div>
-                  <button type="button" className="btn" onClick={() => act("proposal")} disabled={busy !== null || !ai}>
-                    {busy === "proposal" ? <span className="spinner" aria-hidden="true" /> : <I.FileText size={15} aria-hidden="true" />} Generate fix
+                  <button type="button" className="btn" onClick={() => act("proposal")} disabled={busy !== null || !ai || waiting !== null}>
+                    {busy === "proposal" ? <span className="spinner" aria-hidden="true" /> : <I.FileText size={15} aria-hidden="true" />} {agentMode ? "Ask my agent to generate a fix" : "Generate fix"}
                   </button>
                 </div>
-                {!ai ? <p className="small" style={{ margin: 0 }}>Generating a fix needs AI, which isn't configured on this server.</p> : null}
               </>
             ) : (
               <Proposal fix={fix} />
@@ -217,6 +236,7 @@ function Fix({ fix, setFix, session }: { fix: FixItem; setFix: (f: FixItem) => v
               </div>
             ) : null}
             <AgentStatus fix={fix} rerun={rerun} />
+            {waiting ? <AgentWait request={waiting} connected={connected} onDone={refresh} onClear={() => setWaiting(null)} /> : null}
             <FormError error={error} />
             <div className="tags">
               {fix.status === "dismissed" ? (
@@ -231,7 +251,7 @@ function Fix({ fix, setFix, session }: { fix: FixItem; setFix: (f: FixItem) => v
             </div>
           </section>
         </div>
-        <Conversation fix={fix} setFix={setFix} ai={ai} />
+        <Conversation fix={fix} setFix={setFix} ai={ai} agentMode={agentMode} connected={connected} />
       </div>
     </>
   );
@@ -359,7 +379,15 @@ function AgentStatus({ fix, rerun }: { fix: FixItem; rerun: string }) {
   );
 }
 
-function Conversation({ fix, setFix, ai }: { fix: FixItem; setFix: (f: FixItem) => void; ai: boolean }) {
+function Conversation({ fix, setFix, ai, agentMode, connected }: { fix: FixItem; setFix: (f: FixItem) => void; ai: boolean; agentMode: boolean; connected: boolean }) {
+  const [waiting, setWaiting] = useState<AgentRequest | null>(null);
+  useEffect(() => {
+    if (!agentMode) return;
+    api.agentRequests(fix.projectId).then((rs) => {
+      const open = rs.find((r) => r.fixId === fix.id && r.kind === "answer_question" && (r.status === "queued" || r.status === "claimed"));
+      if (open) setWaiting(open);
+    }, () => {});
+  }, [agentMode, fix.projectId, fix.id]);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string } | null>(null);
@@ -373,7 +401,9 @@ function Conversation({ fix, setFix, ai }: { fix: FixItem; setFix: (f: FixItem) 
     setBusy(true);
     setError(null);
     try {
-      setFix(await api.askFix(fix.id, q.trim()));
+      const r = await api.askFix(fix.id, q.trim());
+      setFix(r.fix);
+      if (r.agentRequest) setWaiting(r.agentRequest);
       setText("");
     } catch (e) {
       setError({ message: (e as Error).message });
@@ -391,12 +421,29 @@ function Conversation({ fix, setFix, ai }: { fix: FixItem; setFix: (f: FixItem) 
       ) : (
         <>
           <div className="chat" style={{ maxHeight: 460, overflowY: "auto" }}>
-            {msgs.length === 0 ? <p className="small" style={{ margin: 0 }}>Claude knows this test, what happened, and what Greenlight learned about your app. Ask anything about this failure.</p> : null}
+            {msgs.length === 0 ? (
+              <p className="small" style={{ margin: 0 }}>
+                {agentMode
+                  ? "Your coding agent answers, with this failure's details and the conversation so far. It can also look at your code."
+                  : "Claude knows this test, what happened, and what Greenlight learned about your app. Ask anything about this failure."}
+              </p>
+            ) : null}
             {msgs.map((m, i) => (
               <div key={i} className={`msg ${m.role}`}>
                 {m.content}
               </div>
             ))}
+            {waiting ? (
+              <AgentWait
+                request={waiting}
+                connected={connected}
+                onDone={async () => {
+                  setWaiting(null);
+                  setFix(await api.fix(fix.id));
+                }}
+                onClear={() => setWaiting(null)}
+              />
+            ) : null}
             {busy ? (
               <div className="msg assistant" aria-live="polite">
                 <span className="spinner" aria-hidden="true" /> Thinking…

@@ -11,8 +11,8 @@ export interface Session {
   authenticatedAt: string | null;
   expiresAt: string;
   maxCreditsPerRun: number | null;
-  features: { ai: boolean; google: boolean; certification: boolean; admin: boolean };
-  guestRuns?: { enabled: boolean; paused: boolean; perGuest: number; perDay: number; leftForYou: number; leftToday: number; maxCreditsPerRun: number | null };
+  features: { ai: boolean; aiMode?: "server" | "agent"; agentConnected?: boolean; google: boolean; certification: boolean; admin: boolean };
+  guestRuns?: { enabled: boolean; paused: boolean; perGuest: number; perDay: number; leftForYou: number; leftToday: number; maxCreditsPerRun: number | null; dailyCredits: number | null; creditsLeftToday: number };
 }
 
 export interface PendingApproval {
@@ -179,6 +179,20 @@ export interface Understanding {
   } | null;
   analyzedAt: string | null;
   answers: Record<string, string>;
+}
+
+export type AgentKind = "understand" | "draft_plan" | "revise_plan" | "explain_failure" | "answer_question" | "propose_fix";
+export interface AgentRequest {
+  id: string;
+  projectId: string;
+  fixId: string | null;
+  kind: AgentKind;
+  status: "queued" | "claimed" | "done" | "failed" | "cancelled";
+  result: unknown;
+  error: string | null;
+  createdAt: string;
+  claimedAt: string | null;
+  completedAt: string | null;
 }
 
 export interface FixItem {

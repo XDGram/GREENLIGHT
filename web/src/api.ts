@@ -1,6 +1,7 @@
 import type {
   AdminHealth,
   AdminOverview,
+  AgentRequest,
   ApiToken,
   CommitCheck,
   FixItem,
@@ -87,6 +88,10 @@ export const guestApi = {
   run: (id: string) => post<{ run: GuestRun; limits: GuestLimits }>(`/app/api/guest/projects/${encodeURIComponent(id)}/runs`, {}),
 };
 
+/** A response that may instead be a request queued for the developer's coding agent. */
+export type Queued<T> = T | { agentRequest: AgentRequest };
+export const isQueued = <T,>(r: Queued<T>): r is { agentRequest: AgentRequest } => typeof r === "object" && r !== null && "agentRequest" in r;
+
 export interface NewProject {
   name: string;
   url: string;
@@ -107,18 +112,21 @@ export const api = {
   updateDetails: (id: string, body: Partial<NewProject> & { clearCredentials?: boolean }) => post<ProjectDetail>(`${P(id)}/details`, body),
   repositoryCheck: (id: string) => post<{ repositoryCheck: RepositoryCheck }>(`${P(id)}/repository-check`, {}),
   deploymentCheck: (id: string) => post<{ deployment: DeploymentProbe; inRepository: CommitCheck | null }>(`${P(id)}/deployment-check`, {}),
-  draft: (id: string, requirements?: string) => post<{ draft: DraftSpec; notes: string | null; pageRead: boolean; check: SpecCheck }>(`${P(id)}/draft`, requirements ? { requirements } : {}),
+  draft: (id: string, requirements?: string) => post<Queued<{ draft: DraftSpec; notes: string | null; pageRead: boolean; check: SpecCheck }>>(`${P(id)}/draft`, requirements ? { requirements } : {}),
   preview: (id: string, body: { draft: DraftSpec } | { specText: string }) => post<SpecCheck>(`${P(id)}/preview`, body),
   propose: (id: string, body: { draft: DraftSpec } | { specText: string }) => post<{ version: VersionView }>(`${P(id)}/versions`, body),
   certify: (id: string, body: { version: number; commit?: string; confirmSpend: number; approvedTestHash: string; tests?: string[] }) => post<{ job: Job }>(`${P(id)}/certifications`, body),
-  understand: (id: string, body: { step: "inspect" | "analyze" | "answers"; answers?: Record<string, string> }) => post<ProjectDetail>(`${P(id)}/understand`, body),
-  revise: (id: string, current: DraftSpec, instruction: string) => post<{ draft: DraftSpec; notes: string | null; pageRead: boolean; check: SpecCheck; revised: boolean }>(`${P(id)}/draft`, { current, instruction }),
+  understand: (id: string, body: { step: "inspect" | "analyze" | "answers"; answers?: Record<string, string> }) => post<Queued<ProjectDetail>>(`${P(id)}/understand`, body),
+  revise: (id: string, current: DraftSpec, instruction: string) => post<Queued<{ draft: DraftSpec; notes: string | null; pageRead: boolean; check: SpecCheck; revised: boolean }>>(`${P(id)}/draft`, { current, instruction }),
+  agentRequests: (projectId: string) => get<{ requests: AgentRequest[] }>(`/app/api/agent-requests?projectId=${encodeURIComponent(projectId)}`).then((r) => r.requests),
+  agentRequest: (requestId: string) => get<{ request: AgentRequest }>(`/app/api/agent-requests/${encodeURIComponent(requestId)}`).then((r) => r.request),
+  cancelAgentRequest: (requestId: string) => post<{ request: AgentRequest }>(`/app/api/agent-requests/${encodeURIComponent(requestId)}/cancel`, {}).then((r) => r.request),
   approveInApp: (id: string, version: number, approvedTestHash: string) => post<ProjectDetail>(`${P(id)}/versions/${version}/approve`, { confirm: true, approvedTestHash }),
   fixes: (projectId?: string) => get<{ fixes: FixItem[] }>(`/app/api/fixes${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`).then((r) => r.fixes),
   fix: (fixId: string) => get<{ fix: FixItem }>(`/app/api/fixes/${encodeURIComponent(fixId)}`).then((r) => r.fix),
   openFix: (projectId: string, recordId: string, testFile: string) => post<{ fix: FixItem }>("/app/api/fixes/open", { projectId, recordId, testFile }).then((r) => r.fix),
-  fixAction: (fixId: string, action: "explain" | "proposal" | "send" | "dismiss" | "reopen", body: Record<string, unknown> = {}) => post<{ fix: FixItem }>(`/app/api/fixes/${encodeURIComponent(fixId)}/${action}`, body).then((r) => r.fix),
-  askFix: (fixId: string, message: string) => post<{ fix: FixItem }>(`/app/api/fixes/${encodeURIComponent(fixId)}/ask`, { message }).then((r) => r.fix),
+  fixAction: (fixId: string, action: "explain" | "proposal" | "send" | "dismiss" | "reopen", body: Record<string, unknown> = {}) => post<{ fix: FixItem; agentRequest?: AgentRequest }>(`/app/api/fixes/${encodeURIComponent(fixId)}/${action}`, body),
+  askFix: (fixId: string, message: string) => post<{ fix: FixItem; agentRequest?: AgentRequest }>(`/app/api/fixes/${encodeURIComponent(fixId)}/ask`, { message }),
   job: (jobId: string) => get<{ job: Job }>(`/app/api/jobs/${encodeURIComponent(jobId)}`).then((r) => r.job),
   run: (id: string, recordId: string) => get<RunDetail>(`${P(id)}/records/${encodeURIComponent(recordId)}`),
   integrity: (id: string, recordId: string) => get<{ ok: boolean; problems: string[]; files: number; record: boolean; checkedAt: string }>(`${P(id)}/records/${encodeURIComponent(recordId)}/integrity`),

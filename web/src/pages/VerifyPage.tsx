@@ -321,12 +321,12 @@ function GuestConfirm({ detail, v, session, deployed, onStarted }: { detail: Pro
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; problems?: string[] } | null>(null);
   const head = detail.details?.repositoryCheck?.head?.sha ?? null;
-  const blocked = !runs?.enabled ? "Real browser runs aren't available for visitors on this server." : runs.paused ? "Real browser runs are paused by the administrator right now." : runs.leftForYou <= 0 ? "You've used your real browser runs on this browser." : runs.leftToday <= 0 ? "Today's real browser runs are used up for all visitors. Try again tomorrow." : est != null && cap != null && est > cap ? "This plan is too large for a visitor run. Remove a test or some steps." : null;
+  const blocked = !runs?.enabled ? "Real browser runs aren't available for visitors on this server." : runs.paused ? "Real browser runs are paused by the administrator right now." : runs.leftForYou <= 0 ? "You've used your real browser runs on this browser." : runs.leftToday <= 0 ? "Today's real browser runs are used up for all visitors. Try again tomorrow." : est != null && cap != null && est > cap ? `This run would cost about ${credits(est)} credits, over the ${cap}-credit limit for one visitor run. Remove a test or some steps, or re-run fewer tests.` : est != null && runs.creditsLeftToday < est ? `Today's shared budget for visitor runs has ${credits(runs.creditsLeftToday)} credits left, less than this run needs (${credits(est)}). Try again tomorrow, or run fewer tests.` : null;
   const start = async () => {
     setBusy(true);
     setError(null);
     try {
-      const r = await api.certify(detail.project.id, { version: v.version, confirmSpend: Math.min(cap ?? 150, Math.ceil(est ?? 150)), approvedTestHash: v.approvedTestHash, ...(only.length ? { tests: only } : {}) });
+      const r = await api.certify(detail.project.id, { version: v.version, confirmSpend: Math.ceil(est ?? 0), approvedTestHash: v.approvedTestHash, ...(only.length ? { tests: only } : {}) });
       onStarted(r.job);
     } catch (e) {
       const a = e as ApiError;
@@ -349,15 +349,21 @@ function GuestConfirm({ detail, v, session, deployed, onStarted }: { detail: Pro
         <dd>{deployed ? `${deployed.slice(0, 7)}, reported by your live site` : head ? `${head.slice(0, 7)}, the latest on ${detail.details?.branch ?? "main"} (your site doesn't say which version it runs, so this is marked unconfirmed)` : "Unknown: add /greenlight.json to your site or make the repository public"}</dd>
         <dt>Runs left</dt>
         <dd>{runs ? `${runs.leftForYou} for you · ${runs.leftToday} today for all visitors` : "—"}</dd>
-        <dt>Cost</dt>
-        <dd>About {credits(est)} test credits, paid by Greenlight (limit {cap ?? "—"})</dd>
+        <dt>Cost of this run</dt>
+        <dd>
+          <b>{credits(est)} credits</b>, paid by Greenlight · limit {cap ?? "—"} per visitor run
+        </dd>
+        <dt>Visitor budget today</dt>
+        <dd>{runs ? `${credits(runs.creditsLeftToday)} of ${credits(runs.dailyCredits)} credits left, shared by all visitors` : "—"}</dd>
       </dl>
       {blocked ? (
         <Notice>{blocked}</Notice>
       ) : (
         <label className="check-line">
           <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-          <span>Run {chosen.length === 1 ? "this test" : `these ${chosen.length} tests`} on my live app now. This uses one of my real browser runs.</span>
+          <span>
+            Run {chosen.length === 1 ? "this test" : `these ${chosen.length} tests`} on my live app now, spending {credits(est)} credits. This uses {runs && runs.leftForYou > 1 ? "one of my real browser runs" : "my real browser run"} for this browser.
+          </span>
         </label>
       )}
       <FormError error={error} />

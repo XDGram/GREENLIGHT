@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, api, type SignInRequired } from "../api";
+import { ApiError, api, isQueued, type SignInRequired } from "../api";
+import { AgentWait } from "../components/AgentWait";
 import { ErrorNotice, FormError, LoadingRows, Notice } from "../components/Bits";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
 import { credits, formatDateTime } from "../format";
 import { Link } from "../router";
-import type { DraftSpec, DraftStep, DraftTest, ProjectDetail, Session, SpecCheck, VersionView } from "../types";
+import type { AgentRequest, DraftSpec, DraftStep, DraftTest, ProjectDetail, Session, SpecCheck, VersionView } from "../types";
 import { useData } from "../useData";
 import { newKey } from "./guest/SpecEditor";
 
@@ -225,6 +226,25 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
   const timer = useRef<number | undefined>(undefined);
   const unchanged = Boolean(latest && check?.hash && check.hash === latest.approvedTestHash);
   const ai = session.features.ai;
+  const agentMode = session.features.aiMode !== "server";
+  const connected = Boolean(session.features.agentConnected);
+  const [waiting, setWaiting] = useState<AgentRequest | null>(null);
+  // A plan request still waiting for the agent (e.g. after a reload) is picked up again.
+  useEffect(() => {
+    if (!agentMode) return;
+    api.agentRequests(pid).then((rs) => {
+      const open = rs.find((r) => (r.kind === "draft_plan" || r.kind === "revise_plan") && (r.status === "queued" || r.status === "claimed"));
+      if (open) setWaiting(open);
+    }, () => {});
+  }, [agentMode, pid]);
+  const takeAgentPlan = (r: AgentRequest) => {
+    const res = r.result as { draft: DraftSpec; notes: string | null; check: SpecCheck } | null;
+    setWaiting(null);
+    if (!res) return;
+    setDraft(toEditor({ ...res.draft, description: res.draft.description ?? null }));
+    setNotes(res.notes ? `${res.notes} (from your coding agent)` : "Proposed by your coding agent.");
+    setCheck(res.check);
+  };
 
   useEffect(() => {
     if (!draft) return;
@@ -244,9 +264,12 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
     setError(null);
     try {
       const r = await api.draft(pid);
-      setDraft(toEditor(r.draft));
-      setNotes(r.notes);
-      setCheck(r.check);
+      if (isQueued(r)) setWaiting(r.agentRequest);
+      else {
+        setDraft(toEditor(r.draft));
+        setNotes(r.notes);
+        setCheck(r.check);
+      }
     } catch (e) {
       fail(e);
     } finally {
@@ -260,9 +283,12 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
     try {
       const cur = { claims: draft.claims, tests: draft.tests };
       const r = await api.revise(pid, { ...draft, ...cur }, instruction.trim());
-      setDraft(toEditor(r.draft));
-      setNotes(r.notes);
-      setCheck(r.check);
+      if (isQueued(r)) setWaiting(r.agentRequest);
+      else {
+        setDraft(toEditor(r.draft));
+        setNotes(r.notes);
+        setCheck(r.check);
+      }
       setInstruction("");
     } catch (e) {
       fail(e);
@@ -313,15 +339,15 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
         <section className="card">
           <h2 className="card-title lg">Let's plan the tests</h2>
           <p style={{ margin: 0, maxWidth: "70ch" }}>
-            {ai
-              ? "Greenlight proposes tests from your description and what it learned about the app. You can then edit, remove or add tests, or ask for changes, before approving."
-              : "AI isn't configured on this server, so start with an empty test and write the plan yourself."}
+            {agentMode
+              ? "Your coding agent (Claude Code, connected to Greenlight) can propose tests from your description and what Greenlight learned, and you edit, remove or add tests before approving. Or write the plan yourself."
+              : "Greenlight proposes tests from your description and what it learned about the app. You can then edit, remove or add tests, or ask for changes, before approving."}
           </p>
           <div className="tags">
             {ai ? (
               <button type="button" className="btn" onClick={propose} disabled={busy !== null}>
                 {busy === "draft" ? <span className="spinner" aria-hidden="true" /> : <I.FileText size={15} aria-hidden="true" />}
-                {busy === "draft" ? "Proposing tests…" : "Propose tests"}
+                {busy === "draft" ? "Asking…" : agentMode ? "Ask my agent to propose tests" : "Propose tests"}
               </button>
             ) : null}
             <button type="button" className={ai ? "btn ghost" : "btn"} onClick={addTest}>
@@ -333,6 +359,12 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
               Tip: <Link href={`/app/projects/${pid}#understanding`}>let Greenlight learn the app</Link> first for better proposals.
             </p>
           )}
+          {waiting ? <AgentWait request={waiting} connected={connected} onDone={takeAgentPlan} onClear={() => setWaiting(null)} /> : null}
+          {agentMode && !connected && !waiting ? (
+            <p className="small" style={{ margin: 0 }}>
+              No coding agent connected. <Link href="/app/integrations">Connect Claude Code</Link> to get proposed tests, explanations and fixes. Without it you can still write and run tests yourself.
+            </p>
+          ) : null}
           <FormError error={error} />
         </section>
       ) : (
@@ -341,7 +373,7 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
             {latest ? <Notice icon={<I.Pencil size={18} aria-hidden="true" />}>You're changing the plan. Saving creates a new plan to approve; earlier results stay as they are.</Notice> : null}
             {notes ? (
               <p className="small" style={{ margin: 0 }}>
-                <b style={{ color: "var(--ink)", fontWeight: 600 }}>Note from Claude:</b> {notes}
+                <b style={{ color: "var(--ink)", fontWeight: 600 }}>Note:</b> {notes}
               </p>
             ) : null}
             {draft.tests.map((t, i) =>
@@ -376,7 +408,7 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
             {ai ? (
               <section className="card tight" aria-labelledby="revise-h">
                 <h3 id="revise-h" className="card-title" style={{ fontSize: 15 }}>
-                  Ask Claude to revise the plan
+                  {agentMode ? "Ask your agent to revise the plan" : "Ask Claude to revise the plan"}
                 </h3>
                 <label className="field">
                   <span className="sr-only">What should change?</span>
@@ -384,9 +416,10 @@ function PlanEditor({ detail, session, initial, latest, onCancel, onSaved }: { d
                 </label>
                 <div>
                   <button type="button" className="btn sm" disabled={busy !== null || instruction.trim().length < 5} onClick={revise}>
-                    {busy === "revise" ? <span className="spinner" aria-hidden="true" /> : null} {busy === "revise" ? "Revising…" : "Revise the plan"}
+                    {busy === "revise" ? <span className="spinner" aria-hidden="true" /> : null} {busy === "revise" ? "Asking…" : "Revise the plan"}
                   </button>
                 </div>
+                {waiting ? <AgentWait request={waiting} connected={connected} onDone={takeAgentPlan} onClear={() => setWaiting(null)} /> : null}
               </section>
             ) : null}
             <TechDetails specText={check?.specText} hash={check?.hash} v={null} />

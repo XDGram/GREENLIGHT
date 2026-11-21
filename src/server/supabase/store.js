@@ -229,8 +229,8 @@ export class SupabaseStore {
   async guestAccount(slug) {
     return this.db.rpc("greenlight_guest_account", { p_slug: slug });
   }
-  async reserveGuestRun(account, perAccount, perDay) {
-    return this.db.rpc("greenlight_reserve_guest_run", { p_account: account, p_per_account: perAccount, p_per_day: perDay });
+  async reserveGuestRun(account, { credits, perAccount, perDay, dailyCredits, maxPerRun }) {
+    return this.db.rpc("greenlight_reserve_guest_run", { p_account: account, p_credits: credits, p_per_account: perAccount, p_per_day: perDay, p_daily_credits: dailyCredits, p_max_per_run: maxPerRun });
   }
   async attachGuestRun(reservation, jobId) {
     return this.db.rpc("greenlight_attach_guest_run", { p_reservation: reservation, p_job_id: jobId });
@@ -240,6 +240,27 @@ export class SupabaseStore {
   }
   async guestRunUsage(account) {
     return this.db.rpc("greenlight_guest_run_usage", { p_account: account });
+  }
+  async agentRequestCreate({ id, account, projectId, fixId = null, kind, input, maxOpen = 10 }) {
+    return this.db.rpc("greenlight_agent_request_create", { p_id: id, p_account: account, p_project_id: assertId("project", projectId), p_fix_id: fixId, p_kind: kind, p_input: input, p_max_open: maxOpen });
+  }
+  async agentRequestGet(id, account) {
+    if (!/^ar_[0-9a-f]{32}$/.test(String(id ?? ""))) throw new GreenlightError("not_found", "No such request.");
+    return this.db.rpc("greenlight_agent_request_get", { p_id: id, p_account: account });
+  }
+  async agentRequestList(account, { projectId = null, openOnly = false } = {}) {
+    return this.db.rpc("greenlight_agent_request_list", { p_account: account, p_project_id: projectId, p_open_only: openOnly });
+  }
+  async agentRequestClaim(id, account) {
+    if (!/^ar_[0-9a-f]{32}$/.test(String(id ?? ""))) throw new GreenlightError("not_found", "No such request.");
+    return this.db.rpc("greenlight_agent_request_claim", { p_id: id, p_account: account });
+  }
+  async agentRequestComplete(id, account, status, result, error = null) {
+    return this.db.rpc("greenlight_agent_request_complete", { p_id: id, p_account: account, p_status: status, p_result: result ?? null, p_error: error });
+  }
+  async agentRequestCancel(id, account) {
+    if (!/^ar_[0-9a-f]{32}$/.test(String(id ?? ""))) throw new GreenlightError("not_found", "No such request.");
+    return this.db.rpc("greenlight_agent_request_cancel", { p_id: id, p_account: account });
   }
   async fixOpen({ id, projectId, account, recordId, testFile, doc }) {
     return this.db.rpc("greenlight_fix_open", { p_id: id, p_project_id: assertId("project", projectId), p_account: account, p_record_id: assertId("record", recordId), p_test_file: testFile, p_doc: doc ?? {} });

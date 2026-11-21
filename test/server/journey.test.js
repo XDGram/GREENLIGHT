@@ -103,7 +103,7 @@ function fakeClaude(calls) {
   };
 }
 
-async function setup() {
+async function setup({ env = {}, ai = true } = {}) {
   const fake = await createFakeSupabase({ serviceRoleKey: KEY });
   closers.push(() => fake.close());
   const admin = createSupabaseClient({ url: fake.url, serviceRoleKey: KEY, fetchImpl: fake.fetch });
@@ -111,7 +111,8 @@ async function setup() {
   temps.push(workDir);
   const config = loadConfig({
     SUPABASE_URL: fake.url, SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_WORK_DIR: workDir, GREENLIGHT_PORT: "0", GREENLIGHT_PUBLIC_BASE_URL: BASE,
-    GREENLIGHT_GUEST_MODE: "on", GREENLIGHT_APPROVAL_SIGNING_KEY: SIGNING_KEY, GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "2", GREENLIGHT_GUEST_REAL_RUNS_PER_DAY: "3",
+    GREENLIGHT_GUEST_MODE: "on", GREENLIGHT_APPROVAL_SIGNING_KEY: SIGNING_KEY, GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "2", GREENLIGHT_GUEST_REAL_RUNS_PER_DAY: "3", GREENLIGHT_GUEST_DAILY_CREDITS: "300",
+    ...env,
   });
   const state = { greenlightJson: true, visited: [], kane: new Map(), kaneCalls: [] };
   const calls = [];
@@ -148,7 +149,7 @@ async function setup() {
   };
   const store = new SupabaseStore({ url: fake.url, serviceRoleKey: KEY, fetchImpl: fake.fetch, workRoot: workDir });
   const ctx = await createServerContext({ config, deps, store });
-  const server = await startServer({ config, ...ctx, now: deps.now, approvalDeps: { fetchImpl: github(state), appDeps: { checkHost: async () => {}, launch: fakeLaunch(state), ai: { client: fakeClaude(calls) } } } });
+  const server = await startServer({ config, ...ctx, now: deps.now, approvalDeps: { fetchImpl: github(state), appDeps: { checkHost: async () => {}, launch: fakeLaunch(state), ...(ai ? { ai: { client: fakeClaude(calls) } } : {}) } } });
   closers.push(() => new Promise((r) => server.close(r)));
   return { fake, admin, url: `http://127.0.0.1:${server.address().port}`, state, calls, ctx, store };
 }
@@ -325,9 +326,165 @@ test("guest runs: no commit can be established -> refused before Kane and not co
   for (let i = 0; i < 3; i++) {
     const acct = guestAccount(`gst_${String(i).repeat(32)}`);
     await h.admin.rpc("greenlight_guest_account", { p_slug: acct });
-    await h.admin.rpc("greenlight_reserve_guest_run", { p_account: acct, p_per_account: 1, p_per_day: 3 });
+    await h.admin.rpc("greenlight_reserve_guest_run", { p_account: acct, p_credits: 50, p_per_account: 1, p_per_day: 3, p_daily_credits: 300, p_max_per_run: 100 });
   }
   const capped = await g.go("POST", `/app/api/projects/${pid}/certifications`, { version: 1, confirmSpend: 150 });
   assert.deepEqual([capped.status, capped.body.error.code], [429, "guest_limit_reached"]);
   assert.equal(h.state.kaneCalls.length, 0);
+});
+
+// ---------------------------------------------------------------- no server AI: the connected agent
+
+async function startedGuest(h, ip) {
+  const g = browser(h, ip);
+  await g.go("POST", "/app/api/guest/start", {});
+  const pid = (await g.go("POST", "/app/api/projects", APP)).body.project.id;
+  return { g, pid };
+}
+async function agentFor(h, g) {
+  const tok = (await g.go("POST", "/app/api/tokens", { role: "agent", label: "Claude Code" })).body.token;
+  return async (name, args) => {
+    const r = await fetch(`${h.url}/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${tok}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }) });
+    return (await r.json()).result;
+  };
+}
+
+test("without an AI key, Greenlight queues work for the developer's connected agent and validates what comes back", async () => {
+  const h = await setup({ ai: false });
+  const { g, pid } = await startedGuest(h);
+  const me = (await g.go("GET", "/app/api/session")).body;
+  assert.deepEqual([me.features.aiMode, me.features.agentConnected], ["agent", false]);
+  const agent = await agentFor(h, g);
+  assert.equal((await g.go("GET", "/app/api/session")).body.features.agentConnected, true);
+
+  // Understand: the server inspects; the comparison is a request for the agent.
+  await g.go("POST", `/app/api/projects/${pid}/understand`, { step: "inspect" });
+  const q = await g.go("POST", `/app/api/projects/${pid}/understand`, { step: "analyze" });
+  assert.equal(q.status, 202);
+  const rid = q.body.agentRequest.id;
+  assert.equal((await g.go("GET", `/app/api/agent-requests/${rid}`)).body.request.status, "queued");
+  const listed = (await agent("greenlight_list_requests", {})).structuredContent.requests;
+  assert.deepEqual(listed.map((r) => [r.requestId, r.kind]), [[rid, "understand"]]);
+  // Submitting before taking it is refused; taking it returns the task, the data and the format.
+  assert.equal((await agent("greenlight_submit_request", { requestId: rid, result: {} })).isError, true);
+  const task = (await agent("greenlight_get_request", { requestId: rid })).structuredContent;
+  assert.equal(task.kind, "understand");
+  assert.equal(task.context.inspection.repository.repository.fullName, "acme/shop");
+  assert.ok(task.outputSchema.required.includes("features"));
+  // A malformed answer is rejected with the problems; the request stays open for a corrected one.
+  const bad = await agent("greenlight_submit_request", { requestId: rid, result: { summary: "x" } });
+  assert.equal(bad.isError, true);
+  assert.match(bad.content[0].text, /features is required/);
+  const analysis = { summary: "A shop.", framework: "Next.js", features: [{ name: "Cart", description: "Total", source: "repository", testable: true, why: "page" }], mismatches: [], questions: [], limits: "None." };
+  assert.equal((await agent("greenlight_submit_request", { requestId: rid, result: analysis })).isError, false);
+  const u = (await g.go("GET", `/app/api/projects/${pid}`)).body.details.understanding;
+  assert.equal(u.analysis.features[0].name, "Cart");
+
+  // Draft: the agent's plan is kept on the request with the rules check; nothing is saved.
+  const dq = (await g.go("POST", `/app/api/projects/${pid}/draft`, {})).body.agentRequest;
+  await agent("greenlight_get_request", { requestId: dq.id });
+  const sub = await agent("greenlight_submit_request", { requestId: dq.id, result: PLAN });
+  assert.match(sub.structuredContent.next, /waiting in Greenlight for the developer to review and approve/);
+  const done = (await g.go("GET", `/app/api/agent-requests/${dq.id}`)).body.request;
+  assert.deepEqual([done.status, done.result.check.ok, done.result.draft.tests.length], ["done", true, 2]);
+  assert.equal(done.input, undefined, "the browser does not get the agent's context dump");
+  assert.equal((await g.go("GET", `/app/api/projects/${pid}`)).body.versions.length, 0, "an agent's plan is never saved by itself");
+  // Revise.
+  const rq = (await g.go("POST", `/app/api/projects/${pid}/draft`, { instruction: "Drop the home test.", current: done.result.draft })).body.agentRequest;
+  assert.equal(rq.kind, "revise_plan");
+  const rtask = (await agent("greenlight_get_request", { requestId: rq.id })).structuredContent;
+  assert.equal(rtask.context.developerRequest, "Drop the home test.");
+
+  // Another guest's agent sees none of this.
+  const other = await startedGuest(h, "198.51.100.12");
+  const otherAgent = await agentFor(h, other.g);
+  assert.deepEqual((await otherAgent("greenlight_list_requests", {})).structuredContent.requests, []);
+  assert.equal((await otherAgent("greenlight_get_request", { requestId: rq.id })).isError, true);
+  assert.equal((await other.g.go("GET", `/app/api/agent-requests/${rq.id}`)).status, 404);
+
+  // The person can cancel a waiting request; an agent cannot answer it afterwards.
+  const cq = (await g.go("POST", `/app/api/projects/${pid}/draft`, {})).body.agentRequest;
+  assert.equal((await g.go("POST", `/app/api/agent-requests/${cq.id}/cancel`, {})).body.request.status, "cancelled");
+  assert.equal((await agent("greenlight_get_request", { requestId: cq.id })).isError, true);
+});
+
+test("Fix Centre without an AI key: facts only, then the agent explains, answers and proposes", async () => {
+  const h = await setup({ ai: false });
+  const { g, pid } = await startedGuest(h);
+  const agent = await agentFor(h, g);
+  const draft = (await g.go("POST", `/app/api/projects/${pid}/preview`, { draft: PLAN })).body;
+  assert.equal(draft.ok, true);
+  const v = (await g.go("POST", `/app/api/projects/${pid}/versions`, { draft: PLAN })).body.version;
+  await g.go("POST", `/app/api/projects/${pid}/versions/1/approve`, { confirm: true, approvedTestHash: v.approvedTestHash });
+  h.state.kane.set("cart_test.md", "failed");
+  assert.equal((await g.go("POST", `/app/api/projects/${pid}/certifications`, { version: 1, confirmSpend: 94 })).status, 202);
+  await h.ctx.jobs.idle();
+  const rec = (await g.go("GET", `/app/api/projects/${pid}`)).body.records[0];
+  const fx = (await g.go("POST", "/app/api/fixes/open", { projectId: pid, recordId: rec.id, testFile: "cart_test.md" })).body.fix;
+  assert.equal(fx.explanation.source, "facts_only", "without AI, only what the run showed");
+  assert.equal(fx.explanation.causeSupport, "unknown");
+
+  const ex = await g.go("POST", `/app/api/fixes/${fx.id}/explain`, {});
+  assert.equal(ex.status, 202);
+  await agent("greenlight_get_request", { requestId: ex.body.agentRequest.id });
+  await agent("greenlight_submit_request", { requestId: ex.body.agentRequest.id, result: { whatWeTested: "t", whatHappened: "h", whatShouldHaveHappened: "s", likelyCause: "c", causeSupport: "supported_by_evidence", suggestedFix: "f", otherPossibilities: [] } });
+  assert.equal((await g.go("GET", `/app/api/fixes/${fx.id}`)).body.fix.explanation.source, "agent");
+
+  const ask = await g.go("POST", `/app/api/fixes/${fx.id}/ask`, { message: "Why?" });
+  assert.equal(ask.status, 202);
+  assert.deepEqual(ask.body.fix.messages.map((m) => m.role), ["user"], "the question is shown at once");
+  const at = (await agent("greenlight_get_request", { requestId: ask.body.agentRequest.id })).structuredContent;
+  assert.equal(at.context.question, "Why?");
+  assert.equal(at.context.conversation.at(-1).content, "Why?", "the conversation so far goes with the question");
+  await agent("greenlight_submit_request", { requestId: ask.body.agentRequest.id, result: { answer: "Because the total is not rendered." } });
+  assert.deepEqual((await g.go("GET", `/app/api/fixes/${fx.id}`)).body.fix.messages.map((m) => m.role), ["user", "assistant"]);
+
+  const pr = await g.go("POST", `/app/api/fixes/${fx.id}/proposal`, {});
+  await agent("greenlight_get_request", { requestId: pr.body.agentRequest.id });
+  await agent("greenlight_submit_request", { requestId: pr.body.agentRequest.id, result: { summary: "s", steps: ["a"], whereToLook: [], risks: [], howToVerify: "re-run", agentTask: "Render the total. Do not change the approved tests." } });
+  const after = (await g.go("GET", `/app/api/fixes/${fx.id}`)).body.fix;
+  assert.deepEqual([after.status, after.proposal.by], ["task_ready", "agent"]);
+  // An agent still cannot mark it fixed or approve anything: only a passing run can.
+  const tools = (await (await fetch(`${h.url}/mcp`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${(await g.go("POST", "/app/api/tokens", { role: "agent", label: "y" })).body.token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) })).json()).result.tools.map((t) => t.name);
+  assert.ok(!tools.some((n) => /approve|certify|publish|mark_fixed/.test(n)));
+});
+
+test("guest credits: exact cost confirmed, strict per-run ceiling, shared daily budget, atomic under concurrency", async () => {
+  const h = await setup({ env: { GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "1", GREENLIGHT_GUEST_DAILY_CREDITS: "150", GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN: "100" } });
+  const approved = async (ip, plan = PLAN) => {
+    const { g, pid } = await startedGuest(h, ip);
+    const v = (await g.go("POST", `/app/api/projects/${pid}/versions`, { draft: plan })).body.version;
+    await g.go("POST", `/app/api/projects/${pid}/versions/1/approve`, { confirm: true, approvedTestHash: v.approvedTestHash });
+    return { g, pid, v };
+  };
+  const a = await approved("198.51.100.21");
+  assert.equal(a.v.estimate.credits, 94);
+  const me = (await a.g.go("GET", "/app/api/session")).body.guestRuns;
+  assert.deepEqual([me.maxCreditsPerRun, me.dailyCredits, me.creditsLeftToday, me.leftForYou], [100, 150, 150, 1]);
+  // The confirmation must cover the estimate.
+  const low = await a.g.go("POST", `/app/api/projects/${a.pid}/certifications`, { version: 1, confirmSpend: 50 });
+  assert.deepEqual([low.status, low.body.error.code, low.body.error.details.estimate], [409, "confirmation_required", 94]);
+
+  // Too expensive for the per-run ceiling: refused before anything is reserved.
+  const big = { ...PLAN, tests: [...PLAN.tests, { ...PLAN.tests[0], title: "Home again" }] };
+  const b = await approved("198.51.100.22", big);
+  assert.equal(b.v.estimate.credits, 131);
+  const over = await b.g.go("POST", `/app/api/projects/${b.pid}/certifications`, { version: 1, confirmSpend: 131 });
+  assert.deepEqual([over.status, over.body.error.code], [429, "guest_limit_reached"]);
+
+  // Concurrent requests from one guest: exactly one gets through.
+  const [r1, r2] = await Promise.all([1, 2].map(() => a.g.go("POST", `/app/api/projects/${a.pid}/certifications`, { version: 1, confirmSpend: 94 })));
+  assert.deepEqual([r1.status, r2.status].sort(), [202, 429]);
+  await h.ctx.jobs.idle();
+
+  // The shared budget: 94 of 150 used; another guest's 94-credit run would exceed it.
+  const c = await approved("198.51.100.23");
+  const budget = await c.g.go("POST", `/app/api/projects/${c.pid}/certifications`, { version: 1, confirmSpend: 94 });
+  assert.deepEqual([budget.status, budget.body.error.code], [429, "guest_limit_reached"]);
+  assert.match(budget.body.error.message, /credit budget/);
+  assert.equal((await c.g.go("GET", "/app/api/session")).body.guestRuns.creditsLeftToday, 150 - 94);
+  // Even a single-test run (57) does not fit the 56 left; nothing runs.
+  const one = await c.g.go("POST", `/app/api/projects/${c.pid}/certifications`, { version: 1, confirmSpend: 57, tests: ["home_test.md"] });
+  assert.deepEqual([one.status, one.body.error.code], [429, "guest_limit_reached"]);
+  assert.equal(h.state.kaneCalls.length, 1, "only the one run that fitted every limit reached Kane");
 });

@@ -91,6 +91,7 @@ Every table is in the private schema `greenlight`. It is not exposed through the
 | `project_details` | editable project details: GitHub repository, branch, description, what the app should do, last repository check, AES-GCM-encrypted test credentials | the original `projects.doc` never changes; credentials are never returned by the API |
 | `settings` | operational switches changed in the admin console (e.g. `guest.checks_paused`) | every change is also written to `admin_events` |
 | `guest_run_reservations` | one row per real Kane run a guest account starts; the per-guest and 24-hour caps count these under a lock (runs that failed before Kane could start do not count) | caps enforced in `greenlight_reserve_guest_run` |
+| `agent_requests` | work queued for the developer's own coding agent (understand, draft/revise a plan, explain, answer, propose a fix) and its validated answer | per-account open-request cap; answers only from a claimed request; scoped to the account |
 | `fix_items` | one per failed test of a run: explanation, the conversation, the fix proposal, what the coding agent reported | status moves only along allowed transitions; "fixed" is set from a later passing run |
 | `admin_events` | administrator actions (settings, token revocations) | **append-only** |
 

@@ -44,16 +44,20 @@ function ClaudeApi({ i }: { i: Integrations }) {
     <section className="card" aria-labelledby="capi-h">
       <div className="card-head">
         <h2 id="capi-h" className="card-title lg">
-          Claude API
+          AI help
         </h2>
-        <Tag form={i.claudeApi.configured ? "solid" : "dashed"}>{i.claudeApi.configured ? "Connected" : "Not configured"}</Tag>
+        <Tag form="solid">{i.claudeApi.configured ? "Server AI + your agent" : "From your coding agent"}</Tag>
       </div>
-      <p style={{ margin: 0, maxWidth: "75ch" }}>{i.claudeApi.usedFor}</p>
+      <p style={{ margin: 0, maxWidth: "75ch" }}>
+        Understanding your app, proposing and revising test plans, explaining failures, answering your questions and preparing fixes are done by <b>your own coding agent</b>: Claude Code, connected to Greenlight below. Greenlight queues each request; your agent picks it up, works on your machine with your own Claude account (and can read your real code), and sends back an answer that Greenlight checks before showing it to you. No AI key is needed on Greenlight.
+      </p>
       <dl className="kv-list">
-        <dt>Status</dt>
-        <dd>{i.claudeApi.configured ? "The server has an API key. It is stored only in the server’s secret settings and never sent to browsers." : "No API key is set on the server. Claims and tests can still be written by hand."}</dd>
-        <dt>Model</dt>
-        <dd className="mono">{i.claudeApi.model ?? "—"}</dd>
+        <dt>To use it</dt>
+        <dd>Connect Claude Code (below), then tell it: <span className="mono">Handle my Greenlight requests</span>. It answers everything waiting, and you review the results here.</dd>
+        <dt>Without an agent</dt>
+        <dd>Greenlight still reads your code and live app, runs your approved tests and shows the facts of every failure. You write the plan yourself.</dd>
+        <dt>Your approval</dt>
+        <dd>Nothing your agent proposes runs or changes until you approve it. Agents cannot approve tests, start paid runs or mark anything fixed.</dd>
       </dl>
     </section>
   );
@@ -135,7 +139,7 @@ function Mcp({ i, token }: { i: Integrations; token: string | null }) {
           {i.mcp.url} <CopyButton text={i.mcp.url} />
         </dd>
         <dt>Tools</dt>
-        <dd>list projects · get project · get spec · propose tests · get job · get record · check deployment · list fix tasks · get fix task · report fix</dd>
+        <dd>list requests · get request · submit request (AI help) · list fix tasks · get fix task · report fix · list projects · get project · get spec · propose tests · get job · get record · check deployment</dd>
       </dl>
       <CodeBlock title="Add to Claude Code" code={cmd} />
     </section>

@@ -122,7 +122,7 @@ test("guest mode is off by default and needs Supabase and an https public URL", 
   assert.equal(loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir() }).guest, null);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir(), GREENLIGHT_GUEST_MODE: "on" }), /needs Supabase/);
   const c = loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_xxxxxxxxxxxxxxxxxxxxxxxx", GREENLIGHT_PUBLIC_BASE_URL: BASE, GREENLIGHT_GUEST_MODE: "on", ANTHROPIC_API_KEY: "sk-ant-test-secret" });
-  assert.deepEqual([c.guest.runsPerGuest, c.guest.runsPerDay, c.guest.maxCreditsPerRun], [10, 500, 150]);
+  assert.deepEqual([c.guest.runsPerGuest, c.guest.runsPerDay, c.guest.maxCreditsPerRun, c.guest.realRunsPerGuest, c.guest.dailyCredits], [10, 500, 100, 1, 150]);
   assert.ok(!JSON.stringify(c).includes("sk-ant-test-secret"), "the Anthropic key never serialises");
 });
 

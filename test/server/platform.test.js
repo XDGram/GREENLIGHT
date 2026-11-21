@@ -397,15 +397,18 @@ test("signed-in users: Claude drafts claims and tests (checked, never saved), de
   assert.deepEqual(events.map((e) => e.action), ["user.signed_up", "project.created", "project.details_changed"]);
 });
 
-test("without an Anthropic key, AI drafting says so and manual tests still work", async () => {
+test("without an Anthropic key, AI work becomes a request for the developer's coding agent; manual tests still work", async () => {
   const h = await setup();
   h.f.state.github.set("acme/shop", { head: HEAD });
   const b = browser(h);
   await b.googleSignIn("google-sub-noai");
-  assert.equal((await b.go("GET", "/app/api/session")).body.features.ai, false);
+  const f = (await b.go("GET", "/app/api/session")).body.features;
+  assert.deepEqual([f.ai, f.aiMode, f.agentConnected], [true, "agent", false]);
   const projectId = (await b.go("POST", "/app/api/projects", { json: PROJECT })).body.project.id;
   const d = await b.go("POST", `/app/api/projects/${projectId}/draft`, { json: {} });
-  assert.deepEqual([d.status, d.body.error.code], [503, "ai_unavailable"]);
+  assert.deepEqual([d.status, d.body.agentRequest.kind, d.body.agentRequest.status], [202, "draft_plan", "queued"]);
+  const manual = { claims: [{ id: "a", text: "The home page names the shop." }], tests: [{ title: "Home", claims: ["a"], steps: [{ name: "Open", kind: "do", text: "Open the start page." }, { name: "Name", kind: "expect_text", text: "Shop" }] }] };
+  assert.equal((await b.go("POST", `/app/api/projects/${projectId}/versions`, { json: { draft: manual } })).status, 201);
 });
 
 test("sign-in boundaries: no open redirects, forged state refused, logout is same-origin only, forged sessions ignored", async () => {

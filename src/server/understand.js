@@ -12,7 +12,7 @@
 import { askClaude, asData } from "./claude.js";
 import { SCHEMA as TEST_SCHEMA, system as testSystem } from "./guest-ai.js";
 
-const ANALYSIS_SCHEMA = {
+export const ANALYSIS_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["summary", "framework", "features", "mismatches", "questions", "limits"],
@@ -43,7 +43,7 @@ const ANALYSIS_SCHEMA = {
   },
 };
 
-const ANALYZE_SYSTEM = `You help Greenlight understand a web application before it is tested in a real browser.
+export const ANALYZE_SYSTEM = `You help Greenlight understand a web application before it is tested in a real browser.
 
 You get: the developer's description, what the public repository shows (or that it could not be read), and what a headless browser saw on the live app (or that it could not be opened). Use only these. Never claim to have seen code, files or pages that are not in the data.
 
@@ -57,7 +57,7 @@ Produce:
 
 Plain English for developers. No jargon such as RPC or hashes.`;
 
-function compactInspection(inspection) {
+export function compactInspection(inspection) {
   const r = inspection.repository ?? {};
   const a = inspection.app ?? {};
   return {

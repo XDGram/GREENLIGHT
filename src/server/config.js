@@ -221,11 +221,15 @@ export function loadConfig(env = process.env) {
       // Demo checks read the live page over HTTP; they never run Kane or spend credits.
       runsPerGuest: num(env.GREENLIGHT_GUEST_RUNS_PER_GUEST, 10),
       runsPerDay: num(env.GREENLIGHT_GUEST_RUNS_PER_DAY, 500),
-      maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, 150), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150)),
+      // Strict per-run ceiling for visitors (never above the server's own cap). 100 fits two tests of
+      // up to 3 steps (37 + 37 + 20 per run).
+      maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, 100), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150)),
       projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
       // Real Kane runs by guests (they spend Greenlight's credits): strict caps, enforced in the database.
       realRunsPerGuest: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST, 1),
       realRunsPerDay: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_DAY, 3),
+      // Credits all visitors together may spend per rolling 24 hours (reserved before each run).
+      dailyCredits: num(env.GREENLIGHT_GUEST_DAILY_CREDITS, 150),
       aiPerGuest: num(env.GREENLIGHT_GUEST_AI_PER_GUEST, 8),
       sessionsPerIpHour: num(env.GREENLIGHT_GUEST_SESSIONS_PER_IP_HOUR, 20, { min: 1 }),
       sampleProjectId: sample,

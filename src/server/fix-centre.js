@@ -26,7 +26,7 @@ import { askClaude, asData, aiConfigured } from "./claude.js";
 
 const ITEM = /^\/app\/api\/fixes\/(fx_[0-9a-f]{32})(?:\/(explain|ask|proposal|send|dismiss|reopen))?$/;
 
-const EXPLANATION_SCHEMA = {
+export const EXPLANATION_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["whatWeTested", "whatHappened", "whatShouldHaveHappened", "likelyCause", "causeSupport", "suggestedFix", "otherPossibilities"],
@@ -41,7 +41,7 @@ const EXPLANATION_SCHEMA = {
   },
 };
 
-const PROPOSAL_SCHEMA = {
+export const PROPOSAL_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["summary", "steps", "whereToLook", "risks", "howToVerify", "agentTask"],
@@ -55,7 +55,7 @@ const PROPOSAL_SCHEMA = {
   },
 };
 
-const BASE_SYSTEM = `You are Greenlight's Fix Centre assistant. Greenlight tested a developer's live web app in a real browser and one test failed. You help the developer understand and fix that failure.
+export const BASE_SYSTEM = `You are Greenlight's Fix Centre assistant. Greenlight tested a developer's live web app in a real browser and one test failed. You help the developer understand and fix that failure.
 
 Rules:
 - Use only the failure context you are given (the test, the result, Kane's message, the evidence list, what is known about the repository and the live app). Never claim you saw source code, logs or screenshots that are not described in it.
@@ -64,7 +64,7 @@ Rules:
 - Plain English for developers. No internal jargon (hashes, RPC, payloads).
 - You never change code yourself and never claim a fix was made.`;
 
-function contextOf(item) {
+export function contextOf(item) {
   const d = item;
   return asData("failure_context", {
     project: d.project,
@@ -162,7 +162,7 @@ export async function openFix({ store, s, projectId, recordId, testFile, getTest
   return store.fixOpen({ id: `fx_${randomBytes(16).toString("hex")}`, projectId: project.id, account: s.account, recordId: record.id, testFile, doc });
 }
 
-export async function handleFixApi({ req, res, url, s, store, config, now, log, ai = {}, sendJson, readJson, activity, actorOf, getTestResults }) {
+export async function handleFixApi({ req, res, url, s, store, config, now, log, ai = {}, sendJson, readJson, activity, actorOf, getTestResults, queueAgent = null }) {
   const path = url.pathname;
   const isPost = req.method === "POST";
   if (typeof store.fixOpen !== "function") throw new GreenlightError("server_not_configured", "The Fix Centre needs the Supabase store.");
@@ -196,6 +196,7 @@ export async function handleFixApi({ req, res, url, s, store, config, now, log, 
   const body = await readJson(req);
 
   if (action === "explain") {
+    if (queueAgent) return sendJson(res, 202, { fix: item, agentRequest: await queueAgent(item, "explain_failure") });
     item = await store.fixUpdate(id, s.account, null, { explanation: await explain({ config, client: ai.client, item, log }), explainedAt: now().toISOString(), explanationError: null });
     return sendJson(res, 200, { fix: item });
   }
@@ -203,6 +204,11 @@ export async function handleFixApi({ req, res, url, s, store, config, now, log, 
   if (action === "ask") {
     const message = typeof body.message === "string" ? body.message.trim() : "";
     if (!message || message.length > 2000) throw new GreenlightError("invalid_request", "Ask a question (up to 2,000 characters).");
+    if (queueAgent) {
+      // The question goes into the conversation now; the agent's answer is added when it replies.
+      item = await store.fixAppend(id, s.account, [{ role: "user", content: message, at: now().toISOString() }]);
+      return sendJson(res, 202, { fix: item, agentRequest: await queueAgent(item, "answer_question", { question: message }) });
+    }
     if (!aiConfigured(config, ai.client)) throw new GreenlightError("ai_unavailable", "The Fix Centre conversation needs AI, which is not configured on this server.");
     const history = (item.messages ?? []).slice(-20).map((x) => ({ role: x.role, content: x.content }));
     const answer = await askClaude({
@@ -222,6 +228,7 @@ export async function handleFixApi({ req, res, url, s, store, config, now, log, 
   }
 
   if (action === "proposal") {
+    if (queueAgent) return sendJson(res, 202, { fix: item, agentRequest: await queueAgent(item, "propose_fix", { instruction: typeof body.note === "string" ? body.note.slice(0, 1500) : undefined }) });
     if (!aiConfigured(config, ai.client)) throw new GreenlightError("ai_unavailable", "Generating a fix needs AI, which is not configured on this server.");
     const note = typeof body.note === "string" ? body.note.slice(0, 1500) : "";
     const out = await askClaude({

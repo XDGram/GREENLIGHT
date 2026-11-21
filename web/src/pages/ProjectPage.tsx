@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, isQueued } from "../api";
+import { AgentWait } from "../components/AgentWait";
 import { ErrorNotice, LoadingRows, ResultMark, Tag } from "../components/Bits";
 import { ChromeOrb } from "../components/Chrome";
 import * as I from "../components/Icons";
@@ -9,7 +10,7 @@ import { claimStatusLabel, credits, formatDateTime, host, shortHash } from "../f
 import { Link, useRouter } from "../router";
 import { OUTCOME_LABEL, outcomeOf } from "../plain";
 import { certificationPath, claimResults, doneCount, type PathStep } from "../state";
-import type { FixItem, ProjectDetail, Session, VersionView } from "../types";
+import type { AgentRequest, FixItem, ProjectDetail, Session, VersionView } from "../types";
 import { useData } from "../useData";
 import type { SignInRequired } from "../api";
 
@@ -140,8 +141,19 @@ const SOURCE: Record<string, string> = { description: "From your description", l
 function Understanding({ detail, onChanged, session }: { detail: ProjectDetail; onChanged: () => void; session?: Session }) {
   const { search } = useRouter();
   const u = detail.details?.understanding ?? null;
-  const ai = session?.features.ai ?? false;
+  const agentMode = session?.features.aiMode !== "server";
+  const connected = Boolean(session?.features.agentConnected);
+  // Server AI compares straight away; in agent mode only when an agent is connected to answer.
+  const ai = agentMode ? connected : Boolean(session?.features.ai);
   const [busy, setBusy] = useState<"inspect" | "analyze" | "answers" | null>(null);
+  const [waiting, setWaiting] = useState<AgentRequest | null>(null);
+  useEffect(() => {
+    if (!agentMode) return;
+    api.agentRequests(detail.project.id).then((rs) => {
+      const open = rs.find((r) => r.kind === "understand" && (r.status === "queued" || r.status === "claimed"));
+      if (open) setWaiting(open);
+    }, () => {});
+  }, [agentMode, detail.project.id]);
   const [err, setErr] = useState<string | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>(u?.answers ?? {});
   const run = async (step: "inspect" | "analyze" | "answers") => {
@@ -149,10 +161,14 @@ function Understanding({ detail, onChanged, session }: { detail: ProjectDetail; 
     setErr(null);
     try {
       if (step === "answers") await api.understand(detail.project.id, { step, answers });
-      else await api.understand(detail.project.id, { step });
+      else {
+        const r = await api.understand(detail.project.id, { step });
+        if (isQueued(r)) setWaiting(r.agentRequest);
+      }
       if (step === "inspect" && ai) {
         setBusy("analyze");
-        await api.understand(detail.project.id, { step: "analyze" });
+        const r = await api.understand(detail.project.id, { step: "analyze" });
+        if (isQueued(r)) setWaiting(r.agentRequest);
       }
       onChanged();
     } catch (e) {
@@ -183,7 +199,7 @@ function Understanding({ detail, onChanged, session }: { detail: ProjectDetail; 
         </button>
       </div>
       {busy === "inspect" ? <p className="small" aria-live="polite" style={{ margin: 0 }}>Reading the repository and opening your live app in a browser…</p> : null}
-      {busy === "analyze" ? <p className="small" aria-live="polite" style={{ margin: 0 }}>Comparing your description with what was found…</p> : null}
+      {busy === "analyze" && !agentMode ? <p className="small" aria-live="polite" style={{ margin: 0 }}>Comparing your description with what was found…</p> : null}
       {err ? (
         <p className="small" role="alert" style={{ margin: 0 }}>
           {err}
@@ -260,20 +276,31 @@ function Understanding({ detail, onChanged, session }: { detail: ProjectDetail; 
             {a.limits}
           </p>
         </div>
-      ) : u?.inspectedAt && !busy ? (
-        ai ? (
+      ) : u?.inspectedAt && !busy && !waiting ? (
+        agentMode && !connected ? (
+          <p className="small" style={{ margin: 0 }}>
+            Here is what Greenlight read. To have it compared with your description, with suggested tests and questions, <Link href="/app/integrations">connect your coding agent</Link> (Claude Code), then ask for a comparison. You can also write the test plan yourself.
+          </p>
+        ) : (
           <div className="tags">
             <button type="button" className="btn sm" onClick={() => run("analyze")}>
-              Compare with my description
+              {agentMode ? "Ask my agent to compare with my description" : "Compare with my description"}
             </button>
           </div>
-        ) : (
-          <p className="small" style={{ margin: 0 }}>
-            AI comparison isn't configured on this server, so here is what was read. You can still write the test plan yourself.
-          </p>
         )
       ) : null}
 
+      {waiting ? (
+        <AgentWait
+          request={waiting}
+          connected={connected}
+          onDone={() => {
+            setWaiting(null);
+            onChanged();
+          }}
+          onClear={() => setWaiting(null)}
+        />
+      ) : null}
       {u?.inspectedAt ? (
         <div className="row">
           <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
