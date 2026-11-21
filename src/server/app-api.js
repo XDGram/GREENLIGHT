@@ -48,7 +48,7 @@ import { browserApprovalRequired, verifyBrowserApproval } from "./approval-polic
 import { prepareCertification } from "./certify.js";
 import { buildSpecYaml, USER_LIMITS } from "./guest-spec.js";
 import { draftTests } from "./guest-ai.js";
-import { parseRepoUrl, checkBranch, checkRepository, probeDeployment } from "./repo.js";
+import { parseRepoUrl, checkBranch, checkRepository, checkCommit, probeDeployment } from "./repo.js";
 import { handleAdminApi } from "./admin-api.js";
 
 export const APP_API_PREFIX = "/app/api/";
@@ -388,6 +388,20 @@ const CONTENT_TYPES = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
 
 // ---------------------------------------------------------------- handler
 
+/**
+ * Best effort: record what happened in the append-only activity log (admin_events) for the
+ * administrator. Never blocks or fails the request; never includes secrets.
+ */
+export async function activity(store, actor, action, target, detail = {}) {
+  if (typeof store?.adminEvent !== "function") return;
+  try {
+    await store.adminEvent(String(actor).slice(0, 200), action, target ?? null, detail);
+  } catch {
+    // the log is informational
+  }
+}
+const actorOf = (s) => `${s.account}${s.email ? ` (${s.email})` : ""}`;
+
 const aiUse = new Map(); // account -> {start, count}: a soft hourly limit per server instance
 
 /**
@@ -459,6 +473,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       const doc = { description, purpose, repository: repo.url, branch, repositoryCheck, credentials: sealCredentials(config, body.credentials, at) };
       await store.putProjectDetails(project.id, s.account, doc, s.user);
       log({ event: "project_created", account: s.account, projectId: project.id });
+      await activity(store, actorOf(s), "project.created", project.id, { name, repositoryCheck: repositoryCheck.status });
       return sendJson(res, 201, await projectDetail(config, store, project));
     }
 
@@ -540,6 +555,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         if (body.clearCredentials === true) doc.credentials = null;
         else if (body.credentials !== undefined) doc.credentials = sealCredentials(config, body.credentials, now()) ?? old.credentials ?? null;
         await store.putProjectDetails(project.id, s.account, doc, s.user);
+        await activity(store, actorOf(s), "project.details_changed", project.id, { fields: Object.keys(body).filter((k) => k !== "credentials").concat(body.credentials !== undefined ? ["credentials"] : []) });
         return sendJson(res, 200, await projectDetail(config, store, project));
       }
 
@@ -557,7 +573,15 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
 
       if (action === "deployment-check") {
         const target = typeof body.url === "string" && body.url ? liveUrl(body.url) : project.url;
-        return sendJson(res, 200, { deployment: await probeDeployment({ url: target, fetchImpl, ...(checkHost ? { checkHost } : {}), now }) });
+        const deployment = await probeDeployment({ url: target, fetchImpl, ...(checkHost ? { checkHost } : {}), now });
+        // Is the deployed commit part of the project's repository? Only claimed when GitHub confirms it.
+        let inRepository = null;
+        const d = await store.getProjectDetails(project.id).catch(() => null);
+        if (deployment.commit && d?.repository) {
+          const repo = parseRepoUrl(d.repository);
+          inRepository = { repository: repo.url, ...(await checkCommit({ owner: repo.owner, repo: repo.repo, sha: deployment.commit, fetchImpl, now })) };
+        }
+        return sendJson(res, 200, { deployment, inRepository });
       }
 
       if (action === "draft") {
@@ -594,6 +618,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       if (action === "versions") {
         const v = await proposeVersion({ store, project, specText: specFromBody(body, project), by: s.user, now });
         log({ event: "version_proposed", account: s.account, projectId: project.id, version: v.version });
+        await activity(store, actorOf(s), "version.proposed", project.id, { version: v.version, hash: v.approvedTestHash });
         return sendJson(res, 201, { version: versionView(config, project, v, null) });
       }
 
@@ -615,6 +640,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         await prepareCertification({ store, project, versionNo: body.version, request, config });
         const job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: s.user });
         log({ event: "certification_requested", account: s.account, projectId: project.id, version: body.version, jobId: job.id, confirmSpend: request.confirmSpend });
+        await activity(store, actorOf(s), "verification.requested", project.id, { version: body.version, jobId: job.id, commit: request.commit, confirmSpend: request.confirmSpend });
         return sendJson(res, 202, { job: jobView(job) });
       }
       throw new GreenlightError("not_found", "Not found.");
@@ -632,12 +658,14 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       const sha = createHash("sha256").update(token).digest("hex");
       const t = await store.issueToken(s.account, role, sha, label);
       log({ event: "token_issued", account: s.account, role, id: t.id });
+      await activity(store, actorOf(s), "token.issued", t.id, { role, label });
       return sendJson(res, 201, { token, ...t, note: "Copy this token now. Greenlight stores only its SHA-256 and cannot show it again." });
     }
     const tm = TOKEN.exec(path);
     if (tm && isPost) {
       await store.revokeAccountToken(s.account, tm[1]);
       log({ event: "token_revoked", account: s.account, id: tm[1] });
+      await activity(store, actorOf(s), "token.revoked", tm[1]);
       return sendJson(res, 200, { revoked: tm[1] });
     }
 
@@ -653,6 +681,11 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         claudeApi: { configured: Boolean(config.ai?.apiKey), model: config.ai?.model ?? null, usedFor: "Drafting claims and browser tests from your description. You review and edit everything before approving." },
         claudeCode: {
           apiUrl: base,
+          // The CLI and Stop hook are installed from this server's own source, pinned to the
+          // deployed commit (Vercel system variables). Null when the server can't tell.
+          install: process.env.VERCEL_GIT_REPO_OWNER && process.env.VERCEL_GIT_REPO_SLUG && /^[0-9a-f]{40}$/.test(process.env.VERCEL_GIT_COMMIT_SHA ?? "")
+            ? `github:${process.env.VERCEL_GIT_REPO_OWNER}/${process.env.VERCEL_GIT_REPO_SLUG}#${process.env.VERCEL_GIT_COMMIT_SHA}`
+            : null,
           skillFiles: ["/app/downloads/greenlight/SKILL.md", "/app/downloads/greenlight/references/greenlight-yaml.md", "/app/downloads/greenlight/references/examples.md"],
           activeAgentTokens: tokens.filter((t) => t.role === "agent").length,
         },

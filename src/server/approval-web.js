@@ -30,7 +30,7 @@ import { GreenlightError } from "../cli/errors.js";
 import { projectFromText } from "../spec/generate.js";
 import { buildApproval, selfHash, WEB_IDENTITY_PROVIDERS } from "./models.js";
 import { signApproval, googleAccount } from "./approval-policy.js";
-import { APP_API_PREFIX, handleAppApi, sendJson } from "./app-api.js";
+import { APP_API_PREFIX, activity, handleAppApi, sendJson } from "./app-api.js";
 
 export const VERCEL_ISSUER = "https://vercel.com";
 export const VERCEL_AUTHORIZE_URL = "https://vercel.com/oauth/authorize";
@@ -354,6 +354,7 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
       exp: now().getTime() + USER_SESSION_TTL_MS,
     };
     log({ event: "google_signin", account: who.account, created: who.created === true });
+    if (who.created === true) await activity(store, `${who.account}${email ? ` (${email})` : ""}`, "user.signed_up", who.account, { provider: "google" });
     return redirect(res, o.next, { "set-cookie": [clear, cookie(SESSION_COOKIE, signValue(key, s), USER_SESSION_TTL_MS / 1000)] });
   }
 
@@ -447,6 +448,7 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
       throw err;
     }
     log({ event: "approval_recorded", subject: s.sub, user: s.user, projectId: project.id, version: v.version, recordSha256: record.recordSha256 });
+    await activity(store, `${s.account}${s.email ? ` (${s.email})` : ""}`, "tests.approved", project.id, { version: v.version, hash: v.approvedTestHash, provider: s.provider });
     return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (signed in with ${s.provider === "google" ? "Google" : "Vercel"} as ${esc(s.username ?? s.sub)}).</p><p><a href="/app/projects/${esc(project.id)}/verify">Continue to verification →</a></p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(spec.confirmedAt)}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(confirmedAt.toISOString())}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
   }
 

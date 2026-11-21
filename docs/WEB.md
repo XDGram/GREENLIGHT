@@ -35,6 +35,21 @@ refused for those accounts. Setup: create an OAuth client (type "Web application
 Cloud console with the redirect URI `<GREENLIGHT_PUBLIC_BASE_URL>/api/auth/google/callback`, then
 set `GREENLIGHT_GOOGLE_CLIENT_ID` and `GREENLIGHT_GOOGLE_CLIENT_SECRET` (secret) on the server.
 
+## Setup checklist (operator)
+
+1. **Google sign-in.** Google Cloud console → APIs & Services → Credentials → Create OAuth client
+   ID → "Web application". Authorised redirect URI, exactly:
+   `https://greenlight-api-xi.vercel.app/api/auth/google/callback`. (The OAuth consent screen needs
+   the `openid`, `email` and `profile` scopes only; while it is in "Testing", add the Google
+   accounts that may sign in as test users, or publish it.) In Vercel → Project → Settings →
+   Environment Variables (Production), add `GREENLIGHT_GOOGLE_CLIENT_ID` and, marked sensitive,
+   `GREENLIGHT_GOOGLE_CLIENT_SECRET`. Redeploy. `GREENLIGHT_APPROVAL_SIGNING_KEY` is already set.
+2. **Claude API.** Create a key in the Claude Console and add it in Vercel as the sensitive
+   variable `ANTHROPIC_API_KEY` (Production). Optional: `GREENLIGHT_AI_MODEL` (default
+   `claude-opus-5-5`). Redeploy. Without it, drafting answers `ai_unavailable` and the app offers
+   manual writing only; with it, every draft still goes through the rules check, your edits and
+   your approval.
+
 ## User API (`/app/api/*`, session cookie, same-origin JSON writes)
 
 | Route | Does |
@@ -44,7 +59,7 @@ set `GREENLIGHT_GOOGLE_CLIENT_ID` and `GREENLIGHT_GOOGLE_CLIENT_SECRET` (secret)
 | `GET /app/api/projects/:id` | versions with claims, tests, estimate and approval; jobs; records; details |
 | `POST .../details` | edit repository, branch, description, credentials |
 | `POST .../repository-check` | GitHub public API: repository and branch head (private repositories read as "not found or private") |
-| `POST .../deployment-check` | one read of `<live URL>/greenlight.json`: the deployed commit |
+| `POST .../deployment-check` | one read of `<live URL>/greenlight.json`: the deployed commit, and whether GitHub confirms it is a commit of the project's repository (`found`, `not_found`, or `unknown` for private repositories, rate limits and errors; Greenlight never claims more than GitHub confirms) |
 | `POST .../draft` | Claude drafts claims and tests from the description and the start page (not saved) |
 | `POST .../preview` | rules check, fingerprint, credit estimate |
 | `POST .../versions` | save a new immutable version (pending approval) |
@@ -68,7 +83,9 @@ are stored AES-256-GCM-encrypted and never returned; the current test format run
 Overview (users, projects, runs by status, records, credits spent and estimated, tokens, demo
 activity, evidence size), system health (database, evidence bucket, configuration flags, runs
 stuck over 45 minutes), failed runs, and lists of users, projects, runs, records, tokens, admin
-activity and demo checks. Controls: pause demo checks, revoke any API token. Every change is
+activity and demo checks. The activity log records sign-ups, projects created and edited, test
+versions (web and MCP), browser approvals, verification requests, token changes and
+administrator changes. Controls: pause demo checks, revoke any API token. Every change is
 written to the append-only `admin_events` table. The console cannot approve, start runs, change
 records or reveal secrets.
 

@@ -446,7 +446,7 @@ function ClaimsAndTests({ p, results }: { p: GuestProject; results: Map<string, 
               <span className="mono small">{c.id}</span> {c.text}
             </span>
             <span className="muted" style={{ fontSize: 11.5 }}>
-              {claimStatusLabel(results.get(c.id))}
+              {p.runs?.[0]?.result?.kind === "demo_check" && results.get(c.id) === "couldnt_verify" ? "Not checked (needs a browser)" : claimStatusLabel(results.get(c.id))}
             </span>
           </li>
         ))}

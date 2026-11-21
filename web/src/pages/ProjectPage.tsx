@@ -116,6 +116,7 @@ export function ProjectPage({ id, pending, onSignIn, load, sample = false }: { i
 function DetailsCard({ detail, onChanged }: { detail: ProjectDetail; onChanged: () => void }) {
   const dd = detail.details!;
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const recheck = async () => {
     setBusy(true);
@@ -130,6 +131,7 @@ function DetailsCard({ detail, onChanged }: { detail: ProjectDetail; onChanged: 
     }
   };
   const rc = dd.repositoryCheck;
+  if (editing) return <DetailsForm detail={detail} onDone={() => { setEditing(false); onChanged(); }} onCancel={() => setEditing(false)} />;
   return (
     <section className="card" aria-labelledby="details-h">
       <div className="card-head">
@@ -138,6 +140,9 @@ function DetailsCard({ detail, onChanged }: { detail: ProjectDetail; onChanged: 
         </h2>
         <button type="button" className="btn ghost sm" onClick={recheck} disabled={busy || !dd.repository}>
           {busy ? <span className="spinner" aria-hidden="true" /> : <I.RefreshCw size={14} aria-hidden="true" />} Check repository
+        </button>
+        <button type="button" className="btn ghost sm" onClick={() => setEditing(true)}>
+          <I.Pencil size={14} aria-hidden="true" /> Edit
         </button>
       </div>
       <dl className="kv-list">
@@ -185,6 +190,98 @@ function DetailsCard({ detail, onChanged }: { detail: ProjectDetail; onChanged: 
         </p>
       ) : null}
     </section>
+  );
+}
+
+function DetailsForm({ detail, onDone, onCancel }: { detail: ProjectDetail; onDone: () => void; onCancel: () => void }) {
+  const dd = detail.details!;
+  const [f, setF] = useState({ repository: dd.repository ?? "https://github.com/", branch: dd.branch ?? "main", description: dd.description ?? "", purpose: dd.purpose ?? "" });
+  const [creds, setCreds] = useState<"keep" | "replace" | "remove">("keep");
+  const [c, setC] = useState({ username: "", password: "", notes: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.updateDetails(detail.project.id, {
+        repository: f.repository.trim(),
+        branch: f.branch.trim() || "main",
+        description: f.description.trim(),
+        purpose: f.purpose.trim(),
+        ...(creds === "replace" ? { credentials: c } : creds === "remove" ? { clearCredentials: true } : {}),
+      });
+      onDone();
+    } catch (x) {
+      setErr((x as Error).message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="card" aria-labelledby="edit-details-h" onSubmit={save}>
+      <div className="card-head">
+        <h2 id="edit-details-h" className="card-title lg">
+          Edit project details
+        </h2>
+      </div>
+      <p className="small" style={{ margin: 0 }}>
+        The name and live URL are part of every test version and its fingerprint, so they change through a new test version, not here.
+      </p>
+      <div className="form-grid">
+        <label className="field">
+          <span>GitHub repository URL</span>
+          <input type="url" value={f.repository} onChange={(e) => setF({ ...f, repository: e.target.value })} required />
+        </label>
+        <label className="field">
+          <span>Branch</span>
+          <input value={f.branch} onChange={(e) => setF({ ...f, branch: e.target.value })} />
+        </label>
+      </div>
+      <label className="field">
+        <span>Short description</span>
+        <input value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} maxLength={1000} />
+      </label>
+      <label className="field">
+        <span>What the app should do</span>
+        <textarea value={f.purpose} onChange={(e) => setF({ ...f, purpose: e.target.value })} maxLength={4000} required />
+      </label>
+      <div className="field">
+        <span>Test credentials</span>
+        <div className="seg" role="group" aria-label="Test credentials">
+          {(["keep", "replace", "remove"] as const).map((k) => (
+            <button key={k} type="button" aria-pressed={creds === k} onClick={() => setCreds(k)} disabled={k === "remove" && !dd.hasCredentials}>
+              {k === "keep" ? (dd.hasCredentials ? "Keep stored" : "None") : k === "replace" ? (dd.hasCredentials ? "Replace" : "Add") : "Remove"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {creds === "replace" ? (
+        <div className="form-grid">
+          <label className="field">
+            <span>Username</span>
+            <input value={c.username} onChange={(e) => setC({ ...c, username: e.target.value })} autoComplete="off" />
+          </label>
+          <label className="field">
+            <span>Password</span>
+            <input type="password" value={c.password} onChange={(e) => setC({ ...c, password: e.target.value })} autoComplete="new-password" />
+          </label>
+        </div>
+      ) : null}
+      {err ? (
+        <p className="small" role="alert" style={{ margin: 0 }}>
+          {err}
+        </p>
+      ) : null}
+      <div className="tags">
+        <button type="submit" className="btn" disabled={busy || f.purpose.trim().length < 20}>
+          {busy ? <span className="spinner" aria-hidden="true" /> : null} Save and re-check repository
+        </button>
+        <button type="button" className="btn ghost" onClick={onCancel} disabled={busy}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 

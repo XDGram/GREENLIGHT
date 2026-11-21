@@ -59,6 +59,13 @@ function fakes() {
     }
     if (u.startsWith("https://api.github.com/repos/")) {
       state.githubCalls += 1;
+      const c = /^https:\/\/api\.github\.com\/repos\/([^/]+)\/([^/]+)\/commits\/([0-9a-f]{40})$/.exec(u);
+      if (c) {
+        const repo = state.github.get(`${c[1]}/${c[2]}`);
+        if (!repo) return new Response("{}", { status: 404 });
+        if (c[3] !== repo.head) return new Response('{"message":"No commit found for SHA"}', { status: 422 });
+        return new Response(JSON.stringify({ sha: c[3], html_url: `https://github.com/${c[1]}/${c[2]}/commit/${c[3]}`, commit: { message: "Ship it" } }), { status: 200 });
+      }
       const m = /^https:\/\/api\.github\.com\/repos\/([^/]+)\/([^/]+)(?:\/branches\/(.+))?$/.exec(u);
       const repo = state.github.get(`${m[1]}/${m[2]}`);
       if (!repo) return new Response('{"message":"Not Found"}', { status: 404 });
@@ -72,7 +79,7 @@ function fakes() {
   return { state, fetchImpl, getJwks: async () => JWKS };
 }
 
-async function setup() {
+async function setup({ ai } = {}) {
   const fake = await createFakeSupabase({ serviceRoleKey: KEY });
   closers.push(() => fake.close());
   const admin = createSupabaseClient({ url: fake.url, serviceRoleKey: KEY, fetchImpl: fake.fetch });
@@ -106,7 +113,7 @@ async function setup() {
     now: () => new Date(),
   };
   const ctx = await createServerContext({ config, deps, store });
-  const server = await startServer({ config, ...ctx, now: deps.now, approvalDeps: { fetchImpl: f.fetchImpl, getJwks: f.getJwks, getGoogleJwks: f.getJwks, appDeps: { checkHost: async () => {} } } });
+  const server = await startServer({ config, ...ctx, now: deps.now, approvalDeps: { fetchImpl: f.fetchImpl, getJwks: f.getJwks, getGoogleJwks: f.getJwks, appDeps: { checkHost: async () => {}, ...(ai ? { ai } : {}) } } });
   closers.push(() => new Promise((r) => server.close(r)));
   return { fake, admin, url: `http://127.0.0.1:${server.address().port}`, f, config, store };
 }
@@ -335,4 +342,86 @@ test("administrators sign in with Vercel; the admin API is theirs alone and reco
   const stranger = browser(h);
   assert.equal((await stranger.vercelSignIn("vercel_someone_else")).status, 403);
   assert.equal((await stranger.go("GET", "/app/api/session")).status, 401);
+});
+
+test("signed-in users: Claude drafts claims and tests (checked, never saved), details can be edited, the deployed commit is matched to the repository, activity is logged", async () => {
+  const calls = [];
+  let mode = "ok";
+  const client = {
+    beta: {
+      messages: {
+        create: async (req) => {
+          calls.push(req);
+          if (mode === "refusal") return { stop_reason: "refusal", content: [] };
+          return {
+            stop_reason: "end_turn",
+            content: [{ type: "text", text: JSON.stringify({ name: "Shop", description: "A small shop.", claims: [{ id: "c1", text: "The home page names the shop." }], tests: [{ title: "Home", claims: ["c1"], steps: [{ name: "Open", kind: "do", text: "Open the start page." }, { name: "Name", kind: "expect_text", text: "Shop" }] }], notes: "Copied from the page." }) }],
+          };
+        },
+      },
+    },
+  };
+  const h = await setup({ ai: { client, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
+  h.f.state.github.set("acme/shop", { head: HEAD });
+  const b = browser(h);
+  await b.googleSignIn("google-sub-ai");
+  assert.equal((await b.go("GET", "/app/api/session")).body.features.ai, true);
+  const projectId = (await b.go("POST", "/app/api/projects", { json: PROJECT })).body.project.id;
+
+  const d = await b.go("POST", `/app/api/projects/${projectId}/draft`, { json: {} });
+  assert.equal(d.status, 200, d.text);
+  assert.deepEqual([d.body.check.ok, d.body.draft.claims.length, d.body.draft.tests.length, d.body.pageRead], [true, 1, 1, true]);
+  assert.match(calls[0].messages[0].content, /<requirements>\nVisitors can browse products/, "the stored description is the input, as data");
+  assert.equal(calls[0].output_config.format.type, "json_schema");
+  assert.equal((await b.go("GET", `/app/api/projects/${projectId}`)).body.versions.length, 0, "a draft is never saved");
+  mode = "refusal";
+  const refused = await b.go("POST", `/app/api/projects/${projectId}/draft`, { json: {} });
+  assert.deepEqual([refused.status, refused.body.error.code], [502, "ai_failed"]);
+
+  // Edit details: repository re-checked, credentials removed, never echoed.
+  const ed = await b.go("POST", `/app/api/projects/${projectId}/details`, { json: { repository: "https://github.com/acme/shop", branch: "main", purpose: PROJECT.purpose, clearCredentials: true } });
+  assert.equal(ed.status, 200, ed.text);
+  assert.deepEqual([ed.body.details.hasCredentials, ed.body.details.repositoryCheck.status], [false, "ok"]);
+
+  // Deployed commit vs repository: found, then a commit the repository doesn't have, then a private repository.
+  const dep = (await b.go("POST", `/app/api/projects/${projectId}/deployment-check`, { json: {} })).body;
+  assert.deepEqual([dep.deployment.commit, dep.inRepository.status], [HEAD, "found"]);
+  h.f.state.github.set("acme/shop", { head: "b".repeat(40) });
+  assert.equal((await b.go("POST", `/app/api/projects/${projectId}/deployment-check`, { json: {} })).body.inRepository.status, "not_found");
+  h.f.state.github.delete("acme/shop");
+  assert.equal((await b.go("POST", `/app/api/projects/${projectId}/deployment-check`, { json: {} })).body.inRepository.status, "unknown", "never claimed when GitHub can't tell");
+
+  const events = await h.fake.sql("select action from greenlight.admin_events order by id");
+  assert.deepEqual(events.map((e) => e.action), ["user.signed_up", "project.created", "project.details_changed"]);
+});
+
+test("without an Anthropic key, AI drafting says so and manual tests still work", async () => {
+  const h = await setup();
+  h.f.state.github.set("acme/shop", { head: HEAD });
+  const b = browser(h);
+  await b.googleSignIn("google-sub-noai");
+  assert.equal((await b.go("GET", "/app/api/session")).body.features.ai, false);
+  const projectId = (await b.go("POST", "/app/api/projects", { json: PROJECT })).body.project.id;
+  const d = await b.go("POST", `/app/api/projects/${projectId}/draft`, { json: {} });
+  assert.deepEqual([d.status, d.body.error.code], [503, "ai_unavailable"]);
+});
+
+test("sign-in boundaries: no open redirects, forged state refused, logout is same-origin only, forged sessions ignored", async () => {
+  const h = await setup();
+  const b = browser(h);
+  for (const next of ["https://evil.example/app", "//evil.example", "/app/../approve", "/elsewhere"]) {
+    assert.equal((await b.go("GET", `/api/auth/google/login?next=${encodeURIComponent(next)}`)).status, 400, next);
+  }
+  await b.go("GET", "/api/auth/google/login?next=%2Fapp");
+  assert.equal((await b.go("GET", "/api/auth/google/callback?code=x&state=forged")).status, 400, "state must match the signed cookie");
+  assert.equal((await b.go("GET", "/app/api/session")).status, 401);
+  await b.googleSignIn("google-sub-logout");
+  assert.equal((await b.go("POST", "/app/api/logout", { json: {}, headers: { origin: "https://evil.example" } })).status, 403);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 200, "still signed in after a cross-site logout attempt");
+  assert.equal((await b.go("POST", "/app/api/logout", { json: {} })).status, 204);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 401);
+  // A forged session cookie (edited payload) is ignored.
+  const forged = browser(h);
+  forged.jar.set("__Host-gl_session", Buffer.from(JSON.stringify({ kind: "session", role: "admin", account: "xdgram", exp: Date.now() + 1e6 })).toString("base64url") + ".bad");
+  assert.equal((await forged.go("GET", "/app/api/admin/overview")).status, 401);
 });

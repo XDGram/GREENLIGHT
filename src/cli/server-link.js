@@ -90,9 +90,14 @@ export async function cmdSubmit(ctx) {
   }
   if (v.approvedTestHash !== hash) return ctx.fail("approval_hash_mismatch", `The server derived hash ${v.approvedTestHash.slice(0, 12)}… but the local tests hash to ${hash.slice(0, 12)}…; nothing was linked.`);
   await writeServerLink(ctx.cwd, { projectId, version: v.version, approvedTestHash: hash });
-  ctx.data({ projectId, version: v.version, approvedTestHash: hash, status: v.status });
+  const approveUrl = `${ctx.env.GREENLIGHT_API_URL.replace(/\/+$/, "")}/approve/${projectId}/${v.version}`;
+  ctx.data({ projectId, version: v.version, approvedTestHash: hash, status: v.status, ...(v.status === "approved" ? {} : { approveUrl }) });
   ctx.out(`Approved-test hash: ${hash}`);
-  ctx.out(v.status === "approved" ? "Approved on the server. A person can now run greenlight publish." : "Pending approval: a person runs greenlight server-approve (owner token) to approve it on the server.");
+  ctx.out(
+    v.status === "approved"
+      ? "Approved on the server. A person can now start verification in the Greenlight web app (or run greenlight publish)."
+      : `Pending approval: a person reviews and approves it in the browser at ${approveUrl}\n(Accounts without browser approval can also use greenlight server-approve with an owner token.)`,
+  );
   return EXIT.OK;
 }
 

@@ -149,6 +149,14 @@ export interface ProjectDetails {
   updatedAt: string | null;
 }
 
+export interface CommitCheck {
+  repository: string;
+  status: "found" | "not_found" | "unknown";
+  checkedAt: string;
+  url?: string;
+  message?: string;
+}
+
 export interface DeploymentProbe {
   status: "ok" | "missing" | "protected" | "invalid" | "unreachable";
   checkedAt: string;
@@ -260,7 +268,7 @@ export interface ApiToken {
 
 export interface Integrations {
   claudeApi: { configured: boolean; model: string | null; usedFor: string };
-  claudeCode: { apiUrl: string; skillFiles: string[]; activeAgentTokens: number };
+  claudeCode: { apiUrl: string; install: string | null; skillFiles: string[]; activeAgentTokens: number };
   mcp: { url: string; transport: string; auth: string; activeTokens: number };
 }
 

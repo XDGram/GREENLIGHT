@@ -76,8 +76,18 @@ function ClaudeCode({ i, token }: { i: Integrations; token: string | null }) {
       </p>
       <ol className="list" style={{ gap: 18 }}>
         <li style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <b style={{ fontWeight: 500 }}>1. Add the Skill</b>
-          <span className="small">Download these files into <code className="mono">.claude/skills/greenlight/</code> in your app’s repository.</span>
+          <b style={{ fontWeight: 500 }}>1. Install the Greenlight CLI and the Skill</b>
+          <span className="small">
+            In your app’s repository. Greenlight is not on the npm registry; it installs from its source, pinned to the version this server runs. Local verification also needs Node 20+ and Kane CLI 0.10.6 signed in (<code className="mono">npm i -g @testmuai/kane-cli@0.10.6</code>, then <code className="mono">kane-cli login --oauth</code>).
+          </span>
+          {i.claudeCode.install ? (
+            <CodeBlock title="Terminal, in your app’s repository" code={`npm install --save-dev ${i.claudeCode.install}
+mkdir -p .claude/skills
+cp -R node_modules/greenlight/skills/greenlight .claude/skills/greenlight`} />
+          ) : (
+            <Notice>This server can’t tell which source version it runs, so no install command is shown. Ask the operator for it.</Notice>
+          )}
+          <span className="small">Or download the Skill files on their own into <code className="mono">.claude/skills/greenlight/</code>:</span>
           <div className="tags">
             {i.claudeCode.skillFiles.map((f) => (
               <a key={f} className="btn ghost sm" href={f} download>
@@ -89,13 +99,15 @@ function ClaudeCode({ i, token }: { i: Integrations; token: string | null }) {
         <li style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <b style={{ fontWeight: 500 }}>2. Register the Stop hook</b>
           <span className="small">
-            When Claude finishes a change, the hook runs verification and blocks with the failure report if a claim fails (at most three automatic fix attempts; then a person reviews). Fresh browser runs spend credits, so the loop asks for confirmation unless you set a per-run limit.
+            When Claude finishes a change, the hook runs <code className="mono">greenlight verify</code> against the live URL and, if a claim fails, blocks Claude with the structured failure report so it can fix the app (at most three automatic attempts; then a person reviews and runs <code className="mono">npx greenlight-stop-hook reset</code>). Each run authors the tests afresh and spends Kane credits, so a person confirms the spend at the terminal; unattended loops need <code className="mono">GREENLIGHT_CONFIRM_SPEND</code> set by that person for the one run.
           </span>
           <CodeBlock title=".claude/settings.json" code={hook} />
         </li>
         <li style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <b style={{ fontWeight: 500 }}>3. Connect it to this server</b>
-          <span className="small">Create an agent token below, then set it in the environment Claude Code runs in (never commit it).</span>
+          <span className="small">
+            Create an agent token below and set it where Claude Code runs (never commit it). With it, <code className="mono">greenlight submit</code> proposes your <code className="mono">greenlight.yaml</code> here as a new version; you approve it in this app. Agent tokens cannot approve or certify.
+          </span>
           <CodeBlock title="Environment" code={`GREENLIGHT_API_URL=${api}\nGREENLIGHT_API_TOKEN=${token ?? "<agent token from below>"}`} />
         </li>
       </ol>

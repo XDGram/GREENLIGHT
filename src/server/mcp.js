@@ -8,7 +8,7 @@
 
 import { GreenlightError } from "../cli/errors.js";
 import { resolvePrincipal, can } from "./config.js";
-import { projectDetail, proposeVersion, recordView, jobView } from "./app-api.js";
+import { activity, projectDetail, proposeVersion, recordView, jobView } from "./app-api.js";
 import { probeDeployment } from "./repo.js";
 
 export const MCP_PATH = "/mcp";
@@ -91,6 +91,7 @@ export function createMcpHandler({ config, store, now = () => new Date(), log = 
         if (typeof a.specText !== "string" || a.specText.length > 200_000) throw new GreenlightError("invalid_request", "specText: the full greenlight.yaml (at most 200 kB).");
         const v = await proposeVersion({ store, project, specText: a.specText, by: principal.name, now });
         log({ event: "mcp_version_proposed", account: principal.account, projectId: project.id, version: v.version });
+        await activity(store, `${principal.account} (MCP, ${principal.role} token)`, "version.proposed", project.id, { version: v.version, hash: v.approvedTestHash, via: "mcp" });
         return {
           version: v.version,
           approvedTestHash: v.approvedTestHash,

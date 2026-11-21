@@ -6,7 +6,7 @@ import { TopBar } from "../components/Shell";
 import { Stepper } from "../components/Stepper";
 import { claimStatusLabel, credits, formatDateTime, formatDuration, relative } from "../format";
 import { Link } from "../router";
-import type { DeploymentProbe, Job, ProjectDetail, Session, VersionView } from "../types";
+import type { CommitCheck, DeploymentProbe, Job, ProjectDetail, Session, VersionView } from "../types";
 import { useData } from "../useData";
 
 const SHA = /^[0-9a-f]{40}([0-9a-f]{24})?$/;
@@ -143,11 +143,14 @@ function WhatRuns({ detail, v, versions, onPick }: { detail: ProjectDetail; v: V
 
 function Deployment({ detail, probe, setProbe }: { detail: ProjectDetail; probe: DeploymentProbe | null; setProbe: (p: DeploymentProbe) => void }) {
   const [busy, setBusy] = useState(false);
+  const [inRepo, setInRepo] = useState<CommitCheck | null>(null);
   const head = detail.details?.repositoryCheck?.head ?? null;
   const check = async () => {
     setBusy(true);
     try {
-      setProbe((await api.deploymentCheck(detail.project.id)).deployment);
+      const r = await api.deploymentCheck(detail.project.id);
+      setInRepo(r.inRepository);
+      setProbe(r.deployment);
     } catch (e) {
       setProbe({ status: "unreachable", checkedAt: new Date().toISOString(), reason: (e as Error).message });
     } finally {
@@ -192,7 +195,27 @@ function Deployment({ detail, probe, setProbe }: { detail: ProjectDetail; probe:
             detail.details?.repositoryCheck?.message ?? "No repository check yet."
           )}
         </dd>
+        {inRepo ? (
+          <>
+            <dt>In the repository?</dt>
+            <dd>
+              {inRepo.status === "found" ? (
+                <>
+                  Yes:{" "}
+                  <a href={inRepo.url} target="_blank" rel="noopener noreferrer">
+                    the deployed commit is in {inRepo.repository.replace("https://github.com/", "")}
+                  </a>
+                </>
+              ) : inRepo.status === "not_found" ? (
+                <b>No. GitHub has no such commit in {inRepo.repository.replace("https://github.com/", "")}.</b>
+              ) : (
+                <>Unknown: {inRepo.message} Greenlight does not claim this commit belongs to the repository.</>
+              )}
+            </dd>
+          </>
+        ) : null}
       </dl>
+      {inRepo?.status === "not_found" ? <Notice>The live site reports a commit that is not in the repository you entered. Check the repository URL, or make sure the deployment is built from it, before verifying.</Notice> : null}
       {matches === false ? <Notice>The live site is not serving the branch’s latest commit. Verification always tests the commit the site is serving; deploy first if you meant to verify the latest code.</Notice> : null}
       {probe && probe.status !== "ok" ? (
         <>

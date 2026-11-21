@@ -85,6 +85,30 @@ export async function checkRepository({ owner, repo, branch, fetchImpl = (...a) 
 }
 
 /**
+ * Is `sha` a commit of this public repository? "unknown" when GitHub cannot tell us (private,
+ * missing, rate limited or unreachable): Greenlight then never claims the commit is in the repo.
+ * @returns {Promise<{status: "found"|"not_found"|"unknown", checkedAt, url?, message?}>}
+ */
+export async function checkCommit({ owner, repo, sha, fetchImpl = (...a) => globalThis.fetch(...a), now = () => new Date() }) {
+  const checkedAt = now().toISOString();
+  if (!/^[0-9a-f]{40}$/.test(String(sha ?? ""))) return { status: "unknown", checkedAt, message: "Not a full commit hash." };
+  try {
+    const r = await getJson(fetchImpl, `/repos/${owner}/${repo}/commits/${sha}`);
+    if (r.status === 200 && r.body?.sha?.toLowerCase() === sha) return { status: "found", checkedAt, url: r.body.html_url ?? `https://github.com/${owner}/${repo}/commit/${sha}`, message: String(r.body.commit?.message ?? "").split("\n")[0].slice(0, 200) };
+    if (r.status === 422) return { status: "not_found", checkedAt, message: "GitHub has no commit with this hash in the repository." };
+    if (r.status === 404) {
+      // A missing commit in a readable repository is 404 too: tell it apart from a private repository.
+      const repoCheck = await getJson(fetchImpl, `/repos/${owner}/${repo}`);
+      if (repoCheck.status === 200) return { status: "not_found", checkedAt, message: "GitHub has no commit with this hash in the repository." };
+      return { status: "unknown", checkedAt, message: "The repository is private or not found, so the commit could not be looked up." };
+    }
+    return { status: "unknown", checkedAt, message: r.status === 403 || r.status === 429 ? "GitHub's public API rate limit was reached." : `GitHub answered HTTP ${r.status}.` };
+  } catch {
+    return { status: "unknown", checkedAt, message: "GitHub could not be reached." };
+  }
+}
+
+/**
  * One read of <url>/greenlight.json: the commit the live deployment reports.
  * @returns {Promise<{status: "ok"|"missing"|"protected"|"invalid"|"unreachable", commit?, environment?, reason?}>}
  */

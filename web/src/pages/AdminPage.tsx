@@ -10,7 +10,7 @@ import { useData } from "../useData";
 type Row = Record<string, unknown>;
 const str = (v: unknown) => (v == null ? "—" : String(v));
 const bytes = (n: number) => (n < 1024 * 1024 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
-const TITLES: Record<AdminKind, string> = { users: "Users", projects: "Projects", jobs: "Verification runs", records: "Records", tokens: "API tokens", events: "Admin activity", guests: "Demo checks" };
+const TITLES: Record<AdminKind, string> = { users: "Users", projects: "Projects", jobs: "Verification runs", records: "Records", tokens: "API tokens", events: "Activity log", guests: "Demo checks" };
 
 function AdminTabs({ current }: { current: AdminKind | "overview" }) {
   return (
@@ -201,7 +201,8 @@ function PauseDemo({ initial, onChanged }: { initial: boolean; onChanged: () => 
 export function AdminListPage({ kind, onSignIn }: { kind: AdminKind; onSignIn: (e: SignInRequired) => void }) {
   const { value, reload } = useData(() => adminApi.list<Row>(kind, 300), [kind], { onSignIn, refreshMs: 30_000 });
   const [q, setQ] = useState("");
-  const rows = value.state === "ready" ? value.data.filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase())) : [];
+  const [certifiedOnly, setCertifiedOnly] = useState(false);
+  const rows = value.state === "ready" ? value.data.filter((r) => (!q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase())) && (!certifiedOnly || r.certified === true)) : [];
   return (
     <>
       <TopBar title={TITLES[kind]} eyebrow={<Link href="/app/admin">Admin</Link>}>
@@ -213,8 +214,16 @@ export function AdminListPage({ kind, onSignIn }: { kind: AdminKind; onSignIn: (
             <span className="sr-only">Filter</span>
             <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter" />
           </label>
+          {kind === "records" ? (
+            <label className="switch">
+              <input type="checkbox" checked={certifiedOnly} onChange={(e) => setCertifiedOnly(e.target.checked)} />
+              Certifications with public records only
+            </label>
+          ) : null}
           <span className="small">{value.state === "ready" ? `${rows.length} of ${value.data.length}` : ""}</span>
         </div>
+        {kind === "guests" ? <p className="small" style={{ margin: 0 }}>Demo data: checks run by visitors without an account. They never use Kane, never spend credits and never certify.</p> : null}
+        {kind === "events" ? <p className="small" style={{ margin: 0 }}>Append-only: sign-ups, projects, test versions, approvals, verification requests, tokens and administrator changes.</p> : null}
         {value.state === "loading" ? <LoadingRows /> : null}
         {value.state === "error" ? <ErrorNotice error={value.error} onRetry={reload} /> : null}
         {value.state === "ready" && !rows.length ? <Empty title={q ? "Nothing matches" : "Nothing here yet"} /> : null}

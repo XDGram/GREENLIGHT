@@ -97,6 +97,8 @@ function Run({ projectId, d }: { projectId: string; d: RunDetail }) {
             <dd>{r.deployment?.url ?? "—"}</dd>
             <dt>Commit</dt>
             <dd className="mono">{r.deployment?.commit ?? "—"}</dd>
+            <dt>Commit source</dt>
+            <dd>Reported by the live site’s /greenlight.json and checked by the server before the run</dd>
             <dt>Environment</dt>
             <dd>{r.deployment?.environment ?? "—"}</dd>
             <dt>Test version</dt>

@@ -53,8 +53,8 @@ Details of the spec format: [references/greenlight-yaml.md](references/greenligh
 | `greenlight verify` | Gates, then Kane against the live URL, then classification and the report |
 | `greenlight runs` | Run history from `.greenlight/runs/`, with each record's integrity re-checked |
 | `greenlight check-run <run-id>` | Re-check one run record and its files against their hashes |
-| `greenlight submit` | Proposes `greenlight.yaml` as a server test version (needs `GREENLIGHT_API_URL` and an agent token in `GREENLIGHT_API_TOKEN`); records the project and version in `.greenlight/server.json`. Run it after the tests are final, then tell the user to approve on the server. |
-| `greenlight server-approve` | **A person only.** Approves the submitted version on the server (owner token, full hash typed back). Tell the user to run it. |
+| `greenlight submit` | Proposes `greenlight.yaml` as a server test version (needs `GREENLIGHT_API_URL` and an agent token in `GREENLIGHT_API_TOKEN`); records the project and version in `.greenlight/server.json`. Run it after the tests are final, then give the user the approval link it prints. |
+| `greenlight server-approve` | **A person only.** Approves the submitted version on the server (owner token, full hash typed back) for accounts that allow token approvals. Accounts in the Greenlight web app (Sign in with Google) approve only in the browser, at the link `greenlight submit` prints. Tell the user to do it; never open or submit that page yourself. |
 | `greenlight publish` | **A person only.** Asks the Greenlight server for a fresh certification run. Tell the user to run it. |
 
 Every command accepts `--json`: stdout is then one `greenlight.cli-result/v1` document (`ok`, `exitCode`, `error.code`, `error.action`, `data`) and the human-readable lines go to stderr. Branch on `error.code`, not on message text.
