@@ -225,6 +225,39 @@ export class SupabaseStore {
     return this.db.rpc("greenlight_admin_revoke_token", { p_id: id, p_actor: actor });
   }
 
+  // ---- guest accounts (anonymous, never certify) and the Fix Centre
+  async guestAccount(slug) {
+    return this.db.rpc("greenlight_guest_account", { p_slug: slug });
+  }
+  async reserveGuestRun(account, perAccount, perDay) {
+    return this.db.rpc("greenlight_reserve_guest_run", { p_account: account, p_per_account: perAccount, p_per_day: perDay });
+  }
+  async attachGuestRun(reservation, jobId) {
+    return this.db.rpc("greenlight_attach_guest_run", { p_reservation: reservation, p_job_id: jobId });
+  }
+  async releaseGuestRun(reservation) {
+    return this.db.rpc("greenlight_release_guest_run", { p_reservation: reservation });
+  }
+  async guestRunUsage(account) {
+    return this.db.rpc("greenlight_guest_run_usage", { p_account: account });
+  }
+  async fixOpen({ id, projectId, account, recordId, testFile, doc }) {
+    return this.db.rpc("greenlight_fix_open", { p_id: id, p_project_id: assertId("project", projectId), p_account: account, p_record_id: assertId("record", recordId), p_test_file: testFile, p_doc: doc ?? {} });
+  }
+  async fixGet(id, account) {
+    if (!/^fx_[0-9a-f]{32}$/.test(String(id ?? ""))) throw new GreenlightError("not_found", "No such fix item.");
+    return this.db.rpc("greenlight_fix_get", { p_id: id, p_account: account });
+  }
+  async fixList(account, projectId = null) {
+    return this.db.rpc("greenlight_fix_list", { p_account: account, p_project_id: projectId });
+  }
+  async fixUpdate(id, account, status, patch = {}) {
+    return this.db.rpc("greenlight_fix_update", { p_id: id, p_account: account, p_status: status ?? null, p_patch: patch });
+  }
+  async fixAppend(id, account, messages) {
+    return this.db.rpc("greenlight_fix_append", { p_id: id, p_account: account, p_messages: messages });
+  }
+
   // ---- guest demo (separate tables; never certification data)
   async guestCreate(id, ipHash, maxPerIpHour) {
     return this.db.rpc("greenlight_guest_create", { p_id: guestId("gst", id), p_ip_hash: ipHash, p_max_per_ip_hour: maxPerIpHour });

@@ -10,6 +10,7 @@ import { GreenlightError } from "../cli/errors.js";
 import { resolvePrincipal, can } from "./config.js";
 import { activity, projectDetail, proposeVersion, recordView, jobView } from "./app-api.js";
 import { probeDeployment } from "./repo.js";
+import { agentListTasks, agentGetTask, agentClaim, agentReport } from "./fix-centre.js";
 
 export const MCP_PATH = "/mcp";
 const PROTOCOL_VERSIONS = ["2025-06-18", "2025-03-26", "2024-11-05"];
@@ -57,6 +58,24 @@ const TOOLS = [
     permission: "read",
     description: "Read <live URL>/greenlight.json once and report which commit the deployment says it is serving.",
     inputSchema: { type: "object", properties: { projectId: PRJ }, required: ["projectId"], additionalProperties: false },
+  },
+  {
+    name: "greenlight_list_fix_tasks",
+    permission: "propose",
+    description: "Fix tasks the developer sent to their coding agent from Greenlight's Fix Centre (failed browser tests with a proposed fix).",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "greenlight_get_fix_task",
+    permission: "propose",
+    description: "One fix task: the failing test, what happened, what should have happened, the likely cause and the task to implement. Marks it as being worked on.",
+    inputSchema: { type: "object", properties: { fixId: { type: "string", pattern: "^fx_[0-9a-f]{32}$" } }, required: ["fixId"], additionalProperties: false },
+  },
+  {
+    name: "greenlight_report_fix",
+    permission: "propose",
+    description: "Report that the fix is implemented, committed, pushed and deployed, with the commit. Greenlight marks it fixed only after the test passes in a new browser run.",
+    inputSchema: { type: "object", properties: { fixId: { type: "string", pattern: "^fx_[0-9a-f]{32}$" }, commit: { type: "string", pattern: "^[0-9a-f]{40}$" }, summary: { type: "string", maxLength: 2000 } }, required: ["fixId", "commit", "summary"], additionalProperties: false },
   },
 ];
 
@@ -114,6 +133,21 @@ export function createMcpHandler({ config, store, now = () => new Date(), log = 
       case "greenlight_check_deployment": {
         const project = await store.getProject(String(a.projectId), principal.account);
         return probeDeployment({ url: project.url, now, ...(fetchImpl ? { fetchImpl } : {}) });
+      }
+      case "greenlight_list_fix_tasks": {
+        const tasks = await agentListTasks(store, principal.account);
+        return { tasks: tasks.map((t) => ({ fixId: t.id, status: t.status, project: t.project?.name ?? null, test: t.test?.title ?? null, summary: t.proposal?.summary ?? null })) };
+      }
+      case "greenlight_get_fix_task": {
+        const task = await agentGetTask(store, principal.account, String(a.fixId));
+        await agentClaim(store, principal.account, String(a.fixId));
+        await activity(store, `${principal.account} (MCP, ${principal.role} token)`, "fix.claimed_by_agent", null, { fixId: a.fixId });
+        return task;
+      }
+      case "greenlight_report_fix": {
+        const f = await agentReport(store, principal.account, String(a.fixId), { commit: String(a.commit ?? ""), summary: a.summary });
+        await activity(store, `${principal.account} (MCP, ${principal.role} token)`, "fix.reported_by_agent", f.projectId, { fixId: f.id, commit: a.commit });
+        return { fixId: f.id, status: f.status, next: "The developer re-runs the test in Greenlight; it is marked fixed only if it passes on the deployed app." };
       }
       default:
         throw Object.assign(new Error(`Unknown tool: ${name}`), { rpc: -32602 });

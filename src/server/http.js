@@ -34,7 +34,7 @@ import { isLocalOrPrivateHost } from "../deploy/host.js";
 import { resolvePrincipal, can } from "./config.js";
 import { SCHEMAS, buildApproval, publicRecord, verifyRecordIntegrity } from "./models.js";
 import { prepareCertification } from "./certify.js";
-import { browserApprovalRequired, verifyBrowserApproval } from "./approval-policy.js";
+import { browserApprovalRequired, verifyBrowserApproval, isGuestAccount } from "./approval-policy.js";
 
 const json = (res, status, body, extraHeaders = {}) => {
   const text = JSON.stringify(body);
@@ -230,6 +230,7 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
 
     ["POST", /^\/v1\/projects\/([^/]+)\/certifications$/, "certify", async ({ principal, m, body }) => {
       const project = await store.getProject(m[1], principal.account);
+      if (isGuestAccount(project.account)) throw new GreenlightError("forbidden", "Guest projects are verified from the web app only (with its limits); they never certify.");
       const request = {
         commit: typeof body.commit === "string" ? body.commit.trim().toLowerCase() : body.commit,
         confirmSpend: body.confirmSpend,
@@ -279,6 +280,8 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
 
     ["GET", /^\/v1\/public\/records\/([^/]+)$/, null, async ({ m }) => {
       const r = await store.getRecord(m[1]);
+      // Guest verifications are private history: they never become public records.
+      if (isGuestAccount((await store.getProject(r.projectId)).account)) throw new GreenlightError("not_found", "No such record.");
       if (!verifyRecordIntegrity(r).ok) throw new GreenlightError("run_record_invalid", "This record failed its integrity check.");
       return [200, publicRecord(r, { publicBaseUrl: config.publicBaseUrl })];
     }],

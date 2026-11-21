@@ -108,13 +108,13 @@ async function certify(h, projectId, body = {}) {
 
 test("migrations: private schema, RLS on every table, anon/authenticated locked out, service_role only via RPC", async () => {
   const { fake } = await newFake();
-  assert.equal(fake.applied.length, 5);
+  assert.equal(fake.applied.length, 6);
   const tables = await fake.sql("select c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'greenlight' and c.relkind = 'r' order by 1");
-  assert.deepEqual(tables.map((t) => t.relname), ["accounts", "admin_events", "api_tokens", "approvals", "certification_records", "guest_projects", "guest_runs", "guest_sessions", "jobs", "project_details", "projects", "record_claims", "record_tests", "runs", "settings", "test_versions", "users", "web_identities"]);
+  assert.deepEqual(tables.map((t) => t.relname), ["accounts", "admin_events", "api_tokens", "approvals", "certification_records", "fix_items", "guest_projects", "guest_run_reservations", "guest_runs", "guest_sessions", "jobs", "project_details", "projects", "record_claims", "record_tests", "runs", "settings", "test_versions", "users", "web_identities"]);
   assert.ok(tables.every((t) => t.relrowsecurity), "RLS enabled everywhere");
-  // All 44 RPC functions (20 core + 12 guest demo + 12 web platform) live in greenlight_api; nothing Greenlight owns is in public.
+  // All 54 RPC functions (20 core + 12 guest demo + 12 web platform + 10 journey) live in greenlight_api; nothing Greenlight owns is in public.
   const rpcs = await fake.sql("select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'greenlight_api' order by 1");
-  assert.equal(rpcs.length, 44);
+  assert.equal(rpcs.length, 54);
   assert.ok(rpcs.every((r) => r.proname.startsWith("greenlight_")));
   assert.deepEqual(await fake.sql("select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.proname like 'greenlight%'"), []);
   assert.deepEqual(await fake.sql("select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname like 'greenlight%'"), []);

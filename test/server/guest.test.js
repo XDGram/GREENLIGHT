@@ -267,7 +267,7 @@ test("the sample project is readable by guests without approval identities; AI d
     },
   };
   const page = async () => new Response("<html><h1>Repère une arnaque</h1><button>Check a link</button></html>", { headers: { "content-type": "text/html" } });
-  const h = await setup({ env: { GREENLIGHT_GUEST_AI_PER_GUEST: "1" }, ai: { client: fakeClient, fetchImpl: page } });
+  const h = await setup({ env: { GREENLIGHT_GUEST_AI_PER_GUEST: "1" }, ai: { client: fakeClient, fetchImpl: page, checkHost: async () => {} } });
   // A real project, approved by its owner, as the sample.
   const api = async (method, p, body) => (await fetch(h.url + p, { method, headers: { authorization: `Bearer ${OWNER}`, "content-type": "application/json" }, body: JSON.stringify(body) })).json();
   const p = await api("POST", "/v1/projects", { name: "Shop", url: "https://gl-test.vercel.app/" });

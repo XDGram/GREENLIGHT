@@ -28,7 +28,7 @@ import { actualUsage, reconcileUsage, creditRecord } from "../credits/usage.js";
 import { requireReady } from "../deploy/check.js";
 import { GreenlightError } from "../cli/errors.js";
 import { approvalValidFor, buildVerificationRecord } from "./models.js";
-import { browserApprovalRequired, verifyBrowserApproval } from "./approval-policy.js";
+import { browserApprovalRequired, verifyBrowserApproval, isGuestAccount } from "./approval-policy.js";
 import { newId } from "./store.js";
 
 const SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
@@ -77,14 +77,26 @@ export async function prepareCertification({ store, project, versionNo, request,
 export async function runCertification({ store, job, config, deps }) {
   const project = await store.getProject(job.projectId);
   const { version, approval, derived, url } = await prepareCertification({ store, project, versionNo: job.version, request: job.request, config });
+  // Guest accounts: a verification run, never a certification. The account decides, not the request.
+  const guest = isGuestAccount(project.account);
+  const selected = guest && Array.isArray(job.request.tests) && job.request.tests.length ? new Set(job.request.tests) : null;
+  const rendered = selected ? derived.rendered.filter((r) => selected.has(r.file)) : derived.rendered;
+  if (!rendered.length) throw new GreenlightError("invalid_request", "None of the chosen tests are in the approved version.");
 
-  const deployment = await deps.verifyLiveDeployment({
-    url,
-    expectedCommit: job.request.commit,
-    expectedEnvironment: job.request.environment,
-    timeoutMs: config.deployTimeoutMs,
-    intervalMs: config.deployIntervalMs,
-  });
+  // The commit: confirmed on the live site (/greenlight.json), or, for guests whose site does not
+  // publish it, the repository branch head the server read when the run was requested, recorded
+  // as unconfirmed. Never a commit the requester typed in for guests.
+  const unconfirmed = guest && job.request.commitSource === "branch_head";
+  const deployment = unconfirmed
+    ? { state: "ready", reasons: [], url, deployedCommit: job.request.commit, expectedCommit: job.request.commit, environment: "unconfirmed", commitSource: "branch_head_unconfirmed" }
+    : await deps.verifyLiveDeployment({
+        url,
+        expectedCommit: job.request.commit,
+        expectedEnvironment: job.request.environment,
+        timeoutMs: guest ? Math.min(config.deployTimeoutMs, 60_000) : config.deployTimeoutMs,
+        intervalMs: config.deployIntervalMs,
+      });
+  if (guest && !unconfirmed) deployment.commitSource = "live_site";
   try {
     requireReady(deployment);
   } catch {
@@ -100,16 +112,16 @@ export async function runCertification({ store, job, config, deps }) {
   await rm(work, { recursive: true, force: true });
   const testsDir = path.join(work, "tests");
   await mkdir(testsDir, { recursive: true, mode: 0o700 });
-  for (const r of derived.rendered) await writeFile(path.join(testsDir, r.file), r.content, { flag: "wx", mode: 0o600 });
+  for (const r of rendered) await writeFile(path.join(testsDir, r.file), r.content, { flag: "wx", mode: 0o600 });
   const leftovers = (await readdir(testsDir)).filter((f) => f.startsWith("output-"));
   if (leftovers.length) throw new GreenlightError("internal_error", "The certification workspace was not empty.");
 
   // Credits, before Kane starts.
   const catalog = catalogFromSpec(derived.spec);
-  const plan = { tests: catalog.tests.map((t) => ({ file: t.file, author: true, steps: t.steps.length })) };
+  const plan = { tests: catalog.tests.filter((t) => !selected || selected.has(t.file)).map((t) => ({ file: t.file, author: true, steps: t.steps.length })) };
   const estimate = estimateRun(plan, config.rates ? { rates: config.rates } : {});
   const before = await deps.readBalance();
-  const policy = { maxPerRun: Math.min(job.request.confirmSpend, config.maxCreditsPerRun), minReserve: config.reserve };
+  const policy = { maxPerRun: Math.min(job.request.confirmSpend, config.maxCreditsPerRun, guest && config.guest ? config.guest.maxCreditsPerRun : Infinity), minReserve: config.reserve };
   const auth = authorizeRun({ estimate, balance: before, policy, runKind: "certification", confirmed: job.request.confirmSpend >= estimate.credits });
   if (!auth.allowed) {
     throw new GreenlightError(auth.reasons.includes("balance_unavailable") ? "balance_unavailable" : auth.reasons.includes("confirmation_required") ? "confirmation_required" : "credit_check_refused", `Credit check refused the certification run: ${auth.reasons.join(", ")}. Kane was not run.`, {
@@ -120,7 +132,7 @@ export async function runCertification({ store, job, config, deps }) {
     });
   }
 
-  const files = derived.rendered.map((r) => r.file);
+  const files = rendered.map((r) => r.file);
   const runId = certificationRunId(job.id);
   const startedAt = deps.now().toISOString();
   const runResult = await deps.runKane({
@@ -129,7 +141,7 @@ export async function runCertification({ store, job, config, deps }) {
     timeoutMs: config.kaneTimeoutMs,
   });
   const endedAt = deps.now().toISOString();
-  const evaluation = evaluateRun(runResult, toApprovedTests(derived.rendered));
+  const evaluation = evaluateRun(runResult, toApprovedTests(rendered));
   const after = await deps.readBalance();
   const credits = creditRecord(reconcileUsage({ before, after, usage: await actualUsage({ runResult }), estimate: estimate.credits }));
   const collected = await collectEvidence({
@@ -142,7 +154,7 @@ export async function runCertification({ store, job, config, deps }) {
     startUrl: url,
     validator: deps.validator,
     evaluation,
-    approval: { method: approval.method, certifiable: true },
+    approval: { method: approval.method, certifiable: !guest },
     credits,
     runKind: "certification",
     now: deps.now,
@@ -159,6 +171,8 @@ export async function runCertification({ store, job, config, deps }) {
     startedAt,
     endedAt,
     now: deps.now(),
+    certifiable: !guest,
+    testsRun: selected ? rendered.map((r) => r.file) : null,
   });
   // Evidence is archived and hash-verified BEFORE the record exists; then the
   // record, its run, claims and test results are written in one transaction.

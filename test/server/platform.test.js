@@ -363,7 +363,7 @@ test("signed-in users: Claude drafts claims and tests (checked, never saved), de
       },
     },
   };
-  const h = await setup({ ai: { client, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
+  const h = await setup({ ai: { client, checkHost: async () => {}, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
   h.f.state.github.set("acme/shop", { head: HEAD });
   const b = browser(h);
   await b.googleSignIn("google-sub-ai");
@@ -490,7 +490,7 @@ test("credentials pasted with whitespace still work; keys never reach the browse
 test("Claude errors are mapped to clear messages and never save anything", async () => {
   let throwIt = null;
   const client = { beta: { messages: { create: async () => { throw throwIt; } } } };
-  const h = await setup({ ai: { client, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
+  const h = await setup({ ai: { client, checkHost: async () => {}, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
   h.f.state.github.set("acme/shop", { head: HEAD });
   const b = browser(h);
   await b.googleSignIn("google-sub-errors");
@@ -524,7 +524,7 @@ test("AI drafts follow the spec rules and still need a person's approval before 
       },
     },
   };
-  const h = await setup({ ai: { client, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
+  const h = await setup({ ai: { client, checkHost: async () => {}, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
   h.f.state.github.set("acme/shop", { head: HEAD });
   const b = browser(h);
   await b.googleSignIn("google-sub-rules");

@@ -44,19 +44,23 @@ import { isLocalOrPrivateHost } from "../deploy/host.js";
 import { TestrunStream, assessCompleteness } from "../kane/testrun-stream.js";
 import { evaluateRun } from "../verify/classify.js";
 import { SCHEMAS, verifyRecordIntegrity } from "./models.js";
-import { browserApprovalRequired, verifyBrowserApproval } from "./approval-policy.js";
+import { browserApprovalRequired, verifyBrowserApproval, signApproval, isGuestAccount } from "./approval-policy.js";
+import { buildApproval, selfHash, WEB_IDENTITY_PROVIDERS } from "./models.js";
 import { prepareCertification } from "./certify.js";
 import { buildSpecYaml, USER_LIMITS } from "./guest-spec.js";
 import { draftTests } from "./guest-ai.js";
-import { parseRepoUrl, checkBranch, checkRepository, checkCommit, probeDeployment } from "./repo.js";
+import { parseRepoUrl, checkBranch, checkRepository, checkCommit, probeDeployment, inspectRepository } from "./repo.js";
+import { readLiveApp } from "./browse.js";
+import { analyzeProject, requirementsFrom, reviseTests } from "./understand.js";
+import { handleFixApi } from "./fix-centre.js";
 import { handleAdminApi } from "./admin-api.js";
 
 export const APP_API_PREFIX = "/app/api/";
-const PROJECT = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})(?:\/(details|repository-check|deployment-check|draft|preview|versions|certifications))?$/;
+const PROJECT = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})(?:\/(details|repository-check|deployment-check|draft|preview|versions|certifications|understand|fixes))?$/;
+const APPROVE = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})\/versions\/([1-9][0-9]{0,5})\/approve$/;
 const RECORD = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})\/records\/(vr_[0-9a-f]{32})(?:\/(integrity)|\/files\/([A-Za-z0-9._/-]{1,300}))?$/;
 const JOB = /^\/app\/api\/jobs\/(job_[0-9a-f]{32})$/;
 const TOKEN = /^\/app\/api\/tokens\/([0-9a-f]{16})\/revoke$/;
-const AI_PER_HOUR = 20;
 
 export function sendJson(res, status, body, headers = {}) {
   res.statusCode = status;
@@ -143,7 +147,7 @@ function versionView(config, project, v, a) {
   };
 }
 
-export const jobView = (j) => ({ id: j.id, projectId: j.projectId, version: j.version, status: j.status, outcome: j.outcome ?? null, requestedBy: j.requestedBy ?? null, commit: j.request?.commit ?? null, confirmSpend: j.request?.confirmSpend ?? null, createdAt: j.createdAt, startedAt: j.startedAt ?? null, finishedAt: j.finishedAt ?? null, recordId: j.recordId ?? null, error: j.error ? { code: j.error.code ?? null, message: j.error.message ?? null } : null });
+export const jobView = (j) => ({ id: j.id, projectId: j.projectId, version: j.version, status: j.status, outcome: j.outcome ?? null, requestedBy: j.requestedBy ?? null, commit: j.request?.commit ?? null, commitSource: j.request?.commitSource ?? null, tests: j.request?.tests ?? null, confirmSpend: j.request?.confirmSpend ?? null, createdAt: j.createdAt, startedAt: j.startedAt ?? null, finishedAt: j.finishedAt ?? null, recordId: j.recordId ?? null, error: j.error ? { code: j.error.code ?? null, message: j.error.message ?? null } : null });
 
 export function recordView(r, config) {
   const base = config.publicBaseUrl ? config.publicBaseUrl.replace(/\/+$/, "") : "";
@@ -206,6 +210,9 @@ function detailsView(d) {
     repository: d.repository ?? null,
     branch: d.branch ?? null,
     repositoryCheck: d.repositoryCheck ?? null,
+    understanding: d.understanding
+      ? { inspectedAt: d.understanding.inspectedAt ?? null, repository: d.understanding.repository ?? null, app: d.understanding.app ?? null, screenshot: d.understanding.screenshot ?? null, analysis: d.understanding.analysis ?? null, analyzedAt: d.understanding.analyzedAt ?? null, answers: d.understanding.answers ?? {} }
+      : null,
     hasCredentials: Boolean(d.credentials),
     credentialsUpdatedAt: d.credentials?.updatedAt ?? null,
     updatedAt: d.updatedAt ?? null,
@@ -402,12 +409,79 @@ export async function activity(store, actor, action, target, detail = {}) {
 }
 const actorOf = (s) => `${s.account}${s.email ? ` (${s.email})` : ""}`;
 
-const aiUse = new Map(); // account -> {start, count}: a soft hourly limit per server instance
+/** Guests' real Kane runs: on with guest mode, a job runner and the approval signing key. */
+export const guestRunsEnabled = (config) => Boolean(config.guest) && Boolean(config.approvalSigningKey);
+
+async function guestPaused(store) {
+  try {
+    return (await store.getSettings())?.["guest.checks_paused"] === true;
+  } catch {
+    return false;
+  }
+}
+
+async function guestRunState(store, config, s) {
+  const g = config.guest;
+  let usage = { usedByYou: 0, usedToday: 0 };
+  try {
+    usage = await store.guestRunUsage(s.account);
+  } catch {
+    // usage table not migrated yet
+  }
+  return {
+    enabled: guestRunsEnabled(config),
+    paused: await guestPaused(store),
+    perGuest: g?.realRunsPerGuest ?? 0,
+    perDay: g?.realRunsPerDay ?? 0,
+    leftForYou: Math.max(0, (g?.realRunsPerGuest ?? 0) - usage.usedByYou),
+    leftToday: Math.max(0, (g?.realRunsPerDay ?? 0) - usage.usedToday),
+    maxCreditsPerRun: g?.maxCreditsPerRun ?? null,
+  };
+}
+
+/**
+ * Record a signed in-app approval of exactly this version, for a guest. The same write-once,
+ * server-signed record the approval pages write; guest accounts can never certify with it.
+ */
+async function approveAsGuest({ config, store, s, project, v, now }) {
+  if (!config.approvalSigningKey) throw new GreenlightError("server_not_configured", "Approvals are not available on this server.");
+  const derived = projectFromText(v.specText);
+  if (derived.hash !== v.approvedTestHash) throw new GreenlightError("approval_hash_mismatch", "The stored tests do not match their recorded version.");
+  const at = now();
+  const record = buildApproval({
+    projectId: project.id,
+    version: v,
+    approvedBy: s.user,
+    now: at,
+    extra: {
+      channel: WEB_IDENTITY_PROVIDERS.guest.channel,
+      identity: { provider: "guest", issuer: WEB_IDENTITY_PROVIDERS.guest.issuer, subject: s.sub, username: null, email: null, name: "Guest", authenticatedAt: null },
+      confirmations: {
+        testSpecification: { hash: derived.hash, specFileSha256: derived.specFileSha256, confirmedAt: at.toISOString() },
+        serverVersion: { hash: v.approvedTestHash, confirmedAt: at.toISOString() },
+      },
+    },
+  });
+  record.signature = signApproval(config.approvalSigningKey, record);
+  record.recordSha256 = selfHash(record);
+  await store.putApproval(project.id, v.version, record);
+  return record;
+}
+
+const aiUse = new Map();
+/** A soft per-account hourly limit on AI calls (per server instance). Guests get fewer. */
+function takeAi(s, now) {
+  const limit = s.role === "guest" ? 12 : 30;
+  const t = now().getTime();
+  const u = aiUse.get(s.account);
+  if (!u || t - u.start > 3600_000) aiUse.set(s.account, { start: t, count: 1 });
+  else if (++u.count > limit) throw new GreenlightError("rate_limited", "AI limit reached for this hour; you can still edit everything yourself.");
+} // account -> {start, count}: a soft hourly limit per server instance
 
 /**
  * Handle an /app/api/ request for a verified session `s` (null when signed out).
  */
-export async function handleAppApi({ req, res, url, s, store, config, sameOrigin, clearSessionCookie, jobs = null, now = () => new Date(), log = () => {}, fetchImpl = (...a) => globalThis.fetch(...a), ai = {}, checkHost }) {
+export async function handleAppApi({ req, res, url, s, store, config, sameOrigin, clearSessionCookie, jobs = null, now = () => new Date(), log = () => {}, fetchImpl = (...a) => globalThis.fetch(...a), ai = {}, checkHost, launch }) {
   const path = url.pathname;
   const isPost = req.method === "POST";
   try {
@@ -444,7 +518,8 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         authenticatedAt: s.authAt ?? null,
         expiresAt: new Date(s.exp).toISOString(),
         maxCreditsPerRun: config.maxCreditsPerRun ?? null,
-        features: { ai: Boolean(config.ai?.apiKey) || Boolean(ai.client), google: Boolean(config.google), certification: Boolean(jobs), admin: s.role === "admin" },
+        features: { ai: Boolean(config.ai?.apiKey) || Boolean(ai.client), google: Boolean(config.google), certification: Boolean(jobs) && (s.role !== "guest" || guestRunsEnabled(config)), admin: s.role === "admin" },
+        ...(s.role === "guest" ? { guestRuns: await guestRunState(store, config, s) } : {}),
       });
     }
 
@@ -466,9 +541,12 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       const branch = checkBranch(body.branch);
       const description = text(body.description, 1000, "Description");
       const purpose = text(body.purpose, 4000, "What the app should do", { required: true });
+      if (s.role === "guest" && (await store.listProjects(s.account)).length >= (config.guest?.projectsPerGuest ?? 5)) {
+        throw new GreenlightError("guest_limit_reached", `Guests can keep up to ${config.guest?.projectsPerGuest ?? 5} projects.`);
+      }
       if (purpose.length < 20) throw new GreenlightError("invalid_request", "Describe what the app should do in a sentence or two (at least 20 characters).");
       const at = now();
-      const repositoryCheck = await checkRepository({ owner: repo.owner, repo: repo.repo, branch, fetchImpl, now });
+      const repositoryCheck = await checkRepository({ owner: repo.owner, repo: repo.repo, branch, fetchImpl, now, token: config.githubToken });
       const project = await store.createProject({ name, url: appUrl, account: s.account, createdBy: s.user, now: at });
       const doc = { description, purpose, repository: repo.url, branch, repositoryCheck, credentials: sealCredentials(config, body.credentials, at) };
       await store.putProjectDetails(project.id, s.account, doc, s.user);
@@ -531,11 +609,32 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       });
     }
 
+    if (path.startsWith("/app/api/fixes")) {
+      return await handleFixApi({ req, res, url, s, store, config, jobs, now, log, ai, sendJson, readJson, activity, actorOf, getTestResults: (record, version) => testResults(store, record, version) });
+    }
+
+    const am = APPROVE.exec(path);
+    if (am && isPost) {
+      // In-app approval is for guests; signed-in accounts approve on the /approve pages.
+      if (s.role !== "guest") throw new GreenlightError("forbidden", "Approve on the approval page.");
+      const project = await store.getProject(am[1], s.account);
+      const v = await store.getVersion(project.id, Number(am[2]));
+      const body = await readJson(req);
+      if (body.confirm !== true || body.approvedTestHash !== v.approvedTestHash) {
+        throw new GreenlightError("approval_hash_mismatch", "These tests changed since you reviewed them; review the current tests and approve again.");
+      }
+      if (await store.getApproval(project.id, v.version)) throw new GreenlightError("conflict", "This test plan is already approved.");
+      await approveAsGuest({ config, store, s, project, v, now });
+      await activity(store, actorOf(s), "tests.approved", project.id, { version: v.version, hash: v.approvedTestHash, provider: "guest" });
+      return sendJson(res, 200, await projectDetail(config, store, project));
+    }
+
     const m = PROJECT.exec(path);
     if (m) {
       const [, projectId, action] = m;
       const project = await store.getProject(projectId, s.account); // other accounts: not_found
       if (!action && !isPost) return sendJson(res, 200, await projectDetail(config, store, project));
+      if (action === "fixes" && !isPost) return sendJson(res, 200, { fixes: await store.fixList(s.account, project.id) });
       if (!isPost) throw new GreenlightError("not_found", "Not found.");
       const body = await readJson(req);
 
@@ -550,7 +649,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
           const repo = parseRepoUrl(body.repository ?? old.repository);
           doc.repository = repo.url;
           doc.branch = checkBranch(body.branch ?? old.branch);
-          doc.repositoryCheck = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: doc.branch, fetchImpl, now });
+          doc.repositoryCheck = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: doc.branch, fetchImpl, now, token: config.githubToken });
         }
         if (body.clearCredentials === true) doc.credentials = null;
         else if (body.credentials !== undefined) doc.credentials = sealCredentials(config, body.credentials, now()) ?? old.credentials ?? null;
@@ -563,7 +662,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         const d = await store.getProjectDetails(project.id).catch(() => null);
         if (!d?.repository) throw new GreenlightError("invalid_request", "Add the project's GitHub repository first.");
         const repo = parseRepoUrl(d.repository);
-        const check = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now });
+        const check = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now, token: config.githubToken });
         const doc = { ...d, repositoryCheck: check };
         delete doc.updatedAt;
         delete doc.updatedBy;
@@ -579,21 +678,32 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         const d = await store.getProjectDetails(project.id).catch(() => null);
         if (deployment.commit && d?.repository) {
           const repo = parseRepoUrl(d.repository);
-          inRepository = { repository: repo.url, ...(await checkCommit({ owner: repo.owner, repo: repo.repo, sha: deployment.commit, fetchImpl, now })) };
+          inRepository = { repository: repo.url, ...(await checkCommit({ owner: repo.owner, repo: repo.repo, sha: deployment.commit, fetchImpl, now, token: config.githubToken })) };
         }
         return sendJson(res, 200, { deployment, inRepository });
       }
 
       if (action === "draft") {
         if (!config.ai?.apiKey && !ai.client) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server; write the claims and tests yourself.");
-        const u = aiUse.get(s.account);
-        const t = now().getTime();
-        if (!u || t - u.start > 3600_000) aiUse.set(s.account, { start: t, count: 1 });
-        else if (++u.count > AI_PER_HOUR) throw new GreenlightError("rate_limited", "AI drafting limit reached for this hour; write or edit the tests yourself.");
+        takeAi(s, now);
         const d = await store.getProjectDetails(project.id).catch(() => null);
-        const requirements = text(body.requirements, 4000, "Requirements") ?? d?.purpose ?? null;
+        // Revise: the developer asks Claude to change the current plan.
+        if (typeof body.instruction === "string" && body.instruction.trim() && body.current && typeof body.current === "object") {
+          const instruction = text(body.instruction, 1500, "Request", { required: true });
+          const pageText = d?.understanding?.app?.pages?.[0]?.text ?? null;
+          const revised = await reviseTests({ config, client: ai.client, project, current: body.current, instruction, pageText, log });
+          const structured = { name: project.name, url: project.url, description: revised.description ?? d?.description ?? null, claims: revised.claims ?? [], tests: revised.tests ?? [] };
+          let check;
+          try {
+            check = previewOf(buildSpecYaml(structured, USER_LIMITS), config);
+          } catch (err) {
+            check = { ok: false, problems: [err instanceof GreenlightError ? err.message : "The revision could not be turned into tests."] };
+          }
+          return sendJson(res, 200, { draft: structured, notes: revised.notes ?? null, pageRead: Boolean(pageText), check, revised: true });
+        }
+        const requirements = text(body.requirements, 6000, "Requirements") ?? (d ? requirementsFrom(d) : null);
         if (!requirements || requirements.length < 20) throw new GreenlightError("invalid_request", "Describe what the app should do (at least 20 characters).");
-        const { draft, pageRead } = await draftTests({ name: project.name, url: project.url, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, maxTests: 5, log });
+        const { draft, pageRead } = await draftTests({ name: project.name, url: project.url, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, checkHost: ai.checkHost, maxTests: 5, log });
         const structured = { name: project.name, url: project.url, description: draft.description ?? d?.description ?? null, claims: draft.claims ?? [], tests: draft.tests ?? [] };
         let check;
         try {
@@ -602,6 +712,41 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
           check = { ok: false, problems: [err instanceof GreenlightError ? err.message : "The draft could not be turned into tests."] };
         }
         return sendJson(res, 200, { draft: structured, notes: draft.notes ?? null, pageRead, check });
+      }
+
+      if (action === "understand") {
+        const d = (await store.getProjectDetails(project.id).catch(() => null)) ?? {};
+        const doc = { ...d };
+        delete doc.updatedAt;
+        delete doc.updatedBy;
+        const u = { ...(d.understanding ?? {}) };
+        const step = body.step;
+        if (step === "inspect") {
+          const repo = d.repository ? parseRepoUrl(d.repository) : null;
+          const [repository, app] = await Promise.all([
+            repo ? inspectRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now, token: config.githubToken }) : Promise.resolve({ status: "not_readable", reason: "No repository URL was given." }),
+            readLiveApp({ url: project.url, now, ...(launch ? { launch } : {}), ...(checkHost ? { checkHost } : {}) }),
+          ]);
+          u.inspectedAt = now().toISOString();
+          u.repository = repository;
+          u.app = app.status === "ok" ? { status: "ok", checkedAt: app.checkedAt, pages: app.pages } : { status: app.status, checkedAt: app.checkedAt, reason: app.reason };
+          u.screenshot = app.screenshot ?? null;
+          u.analysis = null;
+          u.analyzedAt = null;
+        } else if (step === "analyze") {
+          if (!u.inspectedAt) throw new GreenlightError("invalid_request", "Inspect the app first.");
+          takeAi(s, now);
+          u.analysis = await analyzeProject({ config, client: ai.client, project, details: d, inspection: u, log });
+          u.analyzedAt = now().toISOString();
+        } else if (step === "answers") {
+          const answers = body.answers && typeof body.answers === "object" ? body.answers : {};
+          u.answers = Object.fromEntries(Object.entries(answers).slice(0, 8).map(([k, v]) => [String(k).slice(0, 40), String(v ?? "").slice(0, 1000)]));
+        } else {
+          throw new GreenlightError("invalid_request", "step must be inspect, analyze or answers.");
+        }
+        doc.understanding = u;
+        await store.putProjectDetails(project.id, s.account, doc, s.user);
+        return sendJson(res, 200, await projectDetail(config, store, project));
       }
 
       if (action === "preview") {
@@ -636,9 +781,45 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
           request.environment = body.environment;
         }
         if (request.approvedTestHash === undefined) delete request.approvedTestHash;
-        // Everything that can be checked before spending (the job checks it all again).
-        await prepareCertification({ store, project, versionNo: body.version, request, config });
-        const job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: s.user });
+        let reservation = null;
+        if (s.role === "guest" || isGuestAccount(project.account)) {
+          if (!guestRunsEnabled(config)) throw new GreenlightError("server_not_configured", "Real browser runs are not available for guests on this server.");
+          if (await guestPaused(store)) throw new GreenlightError("guest_limit_reached", "Real browser runs are paused by the administrator right now.");
+          if (request.confirmSpend !== undefined) request.confirmSpend = Math.min(request.confirmSpend, config.guest.maxCreditsPerRun);
+          // The server decides the commit for guests: the live site's /greenlight.json when it has
+          // one, otherwise the public branch head, recorded as unconfirmed. Never a typed value.
+          const d = await store.getProjectDetails(project.id).catch(() => null);
+          const live = await probeDeployment({ url: project.url, fetchImpl, ...(checkHost ? { checkHost } : {}), now });
+          if (live.status === "ok") {
+            request.commit = live.commit;
+            request.commitSource = "live_site";
+          } else {
+            const repo = d?.repository ? parseRepoUrl(d.repository) : null;
+            const rc = repo ? await checkRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now, token: config.githubToken }) : null;
+            if (rc?.status !== "ok") {
+              throw new GreenlightError("deployment_not_ready", "Greenlight can't tell which commit is live: the site doesn't publish /greenlight.json and the repository's latest commit can't be read (it may be private). Add /greenlight.json to the site, or make the repository public, then try again.");
+            }
+            request.commit = rc.head.sha;
+            request.commitSource = "branch_head";
+          }
+          if (Array.isArray(body.tests) && body.tests.length) {
+            if (body.tests.length > 50 || !body.tests.every((t) => typeof t === "string" && /^[a-z0-9-]+_test\.md$/.test(t))) throw new GreenlightError("invalid_request", "tests: a list of test files from the approved version.");
+            request.tests = [...new Set(body.tests)];
+          }
+          await prepareCertification({ store, project, versionNo: body.version, request, config });
+          reservation = (await store.reserveGuestRun(project.account, config.guest.realRunsPerGuest, config.guest.realRunsPerDay)).reservation;
+        } else {
+          // Everything that can be checked before spending (the job checks it all again).
+          await prepareCertification({ store, project, versionNo: body.version, request, config });
+        }
+        let job;
+        try {
+          job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: s.user });
+        } catch (err) {
+          if (reservation !== null) await store.releaseGuestRun(reservation).catch(() => {});
+          throw err;
+        }
+        if (reservation !== null) await store.attachGuestRun(reservation, job.id).catch(() => {});
         log({ event: "certification_requested", account: s.account, projectId: project.id, version: body.version, jobId: job.id, confirmSpend: request.confirmSpend });
         await activity(store, actorOf(s), "verification.requested", project.id, { version: body.version, jobId: job.id, commit: request.commit, confirmSpend: request.confirmSpend });
         return sendJson(res, 202, { job: jobView(job) });
@@ -653,6 +834,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       const body = await readJson(req);
       const role = body.role === "owner" ? "owner" : body.role === "agent" ? "agent" : null;
       if (!role) throw new GreenlightError("invalid_request", "role must be agent (Claude Code, MCP) or owner.");
+      if (role === "owner" && s.role === "guest") throw new GreenlightError("forbidden", "Guests can create agent tokens only.");
       const label = text(body.label, 80, "Label", { required: true });
       const token = `gl_${randomBytes(32).toString("base64url")}`;
       const sha = createHash("sha256").update(token).digest("hex");

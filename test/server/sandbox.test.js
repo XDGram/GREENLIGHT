@@ -273,7 +273,7 @@ test("worker: refuses bad input, and reports a setup failure without running Kan
 
 test("vercel.json routes /v1 to the function, bundles the files the sandbox needs, and serves no repository files", async () => {
   const v = JSON.parse(readFileSync(path.join(ROOT, "vercel.json"), "utf8"));
-  assert.equal(v.functions["api/index.js"].includeFiles, "{src,bin}/**");
+  assert.equal(v.functions["api/index.js"].includeFiles, "{src,bin,node_modules/@sparticuz/chromium/bin}/**", "the serverless Chromium binary (application reading) ships with the function");
   assert.ok(v.functions["api/index.js"].maxDuration <= 300);
   const toFunction = v.rewrites.filter((r) => r.destination === "/api");
   assert.deepEqual(toFunction, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }, { source: "/api/auth/callback", destination: "/api" }, { source: "/api/auth/google/:path*", destination: "/api" }, { source: "/mcp", destination: "/api" }, { source: "/app/api/:path*", destination: "/api" }]);

@@ -16,7 +16,7 @@ import { buildTestrunArgs } from "../kane/runner.js";
 import { evaluateRun } from "../verify/classify.js";
 import { estimateRun, authorizeRun } from "../credits/estimate.js";
 import { actualUsage, reconcileUsage, creditRecord } from "../credits/usage.js";
-import { assertPublicHost } from "../deploy/host.js";
+import { requirePublicHost } from "../deploy/host.js";
 import { GreenlightError, errorBody } from "../cli/errors.js";
 
 /** Kane's run name for a guest run (stable, readable in the Kane dashboard). */
@@ -60,7 +60,7 @@ export async function runGuestRun({ store, runId, config, deps, log = () => {} }
     }
     if (derived.hash !== project.approvedTestHash) throw new GreenlightError("approval_hash_mismatch", "The stored tests do not match the approved hash.");
     const url = project.url;
-    await (deps.checkHost ?? ((h) => assertPublicHost(h)))(new URL(url).hostname).catch(() => {
+    await (deps.checkHost ?? ((h) => requirePublicHost(h)))(new URL(url).hostname).catch(() => {
       throw new GreenlightError("url_not_allowed", "The app URL must be a public address.");
     });
 

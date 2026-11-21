@@ -36,8 +36,9 @@ Apply in order, with the Supabase CLI (`supabase db push`) or the dashboard's SQ
 3. `supabase/migrations/20261119140200_greenlight_evidence_bucket.sql`
 4. `supabase/migrations/20261120190000_greenlight_guest.sql` (guest demo: three new tables, additive; nothing existing changes)
 5. `supabase/migrations/20261121090000_greenlight_platform.sql` (web platform: Google identities, project details, settings, admin events; additive)
+6. `supabase/migrations/20261122090000_greenlight_journey.sql` (guest accounts with capped real runs, the Fix Centre; additive)
 
-All five run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
+All six run unchanged in the test suite on real PostgreSQL (PGlite), next to a Ceaser-like application. They are additive. The bucket migration never overwrites an existing bucket, and refuses to continue if a bucket with that name exists and is public.
 
 ## Configuration (server environment only)
 
@@ -89,6 +90,8 @@ Every table is in the private schema `greenlight`. It is not exposed through the
 | `web_identities` | Sign in with Google identities: provider, subject, their account (`g-<hash>`) and owner user, email, last sign-in | one account per Google identity; no admin role exists here |
 | `project_details` | editable project details: GitHub repository, branch, description, what the app should do, last repository check, AES-GCM-encrypted test credentials | the original `projects.doc` never changes; credentials are never returned by the API |
 | `settings` | operational switches changed in the admin console (e.g. `guest.checks_paused`) | every change is also written to `admin_events` |
+| `guest_run_reservations` | one row per real Kane run a guest account starts; the per-guest and 24-hour caps count these under a lock (runs that failed before Kane could start do not count) | caps enforced in `greenlight_reserve_guest_run` |
+| `fix_items` | one per failed test of a run: explanation, the conversation, the fix proposal, what the coding agent reported | status moves only along allowed transitions; "fixed" is set from a later passing run |
 | `admin_events` | administrator actions (settings, token revocations) | **append-only** |
 
 Immutability is enforced by triggers (UPDATE, DELETE and TRUNCATE are refused with SQLSTATE `GLIMM`), not by application code.

@@ -217,7 +217,7 @@ export function createGuestApi({ config, store, startRun, now = () => new Date()
       if (requirements.length > 4000) throw new GreenlightError("invalid_request", "Keep the description under 4,000 characters.");
       if (!(config.ai?.apiKey ?? g.anthropicApiKey) && !ai.client) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server; use the form.");
       await store.guestUseAi(guest.id, g.aiPerGuest);
-      const { draft, pageRead } = await draftTests({ name, url: appUrl, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, log });
+      const { draft, pageRead } = await draftTests({ name, url: appUrl, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, checkHost: ai.checkHost, log });
       const structured = { name: draft.name?.trim() || name, url: appUrl, description: draft.description ?? null, claims: draft.claims ?? [], tests: draft.tests ?? [] };
       return sendJson(res, 200, { draft: structured, notes: draft.notes ?? null, pageRead, check: preview(structured) });
     }

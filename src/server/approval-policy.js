@@ -39,13 +39,23 @@ export function approvalSignatureValid(key, record) {
 export const googleAccount = (subject) => `g-${createHash("sha256").update(`greenlight-google:${subject}`).digest("hex").slice(0, 24)}`;
 export const isGoogleAccount = (account) => /^g-[0-9a-f]{24}$/.test(String(account ?? ""));
 
+/** The anonymous account of a guest session (v- and 24 hex): it can run its own tests, never certify. */
+export const guestAccount = (guestId) => `v-${createHash("sha256").update(`greenlight-guest:${guestId}`).digest("hex").slice(0, 24)}`;
+export const isGuestAccount = (account) => /^v-[0-9a-f]{24}$/.test(String(account ?? ""));
+
 /** Configured accounts and every Google account: only signed browser approvals certify. */
-export const browserApprovalRequired = (config, account) => Boolean(account) && (config.browserApprovalAccounts.includes(account) || isGoogleAccount(account));
+export const browserApprovalRequired = (config, account) => Boolean(account) && (config.browserApprovalAccounts.includes(account) || isGoogleAccount(account) || isGuestAccount(account));
 
 /** {ok, reason}: is this a verified browser approval by an approver of `account` for exactly `hash`? */
 export function verifyBrowserApproval(config, approval, hash, account) {
   if (!approval) return { ok: false, reason: "no_approval" };
   if (!webApprovalValidFor(approval, hash)) return { ok: false, reason: approval.channel ? "not_valid_for_these_tests" : "not_a_browser_approval" };
+  if (approval.identity.provider === "guest") {
+    // A guest's own approval, signed by the server, for the guest's own account only.
+    if (!approvalSignatureValid(config.approvalSigningKey, approval)) return { ok: false, reason: approval.signature ? "signature_invalid" : "unsigned" };
+    if (!isGuestAccount(account) || guestAccount(approval.identity.subject) !== account || approval.approvedBy !== "owner") return { ok: false, reason: "not_an_approver_of_this_account" };
+    return { ok: true, reason: null };
+  }
   if (approval.identity.provider === "google") {
     // A Google user approves only their own account's tests, as its single owner user.
     if (!config.google || !approvalSignatureValid(config.approvalSigningKey, approval)) return { ok: false, reason: approval.signature ? "signature_invalid" : "unsigned" };

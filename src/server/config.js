@@ -223,6 +223,9 @@ export function loadConfig(env = process.env) {
       runsPerDay: num(env.GREENLIGHT_GUEST_RUNS_PER_DAY, 500),
       maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, 150), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150)),
       projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
+      // Real Kane runs by guests (they spend Greenlight's credits): strict caps, enforced in the database.
+      realRunsPerGuest: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST, 1),
+      realRunsPerDay: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_DAY, 3),
       aiPerGuest: num(env.GREENLIGHT_GUEST_AI_PER_GUEST, 8),
       sessionsPerIpHour: num(env.GREENLIGHT_GUEST_SESSIONS_PER_IP_HOUR, 20, { min: 1 }),
       sampleProjectId: sample,
@@ -237,6 +240,8 @@ export function loadConfig(env = process.env) {
     guest,
     google,
     ai,
+    // Optional read-only GitHub token (server-side, never OAuth): raises the public API limit for
+    // repository inspection. Non-enumerable below.
     webApproval,
     browserApprovalAccounts,
     supabase,
@@ -261,7 +266,10 @@ export function loadConfig(env = process.env) {
     maxBodyBytes: 256 * 1024,
   };
   // Approval signing key: non-enumerable, never serialised, logged or sent to clients.
-  if (webApproval || google) Object.defineProperty(cfg, "approvalSigningKey", { value: env.GREENLIGHT_APPROVAL_SIGNING_KEY, enumerable: false });
+  Object.defineProperty(cfg, "githubToken", { value: (env.GREENLIGHT_GITHUB_TOKEN ?? "").trim() || null, enumerable: false });
+  // Guests' own approvals are signed too: guest real runs need the key (and are off without it).
+  const signingKeyOk = typeof env.GREENLIGHT_APPROVAL_SIGNING_KEY === "string" && env.GREENLIGHT_APPROVAL_SIGNING_KEY.length >= 32;
+  if (webApproval || google || (guest && signingKeyOk)) Object.defineProperty(cfg, "approvalSigningKey", { value: env.GREENLIGHT_APPROVAL_SIGNING_KEY, enumerable: false });
   // Kane credentials (sandbox mode): non-enumerable like the Supabase key, never logged or serialised.
   if (execution === "sandbox") {
     Object.defineProperty(cfg, "kaneCredentials", { value: Object.freeze({ username: env.GREENLIGHT_KANE_USERNAME, accessKey: env.GREENLIGHT_KANE_ACCESS_KEY }), enumerable: false });

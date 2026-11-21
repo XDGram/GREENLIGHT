@@ -8,12 +8,12 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { GreenlightError } from "../cli/errors.js";
-import { assertPublicHost } from "../deploy/host.js";
+import { requirePublicHost } from "../deploy/host.js";
 
 const PAGE_BYTES = 400_000;
 const PAGE_CHARS = 12_000;
 
-const system = (maxTests) => `You write verification tests for Greenlight. Greenlight runs each test in a real browser against a live web app (with Kane, an AI test runner) and reports, claim by claim, whether the app does what its developer says it does.
+export const system = (maxTests) => `You write verification tests for Greenlight. Greenlight runs each test in a real browser against a live web app (with Kane, an AI test runner) and reports, claim by claim, whether the app does what its developer says it does.
 
 From the developer's requirements and the text of the app's start page, produce:
 - claims: short plain-language statements of what the app does, each one checkable in the browser by someone with no account.
@@ -29,7 +29,7 @@ Rules for steps:
 
 In notes, say in one or two sentences what you could not cover or which expected texts you had to guess because they were not in the page text.`;
 
-const SCHEMA = {
+export const SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["name", "description", "claims", "tests", "notes"],
@@ -89,7 +89,7 @@ export function visibleText(html) {
 }
 
 /** Read the start page's visible text. Public hosts only, at most 3 redirects, size and time limits. */
-export async function readStartPage(url, { fetchImpl = globalThis.fetch, checkHost = (h) => assertPublicHost(h), timeoutMs = 8_000 } = {}) {
+export async function readStartPage(url, { fetchImpl = globalThis.fetch, checkHost = (h) => requirePublicHost(h), timeoutMs = 8_000 } = {}) {
   let current = new URL(url);
   for (let hop = 0; hop < 4; hop++) {
     if (!/^https?:$/.test(current.protocol)) return null;
@@ -129,11 +129,11 @@ export async function readStartPage(url, { fetchImpl = globalThis.fetch, checkHo
  * Draft claims and tests for a guest's app.
  * @returns {{draft: object, pageRead: boolean}}
  */
-export async function draftTests({ name, url, requirements, config, client, fetchImpl, maxTests = 3, log = () => {} }) {
+export async function draftTests({ name, url, requirements, config, client, fetchImpl, checkHost, maxTests = 3, log = () => {} }) {
   const apiKey = config.ai?.apiKey ?? config.guest?.anthropicApiKey;
   if (!client && !apiKey) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server.");
   const anthropic = client ?? new Anthropic({ apiKey, timeout: 45_000, maxRetries: 0 });
-  const page = await readStartPage(url, fetchImpl ? { fetchImpl } : {});
+  const page = await readStartPage(url, { ...(fetchImpl ? { fetchImpl } : {}), ...(checkHost ? { checkHost } : {}) });
   const user = [
     `App name: ${name}`,
     `App address: ${url}`,

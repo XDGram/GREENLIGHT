@@ -29,7 +29,7 @@ import { createHmac, createHash, randomBytes, timingSafeEqual, createPublicKey, 
 import { GreenlightError } from "../cli/errors.js";
 import { projectFromText } from "../spec/generate.js";
 import { buildApproval, selfHash, WEB_IDENTITY_PROVIDERS } from "./models.js";
-import { signApproval, googleAccount } from "./approval-policy.js";
+import { signApproval, googleAccount, guestAccount } from "./approval-policy.js";
 import { APP_API_PREFIX, activity, handleAppApi, sendJson } from "./app-api.js";
 
 export const VERCEL_ISSUER = "https://vercel.com";
@@ -239,7 +239,11 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
   const google = config.google ?? null;
   const base = config.publicBaseUrl ? config.publicBaseUrl.replace(/\/+$/, "") : null;
   const origin = base ? new URL(base).origin : null;
-  const key = web || google ? createHmac("sha256", String(config.supabase?.serviceRoleKey ?? "")).update("greenlight-web-approval-v1").digest() : null;
+  const guestMode = Boolean(config.guest) && typeof store.guestAccount === "function";
+  const key = web || google || guestMode ? createHmac("sha256", String(config.supabase?.serviceRoleKey ?? "")).update("greenlight-web-approval-v1").digest() : null;
+  // The guest cookie (src/server/guest-api.js) is signed with its own key.
+  const guestKey = guestMode ? createHmac("sha256", String(config.supabase.serviceRoleKey)).update("greenlight-guest-v1").digest() : null;
+  const guestAccounts = new Set(); // guest accounts known to exist (this instance)
   const jwks = getJwks ?? createJwksCache({ fetchImpl, now: () => now().getTime() });
   const googleJwks = getGoogleJwks ?? createJwksCache({ fetchImpl, url: GOOGLE_JWKS_URL, now: () => now().getTime() });
   const redirectUri = base ? `${base}${CALLBACK_PATH}` : null;
@@ -253,6 +257,23 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
     // Sessions from before roles existed were Vercel approver sessions.
     return { ...s, provider: s.provider ?? "vercel", role: s.role ?? "admin" };
   }
+
+  /**
+   * A guest (no sign-up): the signed guest cookie maps to the guest's own anonymous account
+   * (v-<hash>). Role "guest": own projects only, real runs capped, never certifies, never admin.
+   */
+  async function guestSession(req) {
+    if (!guestMode) return null;
+    const g = verifyValue(guestKey, parseCookies(req.headers.cookie)["__Host-gl_guest"], now().getTime());
+    if (!g || g.kind !== "guest" || !/^gst_[0-9a-f]{32}$/.test(g.id)) return null;
+    const account = guestAccount(g.id);
+    if (!guestAccounts.has(account)) {
+      await store.guestAccount(account);
+      guestAccounts.add(account);
+    }
+    return { kind: "session", provider: "guest", role: "guest", sid: createHmac("sha256", key).update(`guest-sid|${g.id}`).digest("base64url"), sub: g.id, account, user: "owner", username: null, email: null, name: "Guest", authAt: null, exp: g.exp };
+  }
+  const anySession = async (req) => session(req) ?? (await guestSession(req));
 
   function sameOrigin(req) {
     const site = req.headers["sec-fetch-site"];
@@ -424,7 +445,7 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
           : `<p>Approve the test specification first.</p>`
       }</div>`;
     }
-    return send(res, 200, `<p><a href="/app/projects/${esc(project.id)}">← Back to ${esc(project.name)}</a></p><h1>Greenlight approval</h1><p>Signed in with ${s.provider === "google" ? "Google" : "Vercel"} as <b>${esc(s.username ?? s.email ?? s.sub)}</b> (Greenlight owner <b>${esc(s.user)}</b>, account ${esc(s.account)}). Session ends ${esc(when(new Date(s.exp).toISOString()))}.</p>${notice}
+    return send(res, 200, `<p><a href="/app/projects/${esc(project.id)}">← Back to ${esc(project.name)}</a></p><h1>Greenlight approval</h1><p>${s.provider === "guest" ? "Guest session (no account)" : `Signed in with ${s.provider === "google" ? "Google" : "Vercel"} as <b>${esc(s.username ?? s.email ?? s.sub)}</b>`} (Greenlight owner <b>${esc(s.user)}</b>, account ${esc(s.account)}). Session ends ${esc(when(new Date(s.exp).toISOString()))}.</p>${notice}
 <h2>${esc(project.name)}</h2><p>${esc(desc)}</p><p>Live URL: <code>${esc(derived.spec.project.url)}</code> · Server version ${esc(n)} · submitted by ${esc(v.submittedBy)} at ${esc(when(v.submittedAt))}</p>
 <h3>Claims</h3><ul>${claims}</ul><h3>Tests</h3>${tests}<h3>greenlight.yaml</h3><pre>${esc(v.specText)}</pre>${actions}`);
   }
@@ -474,7 +495,7 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
     }
     log({ event: "approval_recorded", subject: s.sub, user: s.user, projectId: project.id, version: v.version, recordSha256: record.recordSha256 });
     await activity(store, `${s.account}${s.email ? ` (${s.email})` : ""}`, "tests.approved", project.id, { version: v.version, hash: v.approvedTestHash, provider: s.provider });
-    return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (signed in with ${s.provider === "google" ? "Google" : "Vercel"} as ${esc(s.username ?? s.sub)}).</p><p><a href="/app/projects/${esc(project.id)}/verify">Continue to verification →</a></p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(when(spec.confirmedAt))}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(when(confirmedAt.toISOString()))}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
+    return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (${s.provider === "guest" ? "guest session" : `signed in with ${s.provider === "google" ? "Google" : "Vercel"} as ${esc(s.username ?? s.sub)}`}).</p><p><a href="/app/projects/${esc(project.id)}/verify">Continue to verification →</a></p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(when(spec.confirmedAt))}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(when(confirmedAt.toISOString()))}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
   }
 
   return async function handle(req, res, url) {
@@ -494,14 +515,14 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
       }
       return true;
     }
-    if (!web && !google) {
+    if (!web && !google && !guestMode) {
       if (isApp) sendJson(res, 404, { error: { code: "not_found", message: "Web sign-in is not configured on this server." } });
       else send(res, 404, "<h1>Not found</h1>");
       return true;
     }
     if (isApp) {
       try {
-        await handleAppApi({ req, res, url, s: session(req), store, config, sameOrigin, clearSessionCookie: cookie(SESSION_COOKIE, "", 0), jobs, now, log, fetchImpl, ...appDeps });
+        await handleAppApi({ req, res, url, s: await anySession(req), store, config, sameOrigin, clearSessionCookie: cookie(SESSION_COOKIE, "", 0), jobs, now, log, fetchImpl, ...appDeps });
       } catch (err) {
         log({ event: "app_api_error", path: url.pathname, error: String(err?.stack ?? err) });
         sendJson(res, 500, { error: { code: "internal_error", message: "Internal error." } });
@@ -521,7 +542,7 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
           send(res, 404, "<h1>Not found</h1>");
           return true;
         }
-        const s = session(req);
+        const s = await anySession(req);
         if (!s) {
           if (p && google) send(res, 401, `<h1>Sign in to review these tests</h1><p><a href="${GOOGLE_LOGIN_PATH}?next=${encodeURIComponent(url.pathname)}">Sign in with Google</a>${web ? ` · <a href="/approve/login?next=${encodeURIComponent(url.pathname)}">Administrator sign-in (Vercel)</a>` : ""}</p>`);
           else if (p) redirect(res, `/approve/login?next=${encodeURIComponent(url.pathname)}`);

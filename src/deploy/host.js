@@ -103,3 +103,10 @@ export async function assertPublicHost(hostname, { lookup = dnsLookup } = {}) {
   if (list.some((a) => isPrivateIp(a))) return { ok: false, reason: "host_resolves_to_private_address" };
   return { ok: true, addresses: list };
 }
+
+/** assertPublicHost that throws (for callers that use try/catch): refuses anything not public. */
+export async function requirePublicHost(hostname, opts) {
+  const r = await assertPublicHost(hostname, opts);
+  if (!r.ok) throw Object.assign(new Error(`host not allowed: ${r.reason}`), { code: r.reason });
+  return r;
+}

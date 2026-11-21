@@ -44,6 +44,9 @@ export const GOOGLE_APPROVAL_CHANNEL = "web-sign-in-with-google";
 export const WEB_IDENTITY_PROVIDERS = Object.freeze({
   vercel: Object.freeze({ channel: WEB_APPROVAL_CHANNEL, issuer: "https://vercel.com" }),
   google: Object.freeze({ channel: GOOGLE_APPROVAL_CHANNEL, issuer: "https://accounts.google.com" }),
+  // A guest (no sign-up) approving their own tests in the app: identity is the server's own signed
+  // guest session. Guest accounts can never certify; this only lets their own tests run.
+  guest: Object.freeze({ channel: "web-guest-session", issuer: "greenlight-guest" }),
 });
 export const JOB_STATUS = Object.freeze({ QUEUED: "queued", RUNNING: "running", SUCCEEDED: "succeeded", FAILED: "failed" });
 
@@ -104,12 +107,13 @@ export function webApprovalValidFor(approval, hash) {
  * The permanent verification record for one server certification run.
  * `certified` is computed here and only here.
  */
-export function buildVerificationRecord({ id, project, version, approval, deployment, evaluation, manifest, credits, startedAt, endedAt, now }) {
+export function buildVerificationRecord({ id, project, version, approval, deployment, evaluation, manifest, credits, startedAt, endedAt, now, certifiable = true, testsRun = null }) {
   const evidenceStored = manifest?.evidence?.status === "stored";
   const runUsable = evaluation.run?.usable === true;
   const status = evaluation.project.status; // passed | failed | couldnt_verify
   const claimText = new Map(version.claims.map((c) => [c.id, c.text]));
-  const certified = status === "passed" && runUsable && evidenceStored && manifest?.runKind === "certification" && approvalValidFor(approval, version.approvedTestHash);
+  // A guest verification (or a run of only some tests) is never a certification.
+  const certified = certifiable && !testsRun && status === "passed" && runUsable && evidenceStored && manifest?.runKind === "certification" && approvalValidFor(approval, version.approvedTestHash);
   const record = {
     schema: SCHEMAS.record,
     id,
@@ -119,7 +123,7 @@ export function buildVerificationRecord({ id, project, version, approval, deploy
     approvedTestHash: version.approvedTestHash,
     approval: { method: approval.method, approvedAt: approval.approvedAt, recordSha256: approval.recordSha256 },
     requirements: version.claims.map((c) => ({ id: c.id, text: c.text })),
-    deployment: { url: deployment.url, commit: deployment.deployedCommit, environment: deployment.environment },
+    deployment: { url: deployment.url, commit: deployment.deployedCommit, environment: deployment.environment, ...(deployment.commitSource ? { commitSource: deployment.commitSource } : {}) },
     status,
     certified,
     notCertifiedBecause: certified
@@ -128,7 +132,10 @@ export function buildVerificationRecord({ id, project, version, approval, deploy
           ...(status !== "passed" ? [`status_${status}`] : []),
           ...(runUsable ? [] : ["run_not_usable"]),
           ...(evidenceStored ? [] : [`evidence_${manifest?.evidence?.status ?? "missing"}`]),
+          ...(certifiable ? [] : ["guest_verification"]),
+          ...(testsRun ? ["partial_rerun"] : []),
         ],
+    ...(testsRun ? { testsRun } : {}),
     claims: evaluation.claims.map((c) => ({ id: c.id, text: claimText.get(c.id) ?? null, status: c.status, tests: c.tests })),
     execution: {
       runId: manifest?.runId ?? null,
