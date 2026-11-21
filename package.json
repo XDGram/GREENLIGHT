@@ -1,0 +1,42 @@
+{
+  "name": "greenlight",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Greenlight: verify deployed applications against approved requirements using Kane CLI.",
+  "type": "module",
+  "bin": {
+    "greenlight": "bin/greenlight.js",
+    "greenlight-stop-hook": "bin/greenlight-stop-hook.js",
+    "greenlight-server": "bin/greenlight-server.js",
+    "greenlight-admin": "bin/greenlight-admin.js",
+    "greenlight-migrate-to-supabase": "bin/greenlight-migrate-to-supabase.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "server": "node bin/greenlight-server.js",
+    "test:live": "env -u NODE_USE_ENV_PROXY GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-anon-live.test.js && GREENLIGHT_LIVE_SUPABASE=1 node --test test/server/supabase-live.test.js",
+    "build": "vite build --config web/vite.config.ts && node scripts/copy-downloads.js",
+    "dev:web": "vite --config web/vite.config.ts",
+    "typecheck:web": "tsc -p web/tsconfig.json"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.13",
+    "@fontsource/inter": "5.1.0",
+    "@fontsource/jetbrains-mono": "5.1.1",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.7.0",
+    "lucide-react": "0.468.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "typescript": "5.6.3",
+    "vite": "6.4.5"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.6.0",
+    "@vercel/sandbox": "3.9.1"
+  }
+}

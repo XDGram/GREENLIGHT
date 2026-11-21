@@ -1,0 +1,4 @@
+{"type":"run_end","status":"passed","reason":"replay completed","v":1,"ts":"2026-11-19T10:32:01.051Z"}
+{"type":"run_end","status":"passed","reason":"replay completed","v":1,"ts":"2026-11-19T10:32:03.635Z"}
+{"type":"run_end","status":"passed","reason":"replay completed","v":1,"ts":"2026-11-19T10:32:03.866Z"}
+{"type":"test_md_done","overall_status":"passed","duration_s":9,"v":1,"ts":"2026-11-19T10:32:04.847Z"}

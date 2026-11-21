@@ -1,0 +1,33 @@
+/* Greenlight visual system: monochrome, soft grey ground, white rounded panels, black accents,
+   fully rounded pills. State is shown by form (filled, outlined, dashed) and words, not colour. */
+:root {
+  --ground: #e4e4e2;
+  --ground-light: #f4f4f2;
+  --panel: #fbfbfa;
+  --panel-2: #f1f1ef;
+  --ink: #0e0e0e;
+  --ink-2: #2b2b2b;
+  --muted: #5c5c5c;        /* 6.3:1 on --panel */
+  --faint: #8a8a8a;        /* decoration and dashed outlines only */
+  --line: #dcdcda;
+  --line-strong: #c8c8c6;
+  --dark: #0b0b0b;
+  --dark-2: #1a1a1a;
+  --on-dark: #fbfbfa;
+  --on-dark-muted: #a9a9a9; /* 8.4:1 on --dark */
+  --on-dark-line: #343434;
+
+  --r-frame: 40px;
+  --r-panel: 28px;
+  --r-inner: 22px;
+  --r-pill: 999px;
+
+  --shadow-frame: 0 30px 80px rgba(0, 0, 0, 0.08);
+  --shadow-chip: 0 1px 3px rgba(0, 0, 0, 0.08);
+
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --gap: 18px;
+  color-scheme: light;
+}

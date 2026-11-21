@@ -1,0 +1,8 @@
+Skill update available: not installed → 0.1.4 — run `kane-cli install skill`
+
+info: --local — cloud upload skipped
+info: --local — cloud upload skipped
+info: --local — cloud upload skipped
+
+Evidence — view locally:
+  kane-cli evidence serve /tmp/claude-0/-home-user-GREENLIGHT/f4bfd0f5-c61d-5a85-ac97-b025b21842b1/scratchpad/gl-test-app/kane-tests/.testmuai/evidence/412b9281-8d80-4ea2-a6ef-7d2f348f21b2.evidence   # execution

@@ -1,0 +1,329 @@
+// Greenlight evidence collector (Phase 1, Step 3).
+//
+// After a Kane run, this:
+//   1. finds the evidence pack from the completed run's execution ID
+//      (<kane cwd>/.testmuai/evidence/<execution_id>.evidence),
+//   2. checks it is a regular file and a structurally complete zip,
+//   3. copies it into .greenlight/runs/<run-id>/evidence/ (private, 0600),
+//   4. validates the copy with `kane-cli evidence validate --json`,
+//      requiring valid: true and keeping every warning,
+//   5. hashes the pack and Kane's stdout / stderr (SHA-256),
+//   6. writes manifest.json and, last of all, the hash of the whole record.
+//
+// PRIVACY: evidence packs contain the Kane account's username and email, Test
+// Manager share links and the start URL (which may carry a deployment bypass
+// secret). Everything written here is local and private. Nothing in this module
+// publishes, uploads or exposes a pack. Public certification (Phase 2) must use
+// a separately produced, redacted summary.
+
+import path from "node:path";
+import { constants as fsc } from "node:fs";
+import { mkdir, writeFile, copyFile, rename, rm, lstat, chmod, readFile } from "node:fs/promises";
+import { sha256File, sha256Bytes, canonicalJson } from "./hash.js";
+import { checkZipStructure } from "./zip-check.js";
+import { kaneEvidenceValidator, interpretValidation } from "./validate.js";
+import { KANE_CLI_VERSION } from "../kane/runner.js";
+
+export const MANIFEST_SCHEMA = "greenlight.run-manifest/v1";
+export const MANIFEST_FILE = "manifest.json";
+export const RECORD_HASH_FILE = "manifest.sha256";
+export const STDOUT_FILE = "kane-stdout.ndjson";
+export const STDERR_FILE = "kane-stderr.txt";
+export const EVIDENCE_DIR = "evidence";
+
+const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
+const EXECUTION_ID = /^[A-Za-z0-9][A-Za-z0-9-]{7,63}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const GIT_COMMIT = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** Evidence outcomes. Only "stored" means a validated pack is on disk. */
+export const EVIDENCE_STATUS = Object.freeze({
+  STORED: "stored",
+  NO_EXECUTION_ID: "no_execution_id",
+  EXECUTION_ID_MISMATCH: "execution_id_mismatch",
+  INVALID_EXECUTION_ID: "invalid_execution_id",
+  MISSING: "missing",
+  NOT_A_REGULAR_FILE: "not_a_regular_file",
+  CORRUPTED: "corrupted",
+  COPY_MISMATCH: "copy_mismatch",
+  INVALID: "invalid",
+  NOT_FOUND_BY_VALIDATOR: "not_found_by_validator",
+  VALIDATION_OUTPUT_UNREADABLE: "validation_output_unreadable",
+  VALIDATION_UNAVAILABLE: "validation_unavailable",
+  CHANGED_DURING_VALIDATION: "changed_during_validation",
+});
+
+/**
+ * Record the start URL without its query string or fragment, which can carry
+ * secrets (e.g. a deployment-protection bypass token). The full URL is kept
+ * only as a hash.
+ */
+export function describeStartUrl(startUrl) {
+  if (startUrl === undefined || startUrl === null) return null;
+  const u = new URL(startUrl);
+  if (u.protocol !== "https:" && u.protocol !== "http:") throw new TypeError(`startUrl must be http(s): ${startUrl}`);
+  const hadSecretsRemoved = Boolean(u.search || u.hash || u.username || u.password);
+  return {
+    origin: u.origin,
+    path: u.pathname,
+    redacted: `${u.origin}${u.pathname}${u.search ? "?REDACTED" : ""}`,
+    queryOrFragmentRemoved: hadSecretsRemoved,
+    sha256: sha256Bytes(startUrl),
+  };
+}
+
+/** Hash of the record: canonical JSON of the manifest without its own hash. */
+export function recordHash(manifest) {
+  const { recordSha256, ...rest } = manifest;
+  return sha256Bytes(canonicalJson(rest));
+}
+
+function validateInputs({ runId, approvedTestHash, deployedCommit, runResult }) {
+  if (typeof runId !== "string" || !RUN_ID.test(runId)) throw new TypeError(`invalid runId: ${runId}`);
+  if (typeof approvedTestHash !== "string" || !SHA256_HEX.test(approvedTestHash)) {
+    throw new TypeError("approvedTestHash must be a lowercase SHA-256 hex string");
+  }
+  if (typeof deployedCommit !== "string" || !GIT_COMMIT.test(deployedCommit)) {
+    throw new TypeError("deployedCommit must be a full lowercase git commit hash");
+  }
+  if (!runResult || typeof runResult !== "object") throw new TypeError("runResult is required");
+}
+
+async function writePrivate(filePath, data) {
+  await writeFile(filePath, data, { mode: 0o600, flag: "wx" });
+  await chmod(filePath, 0o600);
+}
+
+/**
+ * Locate, validate, copy and hash the evidence for one Kane run, and write the
+ * run record.
+ *
+ * @param {object} p
+ * @param {string} p.runId                  Greenlight run id (directory name)
+ * @param {import("../kane/runner.js").KaneRunResult} p.runResult
+ * @param {string} p.kaneCwd                Directory Kane ran in (holds .testmuai/evidence/)
+ * @param {string} p.projectRoot            Greenlight project root (holds .greenlight/)
+ * @param {string} p.approvedTestHash
+ * @param {string} p.deployedCommit
+ * @param {string} [p.startUrl]
+ * @param {(packPath: string) => Promise<object>} [p.validator]  default: kaneEvidenceValidator()
+ * @param {object} [p.evaluation]           Step 2 evaluateRun() output, summarised into the record
+ * @param {{method: string, certifiable: boolean}} [p.approval]  how the tests were approved
+ * @param {object} [p.credits]            credits/usage.js creditRecord(): actual spend from the balance difference
+ * @param {object[]} [p.warnings]         run warnings, e.g. recording_not_retained
+ * @param {"iteration"|"certification"} [p.runKind]  only the server's certification runs may say "certification"
+ * @param {number} [p.attempt]              1, or 2 for the one infrastructure retry
+ * @param {string|null} [p.previousRunId]   the attempt this one retried
+ * @param {() => Date} [p.now]
+ */
+export async function collectEvidence({
+  runId,
+  runResult,
+  kaneCwd,
+  projectRoot,
+  approvedTestHash,
+  deployedCommit,
+  startUrl,
+  validator = kaneEvidenceValidator(),
+  evaluation,
+  approval,
+  credits,
+  warnings,
+  runKind = "iteration",
+  attempt = 1,
+  previousRunId = null,
+  now = () => new Date(),
+}) {
+  if (runKind !== "iteration" && runKind !== "certification") throw new TypeError(`invalid runKind: ${runKind}`);
+  validateInputs({ runId, approvedTestHash, deployedCommit, runResult });
+  const startUrlInfo = describeStartUrl(startUrl);
+
+  const runsRoot = path.join(projectRoot, ".greenlight", "runs");
+  const runDir = path.join(runsRoot, runId);
+  await mkdir(runsRoot, { recursive: true, mode: 0o700 });
+  await mkdir(runDir, { mode: 0o700 }); // throws EEXIST: never overwrite a run record
+  await chmod(runDir, 0o700);
+
+  // Kane's raw output, stored and hashed exactly as captured.
+  const stdoutBytes = Buffer.from(runResult.stdout ?? "", "utf8");
+  const stderrBytes = Buffer.from(runResult.stderr ?? "", "utf8");
+  await writePrivate(path.join(runDir, STDOUT_FILE), stdoutBytes);
+  await writePrivate(path.join(runDir, STDERR_FILE), stderrBytes);
+
+  const evidence = await collectPack({ runResult, kaneCwd, runDir, validator });
+
+  const manifest = {
+    schema: MANIFEST_SCHEMA,
+    private: true,
+    publication: "never_publish_raw_evidence_or_this_record",
+    runId,
+    // "iteration" records are developer-side and can never be certifications (brief §11).
+    runKind,
+    certification: false,
+    attempt,
+    previousRunId,
+    createdAt: now().toISOString(),
+    approvedTestHash,
+    deployedCommit,
+    startUrl: startUrlInfo,
+    kane: {
+      pinnedVersion: KANE_CLI_VERSION,
+      reportedVersion: runResult.stream?.streamStart?.cliVersion ?? null,
+      executionId: runResult.stream?.done?.executionId ?? null,
+      exitCode: runResult.exitCode ?? null,
+      timedOut: Boolean(runResult.timedOut),
+      startedAt: runResult.startedAt ?? null,
+      endedAt: runResult.endedAt ?? null,
+      streamComplete: runResult.completeness?.complete ?? false,
+      streamIncompleteReasons: runResult.completeness?.reasons ?? [],
+    },
+    outputs: {
+      stdout: { file: STDOUT_FILE, sha256: sha256Bytes(stdoutBytes), bytes: stdoutBytes.length },
+      stderr: { file: STDERR_FILE, sha256: sha256Bytes(stderrBytes), bytes: stderrBytes.length },
+    },
+    evidence,
+    result: evaluation ? summariseEvaluation(evaluation) : null,
+    // How the tests were approved. A relayed approval is never certifiable.
+    approval: approval ? { method: approval.method ?? null, certifiable: approval.certifiable === true } : null,
+    // Balance before/after and the actual spend (balance difference), Kane's logged spend and the estimate.
+    credits: credits ?? null,
+    warnings: Array.isArray(warnings) ? warnings : [],
+  };
+  manifest.recordSha256 = recordHash(manifest); // last: after every other hash is set
+
+  await writePrivate(path.join(runDir, MANIFEST_FILE), JSON.stringify(manifest, null, 2) + "\n");
+  await writePrivate(path.join(runDir, RECORD_HASH_FILE), `${manifest.recordSha256}  ${MANIFEST_FILE}\n`);
+
+  return { ok: evidence.status === EVIDENCE_STATUS.STORED, runDir, manifest };
+}
+
+async function collectPack({ runResult, kaneCwd, runDir, validator }) {
+  const base = {
+    status: null,
+    executionId: null,
+    source: null,
+    file: null,
+    sha256: null,
+    bytes: null,
+    zipCheck: null,
+    validation: null,
+  };
+  const done = runResult.stream?.done;
+  const executionId = done?.executionId ?? null;
+  if (!executionId) return { ...base, status: EVIDENCE_STATUS.NO_EXECUTION_ID };
+  if (!EXECUTION_ID.test(executionId)) return { ...base, executionId, status: EVIDENCE_STATUS.INVALID_EXECUTION_ID };
+  const summaryEvidenceId = runResult.stream?.summary?.evidenceId;
+  if (summaryEvidenceId && summaryEvidenceId !== executionId) {
+    return { ...base, executionId, status: EVIDENCE_STATUS.EXECUTION_ID_MISMATCH };
+  }
+
+  // Local runs write <id>.evidence; with --remote Kane copies the grid's pack to execution-<id>.evidence.
+  let source = path.join(kaneCwd, ".testmuai", "evidence", `${executionId}.evidence`);
+  const remoteSource = path.join(kaneCwd, ".testmuai", "evidence", `execution-${executionId}.evidence`);
+  if (!(await lstat(source).then(() => true, () => false)) && (await lstat(remoteSource).then(() => true, () => false))) source = remoteSource;
+  const rec = { ...base, executionId, source };
+
+  let st;
+  try {
+    st = await lstat(source);
+  } catch (err) {
+    if (err.code === "ENOENT") return { ...rec, status: EVIDENCE_STATUS.MISSING };
+    throw err;
+  }
+  if (!st.isFile()) return { ...rec, status: EVIDENCE_STATUS.NOT_A_REGULAR_FILE };
+
+  const zipCheck = await checkZipStructure(source);
+  if (!zipCheck.ok) return { ...rec, zipCheck, status: EVIDENCE_STATUS.CORRUPTED };
+
+  const evidenceDir = path.join(runDir, EVIDENCE_DIR);
+  await mkdir(evidenceDir, { mode: 0o700 });
+  const finalName = `${executionId}.evidence`;
+  const finalPath = path.join(evidenceDir, finalName);
+  const partialPath = `${finalPath}.partial`;
+
+  const sourceHash = await sha256File(source);
+  await copyFile(source, partialPath, fsc.COPYFILE_EXCL);
+  await chmod(partialPath, 0o600);
+  const copyHash = await sha256File(partialPath);
+  if (copyHash.sha256 !== sourceHash.sha256 || copyHash.bytes !== sourceHash.bytes) {
+    await rm(partialPath, { force: true });
+    return { ...rec, zipCheck, status: EVIDENCE_STATUS.COPY_MISMATCH };
+  }
+
+  // Validate our private copy, so what we validate is exactly what we keep.
+  let validation;
+  try {
+    validation = interpretValidation(await validator(partialPath));
+  } catch (err) {
+    validation = interpretValidation({ spawnError: err?.message ?? String(err) });
+  }
+  const withValidation = { ...rec, zipCheck, sha256: copyHash.sha256, bytes: copyHash.bytes, validation };
+
+  if (validation.outcome !== "valid") {
+    await rm(partialPath, { force: true });
+    return { ...withValidation, status: validation.outcome };
+  }
+
+  const afterHash = await sha256File(partialPath);
+  if (afterHash.sha256 !== copyHash.sha256) {
+    await rm(partialPath, { force: true });
+    return { ...withValidation, status: EVIDENCE_STATUS.CHANGED_DURING_VALIDATION };
+  }
+
+  await rename(partialPath, finalPath);
+  return { ...withValidation, status: EVIDENCE_STATUS.STORED, file: path.posix.join(EVIDENCE_DIR, finalName) };
+}
+
+function summariseEvaluation(e) {
+  return {
+    project: e.project?.status ?? null,
+    runUsable: e.run?.usable ?? null,
+    claims: (e.claims ?? []).map((c) => ({ id: c.id, status: c.status })),
+    tests: (e.tests ?? []).map((t) => ({ file: t.file, status: t.status })),
+  };
+}
+
+/**
+ * Re-check a stored run record: the record hash, and every file hash it lists.
+ * @returns {Promise<{ok: boolean, problems: string[], manifest: object|null}>}
+ */
+export async function verifyRunRecord(runDir) {
+  const problems = [];
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(path.join(runDir, MANIFEST_FILE), "utf8"));
+  } catch {
+    return { ok: false, problems: ["manifest_unreadable"], manifest: null };
+  }
+  if (manifest === null || typeof manifest !== "object" || Array.isArray(manifest)) return { ok: false, problems: ["manifest_unreadable"], manifest: null };
+  if (manifest.schema !== MANIFEST_SCHEMA) problems.push("unknown_schema");
+  if (recordHash(manifest) !== manifest.recordSha256) problems.push("record_hash_mismatch");
+  try {
+    const side = (await readFile(path.join(runDir, RECORD_HASH_FILE), "utf8")).split(/\s+/)[0];
+    if (side !== manifest.recordSha256) problems.push("record_hash_file_mismatch");
+  } catch {
+    problems.push("record_hash_file_missing");
+  }
+
+  const checkFile = async (label, rel, expected, expectedBytes) => {
+    if (typeof rel !== "string" || rel === "" || path.isAbsolute(rel) || typeof expected !== "string") return problems.push(`${label}_reference_invalid`);
+    const full = path.join(runDir, rel);
+    const relative = path.relative(runDir, full);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return problems.push(`${label}_path_outside_run`);
+    try {
+      const st = await lstat(full); // a symlink could point anywhere: never followed
+      if (!st.isFile()) return problems.push(`${label}_not_a_file`);
+      const h = await sha256File(full);
+      if (h.sha256 !== expected) problems.push(`${label}_hash_mismatch`);
+      if (expectedBytes !== undefined && h.bytes !== expectedBytes) problems.push(`${label}_size_mismatch`);
+    } catch {
+      problems.push(`${label}_missing`);
+    }
+  };
+  await checkFile("stdout", manifest.outputs?.stdout?.file, manifest.outputs?.stdout?.sha256, manifest.outputs?.stdout?.bytes);
+  await checkFile("stderr", manifest.outputs?.stderr?.file, manifest.outputs?.stderr?.sha256, manifest.outputs?.stderr?.bytes);
+  if (manifest.evidence?.status === EVIDENCE_STATUS.STORED) {
+    await checkFile("evidence", manifest.evidence.file, manifest.evidence.sha256, manifest.evidence.bytes);
+  }
+  return { ok: problems.length === 0, problems, manifest };
+}

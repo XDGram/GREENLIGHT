@@ -1,0 +1,57 @@
+#!/usr/bin/env node
+// Greenlight server: certification runs and the v1 API. Configuration is read
+// from the environment only; see src/server/config.js and docs/SUPABASE.md.
+// Persistence is Supabase (Postgres + Storage); the file-backed store is for
+// tests only and is refused here. It needs Chrome and an authenticated kane-cli
+// on this machine, and must not run as a serverless function (brief §13).
+
+import { loadConfig, createServerContext, createStore, startServer, checkRuntime } from "../src/server/index.js";
+
+const log = (entry) => process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+
+let config;
+try {
+  config = loadConfig(process.env);
+} catch (err) {
+  process.stderr.write(`greenlight-server: ${err.message}\n`);
+  process.exit(2);
+}
+if (config.store !== "supabase") {
+  process.stderr.write("greenlight-server: production persistence is Supabase; set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. The file store is for tests only.\n");
+  process.exit(2);
+}
+// Fail fast on a wrong key, an unexposed schema or a missing/public bucket; retry
+// only while Supabase is unreachable (network blips during a restart).
+const store = createStore(config);
+let ready;
+for (let attempt = 1; ; attempt++) {
+  ready = await store.health();
+  if (ready.ok || ready.database !== "unreachable" && ready.storage !== "unreachable" || attempt >= 5) break;
+  log({ event: "supabase_unreachable", attempt });
+  await new Promise((r) => setTimeout(r, 2000 * attempt));
+}
+if (!ready.ok) {
+  log({ event: "not_ready", database: ready.database, storage: ready.storage, help: "docs/SUPABASE.md#troubleshooting" });
+  process.exit(2);
+}
+// The execution host must have the pinned Kane CLI and a Chrome it can launch (brief §13).
+const runtime = await checkRuntime({ kaneBin: config.kaneBin, requireChrome: !config.kaneRemote });
+if (!runtime.ok) {
+  log({ event: "not_ready", kane: runtime.kane, kaneVersion: runtime.kaneVersion, chrome: runtime.chrome, help: "Install @testmuai/kane-cli@0.10.6 and Chrome/Chromium (see Dockerfile), or set GREENLIGHT_KANE_BIN / KANE_CLI_CHROME_PATH" });
+  process.exit(2);
+}
+const { jobs, deps } = await createServerContext({ config, log, store });
+const server = await startServer({ config, store, jobs, now: deps.now, log, runtime });
+log({ event: "listening", host: config.host, port: server.address().port, store: config.store, supabase: config.supabase.url, bucket: config.supabase.bucket, kane: runtime.kaneVersion, chrome: runtime.chromePath });
+
+let stopping = false;
+for (const sig of ["SIGINT", "SIGTERM"]) {
+  process.on(sig, async () => {
+    if (stopping) process.exit(130);
+    stopping = true;
+    log({ event: "stopping", signal: sig, note: "running jobs finish; queued jobs are settled at next start" });
+    server.close();
+    await jobs.idle();
+    process.exit(0);
+  });
+}

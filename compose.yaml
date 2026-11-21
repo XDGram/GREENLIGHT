@@ -1,0 +1,19 @@
+# Greenlight server on one persistent host. Put a TLS reverse proxy in front of 127.0.0.1:8787.
+# Secrets: create .env next to this file from .env.example (it is git-ignored). Never commit it.
+services:
+  greenlight:
+    build: .
+    image: greenlight-server
+    env_file: .env
+    init: true                       # forwards SIGTERM, reaps Kane's Chrome processes
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8787:8787"
+    shm_size: "1gb"                  # Chrome needs more than Docker's 64 MB /dev/shm
+    stop_grace_period: 35m           # let a running Kane run (<= 30 min) finish instead of losing it
+    volumes:
+      - kane-home:/home/greenlight/.testmuai
+      - greenlight-work:/var/lib/greenlight/work
+volumes:
+  kane-home:
+  greenlight-work:
