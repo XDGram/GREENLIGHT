@@ -129,7 +129,7 @@ function WhatRuns({ detail, v, versions, onPick }: { detail: ProjectDetail; v: V
         </dd>
         <dt>Approved</dt>
         <dd>
-          {v.approval ? `${formatDateTime(v.approval.approvedAt)} by ${v.approval.approvedBy}${v.approval.identity?.provider ? ` (signed in with ${v.approval.identity.provider === "google" ? "Google" : "Vercel"})` : ""}` : "—"}
+          {v.approval ? `${formatDateTime(v.approval.approvedAt)} by ${v.approval.identity?.username ?? v.approval.approvedBy}${v.approval.identity?.provider ? ` (signed in with ${v.approval.identity.provider === "google" ? "Google" : "Vercel"})` : ""}` : "—"}
           {v.approval && !v.approval.verified ? ` · not certifiable: ${v.approval.verificationReason?.replace(/_/g, " ")}` : ""}
         </dd>
         <dt>Tests</dt>

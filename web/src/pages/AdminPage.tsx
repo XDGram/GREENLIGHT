@@ -115,7 +115,7 @@ export function AdminPage({ onSignIn }: { onSignIn: (e: SignInRequired) => void 
           {settings.value.state === "ready" ? <PauseDemo initial={settings.value.data.settings["guest.checks_paused"] === true} onChanged={settings.reload} /> : null}
           {settings.value.state === "error" ? <ErrorNotice error={settings.value.error} onRetry={settings.reload} /> : null}
           <p className="small" style={{ margin: 0 }}>
-            The console cannot approve tests, start runs, change records or reveal secrets. Every change here is recorded in <Link href="/app/admin/events">admin activity</Link>.
+            The console cannot approve tests, start runs, change records or reveal secrets. Every change here is recorded in <Link href="/app/admin/events">the activity log</Link>.
           </p>
         </section>
       </div>

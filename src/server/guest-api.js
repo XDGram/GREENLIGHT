@@ -264,7 +264,7 @@ export function createGuestApi({ config, store, startRun, now = () => new Date()
         if (await guestPaused()) throw new GreenlightError("guest_limit_reached", "Demo checks are paused by the administrator right now. Everything else in the demo still works.");
         const p = await store.guestGetProject(id, guest.id);
         checkGuestSpec(p.specText, config); // still within the demo's rules and credit cap
-        const run = await store.guestStartRun({ id: `grn_${hex32()}`, projectId: id, guestId: guest.id, status: "queued", approvedTestHash: p.approvedTestHash }, g.runsPerGuest, g.runsPerDay);
+        const run = await store.guestStartRun({ id: `grn_${hex32()}`, projectId: id, guestId: guest.id, status: "queued", kind: "demo_check", approvedTestHash: p.approvedTestHash }, g.runsPerGuest, g.runsPerDay);
         log({ event: "guest_run_started", guest: guest.id, run: run.id, project: id });
         try {
           await startRun(run.id);

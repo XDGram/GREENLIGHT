@@ -35,7 +35,7 @@ export function certificationPath(detail: ProjectDetail, v: VersionView): PathSt
 
   const submitted: PathStep = { key: "submitted", label: "Submitted", state: "done", note: `by ${v.submittedBy}`, start: t(v.submittedAt), end: t(v.submittedAt) };
   const approved: PathStep = v.approval
-    ? { key: "approved", label: "Spec review", state: "done", note: `Approved by ${v.approval.approvedBy}`, start: t(v.submittedAt), end: t(v.approval.approvedAt) }
+    ? { key: "approved", label: "Spec review", state: "done", note: `Approved by ${v.approval.identity?.username ?? v.approval.approvedBy}`, start: t(v.submittedAt), end: t(v.approval.approvedAt) }
     : { key: "approved", label: "Spec review", state: "current", note: "Waiting for approval", start: t(v.submittedAt), end: null };
 
   let deployment: PathStep;

@@ -169,6 +169,14 @@ export async function verifyIdToken(idToken, { clientId, nonce, nowMs, getJwks, 
 
 // ---------------------------------------------------------------- HTML
 
+/** "21 Nov 2026, 07:53 UTC": readable, unambiguous (the exact ISO time stays in the record). */
+const when = (iso) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso ?? "");
+  const m = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getUTCMonth()];
+  return `${d.getUTCDate()} ${m} ${d.getUTCFullYear()}, ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")} UTC`;
+};
+
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 function send(res, status, html, headers = {}) {
@@ -181,7 +189,24 @@ function send(res, status, html, headers = {}) {
   res.setHeader("referrer-policy", "same-origin");
   for (const [k, v] of Object.entries(headers)) res.setHeader(k, v);
   res.end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Greenlight approval</title>
-<style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;color:#111;background:#fff}pre{background:#f4f4f4;padding:12px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}code{word-break:break-all}.box{border:1px solid #ccc;border-radius:6px;padding:12px;margin:16px 0}.ok{color:#05620c}.bad{color:#a00}input[type=text]{width:100%;font:13px monospace;padding:6px;box-sizing:border-box}button{margin-top:8px;padding:8px 14px}</style></head><body>${html}</body></html>`);
+<style>
+:root{color-scheme:light}
+body{margin:0;background:#e4e4e2;color:#0e0e0e;font:15px/1.55 Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:880px;margin:32px auto;padding:28px 32px;background:#fbfbfa;border-radius:28px;box-shadow:0 30px 80px rgba(0,0,0,.08)}
+@media(max-width:640px){main{margin:0;border-radius:0;padding:20px 16px}}
+h1{font-weight:400;font-size:34px;letter-spacing:-.02em;margin:.2em 0 .4em}
+h2{font-weight:500;font-size:22px;margin:1.4em 0 .4em}h3{font-weight:500;font-size:16px;margin:0 0 .5em}
+a{color:#0e0e0e}p{margin:.6em 0}
+pre{background:#0b0b0b;color:#fbfbfa;padding:14px 16px;border-radius:18px;overflow-x:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.6 "JetBrains Mono",ui-monospace,Menlo,monospace}
+code{font:12.5px "JetBrains Mono",ui-monospace,Menlo,monospace;word-break:break-all}
+.box{border:1px solid #dcdcda;border-radius:22px;padding:16px 18px;margin:14px 0}
+.ok{color:#0e0e0e}.ok b,h1.ok{font-weight:600}.bad{font-weight:600}
+label{display:block;font-size:13px;color:#5c5c5c;margin-top:8px}
+input[type=text]{display:block;width:100%;box-sizing:border-box;margin-top:6px;min-height:44px;padding:0 16px;border:1px solid #c8c8c6;border-radius:999px;background:#fbfbfa;font:13px "JetBrains Mono",ui-monospace,monospace;color:#0e0e0e}
+input[type=text]:focus{outline:2px solid #0e0e0e;outline-offset:1px}
+button{margin-top:10px;min-height:44px;padding:0 20px;border:0;border-radius:999px;background:#0e0e0e;color:#fbfbfa;font:500 13px Inter,system-ui,sans-serif;cursor:pointer}
+details summary{cursor:pointer;font-size:13px;color:#5c5c5c;margin-top:6px}ul{padding-left:20px}
+</style></head><body><main>${html}</main></body></html>`);
 }
 
 function redirect(res, location, headers = {}) {
@@ -385,13 +410,13 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
     let actions;
     if (approval) {
       const prov = approval.identity?.provider;
-      actions = `<p class="ok"><b>Already approved</b> by ${esc(approval.approvedBy)} at ${esc(approval.approvedAt)}${prov && WEB_IDENTITY_PROVIDERS[prov]?.channel === approval.channel ? ` (signed in with ${prov === "google" ? "Google" : "Vercel"}${approval.identity.username ? ` as ${esc(approval.identity.username)}` : ""})` : ""}. Approvals are write-once.</p>`;
+      actions = `<p class="ok"><b>Already approved</b> by ${esc(approval.approvedBy)} at ${esc(when(approval.approvedAt))}${prov && WEB_IDENTITY_PROVIDERS[prov]?.channel === approval.channel ? ` (signed in with ${prov === "google" ? "Google" : "Vercel"}${approval.identity.username ? ` as ${esc(approval.identity.username)}` : ""})` : ""}. Approvals are write-once.</p>`;
     } else if (!consistent) {
       actions = `<p class="bad"><b>Refused:</b> the stored specification does not produce the version's recorded hash. Nothing can be approved.</p>`;
     } else {
       actions = `<div class="box"><h3>1. Approve the test specification</h3><p>Hash re-derived from the greenlight.yaml above:</p><p><code>${esc(specHash)}</code></p>${
         specOk
-          ? `<p class="ok">Confirmed at ${esc(specOk.confirmedAt)}.</p>`
+          ? `<p class="ok">Confirmed at ${esc(when(specOk.confirmedAt))}.</p>`
           : `<form method="post" action="/approve/${esc(project.id)}/${esc(n)}/test-specification"><input type="hidden" name="csrf" value="${esc(csrfFor(s.sid, "test-specification", project.id, n, specHash))}"><label>Type the full test-specification hash to approve it:<input type="text" name="confirmHash" autocomplete="off" spellcheck="false" required></label><button type="submit">Approve test specification</button></form>`
       }</div><div class="box"><h3>2. Approve the server version</h3><p>Hash recorded for server version ${esc(n)}:</p><p><code>${esc(versionHash)}</code></p>${
         specOk
@@ -399,8 +424,8 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
           : `<p>Approve the test specification first.</p>`
       }</div>`;
     }
-    return send(res, 200, `<p><a href="/app/projects/${esc(project.id)}">← Back to ${esc(project.name)}</a></p><h1>Greenlight approval</h1><p>Signed in with ${s.provider === "google" ? "Google" : "Vercel"} as <b>${esc(s.username ?? s.email ?? s.sub)}</b> (Greenlight owner <b>${esc(s.user)}</b>, account ${esc(s.account)}). Session ends ${esc(new Date(s.exp).toISOString())}.</p>${notice}
-<h2>${esc(project.name)}</h2><p>${esc(desc)}</p><p>Live URL: <code>${esc(derived.spec.project.url)}</code> · Server version ${esc(n)} · submitted by ${esc(v.submittedBy)} at ${esc(v.submittedAt)}</p>
+    return send(res, 200, `<p><a href="/app/projects/${esc(project.id)}">← Back to ${esc(project.name)}</a></p><h1>Greenlight approval</h1><p>Signed in with ${s.provider === "google" ? "Google" : "Vercel"} as <b>${esc(s.username ?? s.email ?? s.sub)}</b> (Greenlight owner <b>${esc(s.user)}</b>, account ${esc(s.account)}). Session ends ${esc(when(new Date(s.exp).toISOString()))}.</p>${notice}
+<h2>${esc(project.name)}</h2><p>${esc(desc)}</p><p>Live URL: <code>${esc(derived.spec.project.url)}</code> · Server version ${esc(n)} · submitted by ${esc(v.submittedBy)} at ${esc(when(v.submittedAt))}</p>
 <h3>Claims</h3><ul>${claims}</ul><h3>Tests</h3>${tests}<h3>greenlight.yaml</h3><pre>${esc(v.specText)}</pre>${actions}`);
   }
 
@@ -449,7 +474,7 @@ export function createApprovalWeb({ config, store, jobs = null, now = () => new 
     }
     log({ event: "approval_recorded", subject: s.sub, user: s.user, projectId: project.id, version: v.version, recordSha256: record.recordSha256 });
     await activity(store, `${s.account}${s.email ? ` (${s.email})` : ""}`, "tests.approved", project.id, { version: v.version, hash: v.approvedTestHash, provider: s.provider });
-    return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (signed in with ${s.provider === "google" ? "Google" : "Vercel"} as ${esc(s.username ?? s.sub)}).</p><p><a href="/app/projects/${esc(project.id)}/verify">Continue to verification →</a></p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(spec.confirmedAt)}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(confirmedAt.toISOString())}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
+    return send(res, 201, `<h1 class="ok">Approved</h1><p>Server version ${esc(n)} of ${esc(project.name)} is approved by ${esc(s.user)} (signed in with ${s.provider === "google" ? "Google" : "Vercel"} as ${esc(s.username ?? s.sub)}).</p><p><a href="/app/projects/${esc(project.id)}/verify">Continue to verification →</a></p><p>Test specification: <code>${esc(spec.hash)}</code> at ${esc(when(spec.confirmedAt))}<br>Server version: <code>${esc(v.approvedTestHash)}</code> at ${esc(when(confirmedAt.toISOString()))}</p><p>Record <code>${esc(record.recordSha256)}</code></p>`, { "set-cookie": cookie(SPEC_COOKIE, "", 0) });
   }
 
   return async function handle(req, res, url) {

@@ -341,7 +341,7 @@ function VersionView({ detail, v }: { detail: ProjectDetail; v: VersionView }) {
       ) : null}
 
       <div className="row">
-        <Timeline steps={steps} approver={v.approval?.approvedBy ?? null} />
+        <Timeline steps={steps} approver={v.approval ? v.approval.identity?.username ?? v.approval.approvedBy : null} />
         <PathCard steps={steps} />
         <LiveSite detail={detail} />
       </div>
@@ -470,7 +470,7 @@ function ClaimsCard({ v, results }: { v: VersionView; results: Map<string, strin
           </h2>
           <span className="count-chip">{v.claims.length}</span>
         </div>
-        <Fact icon={<I.Approvals size={15} />} label={v.approval ? "Approved by" : "Submitted by"} value={v.approval?.approvedBy ?? v.submittedBy} />
+        <Fact icon={<I.Approvals size={15} />} label={v.approval ? "Approved by" : "Submitted by"} value={v.approval ? v.approval.identity?.username ?? v.approval.approvedBy : v.submittedBy} />
         <Fact icon={<I.Hash size={15} />} label="Spec hash" value={shortHash(v.approvedTestHash)} mono title={v.approvedTestHash} />
         <Fact icon={<I.Check size={15} />} label="Signature" value={!v.approval ? "Not approved yet" : v.approval.verified ? "Verified by server" : v.approval.signed ? "Not verified" : "Unsigned"} />
       </div>
