@@ -99,6 +99,15 @@ Classification comes only from Kane's test results and the approved tests. A lin
 
 If you believe the test, not the app, is wrong, stop and tell the user: quote the claim, the step, and why. Propose the exact `greenlight.yaml` change. Do not apply it.
 
+## Fix tasks from the Greenlight web app (MCP)
+
+A developer can send a failed test from Greenlight's Fix Centre to you. You reach it through the Greenlight MCP server (configured with an agent token):
+
+1. `greenlight_list_fix_tasks` lists the tasks sent to you; `greenlight_get_fix_task` returns one: the failing test's steps, the step it stopped at, Kane's message, what should have happened, the likely cause (with how well the evidence supports it) and the task. Fetching it tells the developer you are working on it.
+2. Fix the application in this repository. Never change the approved tests or `greenlight.yaml` to make the test pass; if the test itself looks wrong, stop and tell the developer.
+3. Commit, push and make sure the change is deployed. Only then call `greenlight_report_fix` with the full commit and a short summary of what changed.
+4. Reporting does not mark the failure fixed. The developer re-runs the test in Greenlight; it is fixed only if it passes in the browser. Never tell the developer it is fixed before that.
+
 ## The Stop hook
 
 `greenlight-stop-hook` runs when you try to finish:

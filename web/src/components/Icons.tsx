@@ -41,4 +41,8 @@ export {
   Database,
   Lock,
   Pencil,
+  Wrench,
+  MessageSquare,
+  Send,
+  Eye,
 } from "lucide-react";

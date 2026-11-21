@@ -19,6 +19,38 @@ The product for three kinds of people:
   `/approve` to a running server (`GREENLIGHT_DEV_API`, default `http://127.0.0.1:8787`).
 - `npm run typecheck:web` type-checks it.
 
+## The journey (guests first)
+
+Visitors use Greenlight without an account: **Test your app, no account needed** gives the browser a
+signed guest cookie, which maps to an anonymous account (`v-<hash>`) with the full project flow:
+
+1. **Submit an app**: GitHub repository URL and live URL (both required, with why each is needed),
+   what the app does, an optional throwaway test account.
+2. **Learn the app** (`POST .../understand`): the public GitHub API (metadata, languages, files and
+   routes, `package.json`, README; optional read-only `GREENLIGHT_GITHUB_TOKEN` for higher limits)
+   and a headless Chromium read of the live app (`src/server/browse.js`, `@sparticuz/chromium`;
+   every request is checked against private addresses). Claude compares this with the description:
+   testable features with their source, mismatches, questions. Private repositories are reported
+   as unreadable, never guessed at.
+3. **Test plan**: plain-language tests (feature, what Greenlight does, what should happen, what
+   counts as working). Edit, remove, add, or ask Claude to revise; the spec stays under Technical
+   details. Guests approve the exact plan in the app (a signed, write-once approval); accounts that
+   can certify approve on the `/approve` pages.
+4. **Verification**: a real Kane run. For guests the server picks the commit (the live site's
+   `/greenlight.json`, else the public branch head, recorded as unconfirmed), runs are capped in the
+   database (`GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST`, default 1; `GREENLIGHT_GUEST_REAL_RUNS_PER_DAY`,
+   default 3; the administrator can pause them), and results are never certificates or public
+   records. Outcomes are shown as Working / Not working / Could not verify, in plain English.
+5. **Fix Centre** (`src/server/fix-centre.js`): per failed test, an explanation (facts only without
+   AI; the likely cause is labelled as supported, a guess, or unknown), a conversation that keeps the
+   failure's context, a generated fix and a task for a coding agent. **Send to coding agent** makes
+   it available over MCP (`greenlight_list_fix_tasks`, `greenlight_get_fix_task`,
+   `greenlight_report_fix`); Greenlight never changes code. Status becomes "fixed" only when a later
+   run passes the test; re-runs can target just the failed tests.
+
+Navigation: Overview, My projects, Submit an app, Test plan, Verification, Fix Centre, Evidence &
+history, Integrations, Administration (administrators only).
+
 ## Sign-in and roles
 
 | | Normal users | Administrator |

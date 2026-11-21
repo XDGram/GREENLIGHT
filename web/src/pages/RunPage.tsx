@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { api, type SignInRequired } from "../api";
-import { ErrorNotice, LoadingRows, Notice, Pill, ResultMark, Tag } from "../components/Bits";
+import { ErrorNotice, LoadingRows, Notice, ResultMark, Tag } from "../components/Bits";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
 import { claimStatusLabel, credits, formatDateTime, formatDuration, shortHash } from "../format";
-import { Link } from "../router";
+import { Link, useRouter } from "../router";
+import { OUTCOME_LABEL, OUTCOME_MEANING, outcomeOf } from "../plain";
 import type { RunDetail } from "../types";
 import { useData } from "../useData";
 
@@ -15,6 +16,8 @@ const why = (r: string) =>
     status_couldnt_verify: "at least one claim couldn’t be verified",
     run_not_usable: "the browser run was incomplete",
     evidence_missing: "evidence was missing",
+    guest_verification: "it was a visitor run (visitor runs are never certificates)",
+    partial_rerun: "only some tests were re-run",
   })[r] ?? r.replace(/_/g, " ");
 
 export function RunPage({ id, recordId, onSignIn }: { id: string; recordId: string; onSignIn: (e: SignInRequired) => void }) {
@@ -47,27 +50,30 @@ function Run({ projectId, d }: { projectId: string; d: RunDetail }) {
   return (
     <>
       <TopBar
-        title={r.certified ? "Certified" : r.status === "passed" ? "Passed, not certified" : r.status === "failed" ? "Failed" : "Couldn’t verify"}
+        title={r.status === "passed" ? "Everything worked" : r.status === "failed" ? "Some things don’t work" : "Could not verify everything"}
         eyebrow={
           <>
             <Link href={`/app/projects/${projectId}`}>Project</Link>
             <I.ChevronRight size={13} aria-hidden="true" />
-            <Link href={`/app/projects/${projectId}/verify`}>Verify</Link>
+            <Link href={`/app/projects/${projectId}/verify`}>Verification</Link>
             <I.ChevronRight size={13} aria-hidden="true" />
             <span>{formatDateTime(r.startedAt)}</span>
           </>
         }
       >
-        <Pill form={r.certified ? "solid" : "outline"} icon={r.certified ? <I.Check size={14} strokeWidth={2.4} /> : <I.CircleAlert size={14} />} title={`${passed} of ${r.claims.length} claims passed`} sub={`Version ${r.testVersion}`} />
+        <span className="outcome working">{passed} working</span>
+        {r.claims.length - passed ? <span className="outcome not_working">{r.claims.length - passed} not working or unverified</span> : null}
         <Link className="btn ghost" href={`/app/projects/${projectId}/verify`}>
-          <I.RefreshCw size={14} aria-hidden="true" /> Verify again
+          <I.RefreshCw size={14} aria-hidden="true" /> Test again
         </Link>
       </TopBar>
+
+      <Outcomes projectId={projectId} d={d} />
 
       <section className={r.certified ? "card-dark" : "card"} aria-labelledby="cert-h">
         <div className="card-head">
           <h2 id="cert-h" className="card-title lg">
-            Certification
+            Public certificate
           </h2>
           {r.certified ? <Tag form="solid">Public record</Tag> : <Tag form="dashed">Private history</Tag>}
         </div>
@@ -87,6 +93,9 @@ function Run({ projectId, d }: { projectId: string; d: RunDetail }) {
         ) : null}
       </section>
 
+      <details className="tech">
+        <summary>Technical details: commit, credits, integrity, per-claim and per-step results</summary>
+        <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap)" }}>
       <div className="row">
         <section className="card" aria-labelledby="facts-h" style={{ flex: "1 1 340px" }}>
           <h2 id="facts-h" className="card-title lg">
@@ -209,6 +218,9 @@ function Run({ projectId, d }: { projectId: string; d: RunDetail }) {
         )}
       </section>
 
+        </div>
+      </details>
+
       <section className="card" aria-labelledby="ev-h">
         <div className="card-head">
           <h2 id="ev-h" className="card-title lg">
@@ -266,6 +278,76 @@ function Run({ projectId, d }: { projectId: string; d: RunDetail }) {
         )}
       </section>
     </>
+  );
+}
+
+/** Each test in plain English: Working / Not working / Could not verify, and what to do next. */
+function Outcomes({ projectId, d }: { projectId: string; d: RunDetail }) {
+  const { navigate } = useRouter();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const r = d.record;
+  const commitNote = r.deployment?.commitSource === "branch_head_unconfirmed" ? `the latest code on the branch (${r.deployment.commit.slice(0, 7)}; your site didn't confirm which version it runs)` : r.deployment ? `code version ${r.deployment.commit.slice(0, 7)}` : "your live app";
+  const openFix = async (file: string) => {
+    setBusy(file);
+    setErr(null);
+    try {
+      const f = await api.openFix(projectId, r.id, file);
+      navigate(`/app/fixes/${f.id}`);
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(null);
+    }
+  };
+  if (!d.tests) {
+    return (
+      <section className="card">
+        <p style={{ margin: 0 }}>Results by feature are below. Step-by-step details for this run could not be read back.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="card" aria-labelledby="out-h">
+      <div className="card-head">
+        <h2 id="out-h" className="card-title lg">
+          What was tested
+        </h2>
+        <span className="small">
+          {formatDateTime(r.startedAt)} · {commitNote}
+        </span>
+      </div>
+      <ul className="list">
+        {d.tests.map((t) => {
+          const o = outcomeOf(t.status);
+          const claims = t.claims.map((c) => d.claims.find((x) => x.id === c)?.text ?? c);
+          return (
+            <li key={t.file} className="list-row" style={{ alignItems: "flex-start" }}>
+              <span className={`outcome ${o}`}>{OUTCOME_LABEL[o]}</span>
+              <div className="list-main" style={{ gap: 4 }}>
+                <b>{t.title ?? t.file}</b>
+                <span>{claims.join(" ")}</span>
+                {o === "working" ? null : (
+                  <span style={{ color: "var(--ink)" }}>
+                    {t.failedStep ? `The browser got stuck at step ${t.failedStep.index}: ${t.failedStep.kind === "expect_text" ? `it expected to see “${t.failedStep.text}”` : t.failedStep.text}. ` : ""}
+                    {t.failureMessage ?? OUTCOME_MEANING[o]}
+                  </span>
+                )}
+              </div>
+              {o === "working" ? null : (
+                <button type="button" className="btn sm" onClick={() => openFix(t.file)} disabled={busy !== null}>
+                  {busy === t.file ? <span className="spinner" aria-hidden="true" /> : <I.Wrench size={14} aria-hidden="true" />} Open in Fix Centre
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {err ? (
+        <p className="small" role="alert" style={{ margin: 0 }}>
+          {err}
+        </p>
+      ) : null}
+    </section>
   );
 }
 

@@ -2,7 +2,8 @@ import { api, type SignInRequired } from "../api";
 import { Empty, ErrorNotice, LoadingRows, Pill, Tag } from "../components/Bits";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
-import { claimStatusLabel, credits, formatDateTime } from "../format";
+import { credits, formatDateTime } from "../format";
+import { OUTCOME_LABEL, outcomeOf } from "../plain";
 import { Link } from "../router";
 import type { ProjectSummary, RecordSummary } from "../types";
 import { useData, type Loadable } from "../useData";
@@ -27,8 +28,8 @@ export function RecordsPage({ projects, onSignIn }: { projects: Loadable<Project
 
   return (
     <>
-      <TopBar title="Runs" eyebrow="Every verification run, passed or not, with its evidence">
-        <Pill icon={<I.Records size={14} />} title={`${certified} certified`} sub={`${rows.length} runs`} />
+      <TopBar title="Evidence & history" eyebrow="Every browser test run, what worked and what didn’t, with its evidence">
+        <Pill icon={<I.Records size={14} />} title={`${rows.length} runs`} sub={certified ? `${certified} certified` : "Private history"} />
       </TopBar>
       {projects.state === "loading" || value.state === "loading" || (value.state === "ready" && value.data === null) ? <LoadingRows /> : null}
       {value.state === "error" ? <ErrorNotice error={value.error} onRetry={reload} /> : null}
@@ -56,8 +57,9 @@ export function RecordsPage({ projects, onSignIn }: { projects: Loadable<Project
                     </span>
                   </div>
                   <span className="tags">
-                    <Tag form={r.certified ? "solid" : "outline"}>{r.certified ? "Certified" : claimStatusLabel(r.status)}</Tag>
-                    <Tag form={r.integrity ? "outline" : "dashed"}>{r.integrity ? "Record intact" : "Integrity failed"}</Tag>
+                    <span className={`outcome ${outcomeOf(r.status)}`}>{OUTCOME_LABEL[outcomeOf(r.status)]}</span>
+                    {r.certified ? <Tag form="solid">Public certificate</Tag> : null}
+                    {r.integrity ? null : <Tag form="dashed">Record failed its integrity check</Tag>}
                   </span>
                   {r.certified && r.publicUrl ? (
                     <a className="btn ghost sm" href={r.publicUrl} target="_blank" rel="noopener noreferrer">

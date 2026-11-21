@@ -4,10 +4,10 @@ import { CodeBlock, CopyButton, Empty, ErrorNotice, FormError, LoadingRows, Noti
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
 import { formatDateTime } from "../format";
-import type { ApiToken, Integrations } from "../types";
+import type { ApiToken, Integrations, Session } from "../types";
 import { useData } from "../useData";
 
-export function IntegrationsPage({ onSignIn }: { onSignIn: (e: SignInRequired) => void }) {
+export function IntegrationsPage({ onSignIn, session }: { onSignIn: (e: SignInRequired) => void; session?: Session }) {
   const info = useData(() => api.integrations(), [], { onSignIn, refreshMs: 120_000 });
   const tokens = useData(() => api.tokens(), [], { onSignIn, refreshMs: 120_000 });
   const [fresh, setFresh] = useState<{ token: string; label: string } | null>(null);
@@ -33,6 +33,7 @@ export function IntegrationsPage({ onSignIn }: { onSignIn: (e: SignInRequired) =
         }}
         fresh={fresh}
         onCreated={setFresh}
+        guest={session?.role === "guest"}
       />
     </>
   );
@@ -126,7 +127,7 @@ function Mcp({ i, token }: { i: Integrations; token: string | null }) {
         <Tag>Streamable HTTP · bearer token</Tag>
       </div>
       <p style={{ margin: 0, maxWidth: "75ch" }}>
-        Any MCP client can read your projects, results and records, check the deployed commit and propose new test versions. No tool approves tests, starts a paid run or publishes anything; proposals come back with the approval link for you.
+        This is how fixes reach your coding agent. Claude Code (or any MCP client) can read your projects and results, pick up the fix tasks you send from the Fix Centre, and report back with the commit. No tool approves tests, starts a paid run or publishes anything.
       </p>
       <dl className="kv-list">
         <dt>Endpoint</dt>
@@ -134,14 +135,14 @@ function Mcp({ i, token }: { i: Integrations; token: string | null }) {
           {i.mcp.url} <CopyButton text={i.mcp.url} />
         </dd>
         <dt>Tools</dt>
-        <dd>list projects · get project · get spec · propose tests · get job · get record · check deployment</dd>
+        <dd>list projects · get project · get spec · propose tests · get job · get record · check deployment · list fix tasks · get fix task · report fix</dd>
       </dl>
       <CodeBlock title="Add to Claude Code" code={cmd} />
     </section>
   );
 }
 
-function Tokens({ tokens, error, reload, fresh, onCreated }: { tokens: ApiToken[] | null; error: Error | null; reload: () => void; fresh: { token: string; label: string } | null; onCreated: (t: { token: string; label: string }) => void }) {
+function Tokens({ tokens, error, reload, fresh, onCreated, guest = false }: { tokens: ApiToken[] | null; error: Error | null; reload: () => void; fresh: { token: string; label: string } | null; onCreated: (t: { token: string; label: string }) => void; guest?: boolean }) {
   const [label, setLabel] = useState("Claude Code");
   const [role, setRole] = useState<"agent" | "owner">("agent");
   const [busy, setBusy] = useState<string | null>(null);
@@ -200,7 +201,7 @@ function Tokens({ tokens, error, reload, fresh, onCreated }: { tokens: ApiToken[
           <span>Role</span>
           <select value={role} onChange={(e) => setRole(e.target.value as "agent" | "owner")}>
             <option value="agent">Agent: read and propose (Claude Code, MCP)</option>
-            <option value="owner">Owner: also requests verification runs (CLI)</option>
+            {guest ? null : <option value="owner">Owner: also requests verification runs (CLI)</option>}
           </select>
         </label>
         <button type="button" className="btn" onClick={create} disabled={busy !== null || !label.trim()}>

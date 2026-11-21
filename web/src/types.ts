@@ -1,8 +1,8 @@
 // Shapes returned by the server's /app/api routes (src/server/app-api.js, admin-api.js, guest-api.js).
 
 export interface Session {
-  provider: "google" | "vercel";
-  role: "user" | "admin";
+  provider: "google" | "vercel" | "guest";
+  role: "user" | "admin" | "guest";
   user: string;
   account: string;
   username: string | null;
@@ -12,6 +12,7 @@ export interface Session {
   expiresAt: string;
   maxCreditsPerRun: number | null;
   features: { ai: boolean; google: boolean; certification: boolean; admin: boolean };
+  guestRuns?: { enabled: boolean; paused: boolean; perGuest: number; perDay: number; leftForYou: number; leftToday: number; maxCreditsPerRun: number | null };
 }
 
 export interface PendingApproval {
@@ -26,6 +27,8 @@ export interface Job {
   projectId?: string;
   version: number;
   commit?: string | null;
+  commitSource?: string | null;
+  tests?: string[] | null;
   confirmSpend?: number | null;
   status: "queued" | "running" | "succeeded" | "failed" | string;
   outcome: string | null;
@@ -45,7 +48,7 @@ export interface RecordSummary {
   status: ClaimStatus;
   certified: boolean;
   notCertifiedBecause: string[];
-  deployment: { url: string; commit: string; environment: string } | null;
+  deployment: { url: string; commit: string; environment: string; commitSource?: string } | null;
   claims: { id: string; text: string | null; status: ClaimStatus }[];
   startedAt: string | null;
   endedAt: string | null;
@@ -138,12 +141,75 @@ export interface RepositoryCheck {
   head?: { sha: string; message: string; author: string | null; date: string | null; url: string | null };
 }
 
+export interface PageRead {
+  url: string;
+  status: number | null;
+  title: string;
+  text: string;
+  headings: string[];
+  links: { text: string; href: string }[];
+  buttons: string[];
+  inputs: { type: string; label: string }[];
+}
+
+export interface Understanding {
+  inspectedAt: string | null;
+  repository: {
+    status: "ok" | "not_readable" | "unavailable";
+    reason?: string;
+    repository?: { fullName: string; description: string | null; language: string | null };
+    languages?: { name: string; share: number }[];
+    frameworks?: { name: string; from: string }[];
+    topLevel?: string[];
+    routes?: string[];
+    fileCount?: number | null;
+    packageJson?: { name: string | null; scripts: string[]; dependencies: string[] } | null;
+    readme?: string | null;
+    read?: string[];
+  } | null;
+  app: { status: "ok" | "unavailable"; reason?: string; pages?: PageRead[] } | null;
+  screenshot: string | null;
+  analysis: {
+    summary: string;
+    framework: string;
+    features: { name: string; description: string; source: string; testable: boolean; why: string }[];
+    mismatches: { topic: string; description_says: string; app_shows: string }[];
+    questions: { id: string; question: string; why: string }[];
+    limits: string;
+  } | null;
+  analyzedAt: string | null;
+  answers: Record<string, string>;
+}
+
+export interface FixItem {
+  id: string;
+  projectId: string;
+  recordId: string;
+  testFile: string;
+  status: "open" | "task_ready" | "sent_to_agent" | "agent_working" | "agent_reported" | "fixed" | "still_failing" | "dismissed";
+  project?: { id: string; name: string; url: string };
+  run?: { recordId: string; testVersion: number; startedAt: string | null; commit: string | null; commitSource: string };
+  test?: { file: string; title: string | null; status: string; steps: TestStep[]; failedStep: { index: number; name: string; kind: string; text: string } | null; failureMessage: string | null; reasons: string[]; claims: { id: string; text: string | null }[] };
+  evidence?: { files: string[] };
+  explanation?: { whatWeTested: string; whatHappened: string; whatShouldHaveHappened: string; likelyCause: string; causeSupport: "supported_by_evidence" | "plausible_guess" | "unknown"; suggestedFix: string; otherPossibilities: string[]; source?: string };
+  explanationError?: string | null;
+  proposal?: { summary: string; steps: string[]; whereToLook: string[]; risks: string[]; howToVerify: string; agentTask: string; createdAt: string };
+  agentReport?: { commit: string; summary: string; at: string };
+  resolvedBy?: { recordId: string; at: string | null; commit: string | null };
+  sentAt?: string;
+  messages?: { role: "user" | "assistant"; content: string; at: string }[];
+  messageCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProjectDetails {
   description: string | null;
   purpose: string | null;
   repository: string | null;
   branch: string | null;
   repositoryCheck: RepositoryCheck | null;
+  understanding: Understanding | null;
   hasCredentials: boolean;
   credentialsUpdatedAt: string | null;
   updatedAt: string | null;

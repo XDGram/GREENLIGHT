@@ -3,9 +3,9 @@ import { ApiError, api, type SignInRequired } from "../api";
 import { CodeBlock, Empty, ErrorNotice, FormError, LoadingRows, Notice, ResultMark, Tag } from "../components/Bits";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
-import { Stepper } from "../components/Stepper";
-import { claimStatusLabel, credits, formatDateTime, formatDuration, relative } from "../format";
-import { Link } from "../router";
+import { credits, formatDateTime, formatDuration, host, relative } from "../format";
+import { OUTCOME_LABEL, outcomeOf } from "../plain";
+import { Link, useRouter } from "../router";
 import type { CommitCheck, DeploymentProbe, Job, ProjectDetail, Session, VersionView } from "../types";
 import { useData } from "../useData";
 
@@ -16,7 +16,7 @@ export function VerifyPage({ id, session, onSignIn }: { id: string; session: Ses
   if (value.state === "loading") {
     return (
       <>
-        <TopBar title="Verify" eyebrow={<Link href="/app/projects">Projects</Link>} />
+        <TopBar title="Verification" eyebrow={<Link href="/app/projects">My projects</Link>} />
         <LoadingRows />
       </>
     );
@@ -24,7 +24,7 @@ export function VerifyPage({ id, session, onSignIn }: { id: string; session: Ses
   if (value.state === "error") {
     return (
       <>
-        <TopBar title="Verify" eyebrow={<Link href="/app/projects">Projects</Link>} />
+        <TopBar title="Verification" eyebrow={<Link href="/app/projects">My projects</Link>} />
         <ErrorNotice error={value.error} onRetry={reload} />
       </>
     );
@@ -43,8 +43,7 @@ function Verify({ detail, session, reload }: { detail: ProjectDetail; session: S
 
   return (
     <>
-      <TopBar title="Verify" eyebrow={<Link href={`/app/projects/${pid}`}>{detail.project.name}</Link>}>
-        <Stepper current="verify" projectId={pid} done={approved.length ? ["project", "tests", "approve"] : ["project"]} />
+      <TopBar title="Verification" eyebrow={<Link href={`/app/projects/${pid}`}>{detail.project.name}</Link>}>
       </TopBar>
 
       {job ? <JobProgress projectId={pid} job={job} onUpdate={setJob} onFinished={reload} /> : null}
@@ -75,7 +74,11 @@ function Verify({ detail, session, reload }: { detail: ProjectDetail; session: S
               <p style={{ margin: 0, fontSize: 13, color: "var(--on-dark-muted)" }}>One verification per project at a time. Its progress is shown above.</p>
             </aside>
           ) : (
-            <Confirm key={probe?.commit ?? "none"} detail={detail} v={v} session={session} deployed={probe?.commit ?? null} onStarted={setJob} />
+            session.role === "guest" ? (
+              <GuestConfirm detail={detail} v={v} session={session} deployed={probe?.commit ?? null} onStarted={setJob} />
+            ) : (
+              <Confirm key={probe?.commit ?? "none"} detail={detail} v={v} session={session} deployed={probe?.commit ?? null} onStarted={setJob} />
+            )
           )}
         </div>
       )}
@@ -92,7 +95,7 @@ function WhatRuns({ detail, v, versions, onPick }: { detail: ProjectDetail; v: V
     <section className="card" aria-labelledby="runs-h">
       <div className="card-head">
         <h2 id="runs-h" className="card-title lg">
-          Approved claims
+          What will be tested
         </h2>
         {versions.length > 1 ? (
           <label className="field" style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -116,20 +119,16 @@ function WhatRuns({ detail, v, versions, onPick }: { detail: ProjectDetail; v: V
             <div className="list-main">
               <b>{c.text}</b>
               <span>
-                {c.id} · {(() => { const n = v.tests.filter((t) => t.claims.includes(c.id)).length; return `${n} test${n === 1 ? "" : "s"}`; })()} · last result: {claimStatusLabel(results.get(c.id))}
+                {(() => { const n = v.tests.filter((t) => t.claims.includes(c.id)).length; return `${n} test${n === 1 ? "" : "s"}`; })()} · last run: {OUTCOME_LABEL[outcomeOf(results.get(c.id))]}
               </span>
             </div>
           </li>
         ))}
       </ul>
       <dl className="kv-list">
-        <dt>Fingerprint</dt>
-        <dd className="mono" title={v.approvedTestHash}>
-          {v.approvedTestHash}
-        </dd>
         <dt>Approved</dt>
         <dd>
-          {v.approval ? `${formatDateTime(v.approval.approvedAt)} by ${v.approval.identity?.username ?? v.approval.approvedBy}${v.approval.identity?.provider ? ` (signed in with ${v.approval.identity.provider === "google" ? "Google" : "Vercel"})` : ""}` : "—"}
+          {v.approval ? `${formatDateTime(v.approval.approvedAt)} ${v.approval.identity?.provider === "guest" ? "by you" : `by ${v.approval.identity?.username ?? v.approval.approvedBy}${v.approval.identity?.provider ? ` (signed in with ${v.approval.identity.provider === "google" ? "Google" : "Vercel"})` : ""}`}` : "—"}
           {v.approval && !v.approval.verified ? ` · not certifiable: ${v.approval.verificationReason?.replace(/_/g, " ")}` : ""}
         </dd>
         <dt>Tests</dt>
@@ -166,7 +165,7 @@ function Deployment({ detail, probe, setProbe }: { detail: ProjectDetail; probe:
     <section className="card" aria-labelledby="dep-h">
       <div className="card-head">
         <h2 id="dep-h" className="card-title lg">
-          Deployed commit
+          Which version of your code
         </h2>
         <button type="button" className="btn ghost sm" onClick={check} disabled={busy}>
           {busy ? <span className="spinner" aria-hidden="true" /> : <I.RefreshCw size={14} aria-hidden="true" />} Check again
@@ -259,7 +258,7 @@ function Confirm({ detail, v, session, deployed, onStarted }: { detail: ProjectD
   return (
     <aside className="card sticky" aria-labelledby="spend-h" style={{ border: "1.5px solid var(--ink)" }}>
       <h2 id="spend-h" className="card-title lg">
-        Start verification
+        Test it in a real browser
       </h2>
       <dl className="stats" style={{ gridTemplateColumns: "1fr 1fr" }}>
         <div className="stat">
@@ -309,9 +308,72 @@ function Confirm({ detail, v, session, deployed, onStarted }: { detail: ProjectD
   );
 }
 
+/** Guests: the server picks the commit; real runs are limited and never certify. */
+function GuestConfirm({ detail, v, session, deployed, onStarted }: { detail: ProjectDetail; v: VersionView; session: Session; deployed: string | null; onStarted: (j: Job) => void }) {
+  const { search } = useRouter();
+  const only = (search.get("tests") ?? "").split(",").filter((t) => v.tests.some((x) => x.file === t));
+  const chosen = only.length ? v.tests.filter((t) => only.includes(t.file)) : v.tests;
+  const runs = session.guestRuns;
+  const per = v.estimate?.breakdown.filter((b) => chosen.some((t) => t.file === b.file)).reduce((n, b) => n + b.credits, 0) ?? 0;
+  const est = only.length ? per + (v.estimate?.runOverhead ?? 0) : v.estimate?.credits ?? null;
+  const cap = runs?.maxCreditsPerRun ?? v.estimate?.cap ?? null;
+  const [agree, setAgree] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<{ message: string; problems?: string[] } | null>(null);
+  const head = detail.details?.repositoryCheck?.head?.sha ?? null;
+  const blocked = !runs?.enabled ? "Real browser runs aren't available for visitors on this server." : runs.paused ? "Real browser runs are paused by the administrator right now." : runs.leftForYou <= 0 ? "You've used your real browser runs on this browser." : runs.leftToday <= 0 ? "Today's real browser runs are used up for all visitors. Try again tomorrow." : est != null && cap != null && est > cap ? "This plan is too large for a visitor run. Remove a test or some steps." : null;
+  const start = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api.certify(detail.project.id, { version: v.version, confirmSpend: Math.min(cap ?? 150, Math.ceil(est ?? 150)), approvedTestHash: v.approvedTestHash, ...(only.length ? { tests: only } : {}) });
+      onStarted(r.job);
+    } catch (e) {
+      const a = e as ApiError;
+      setError({ message: a.message, problems: a.problems });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <aside className="card sticky" aria-labelledby="spend-h" style={{ border: "1.5px solid var(--ink)" }}>
+      <h2 id="spend-h" className="card-title lg">
+        Test it in a real browser
+      </h2>
+      <p style={{ margin: 0, fontSize: 13.5 }}>
+        A real browser opens <b>{host(detail.project.url)}</b> and follows {only.length ? `the ${chosen.length} chosen test${chosen.length === 1 ? "" : "s"}` : `all ${chosen.length} tests`} exactly as approved. It usually takes a few minutes.
+      </p>
+      {only.length ? <Notice>Re-running only: {chosen.map((t) => t.title ?? t.file).join(", ")}.</Notice> : null}
+      <dl className="kv-list">
+        <dt>Code version</dt>
+        <dd>{deployed ? `${deployed.slice(0, 7)}, reported by your live site` : head ? `${head.slice(0, 7)}, the latest on ${detail.details?.branch ?? "main"} (your site doesn't say which version it runs, so this is marked unconfirmed)` : "Unknown: add /greenlight.json to your site or make the repository public"}</dd>
+        <dt>Runs left</dt>
+        <dd>{runs ? `${runs.leftForYou} for you · ${runs.leftToday} today for all visitors` : "—"}</dd>
+        <dt>Cost</dt>
+        <dd>About {credits(est)} test credits, paid by Greenlight (limit {cap ?? "—"})</dd>
+      </dl>
+      {blocked ? (
+        <Notice>{blocked}</Notice>
+      ) : (
+        <label className="check-line">
+          <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
+          <span>Run {chosen.length === 1 ? "this test" : `these ${chosen.length} tests`} on my live app now. This uses one of my real browser runs.</span>
+        </label>
+      )}
+      <FormError error={error} />
+      <button type="button" className="btn" disabled={!agree || busy || Boolean(blocked) || (!deployed && !head)} onClick={start}>
+        {busy ? <span className="spinner" aria-hidden="true" /> : <I.Play size={15} aria-hidden="true" />} Start the browser test
+      </button>
+      <p className="small" style={{ margin: 0 }}>
+        Visitor runs are private: they are never turned into public certificates.
+      </p>
+    </aside>
+  );
+}
+
 const PHASES = [
   { key: "queued", label: "Queued" },
-  { key: "running", label: "Deployment check and browser run" },
+  { key: "running", label: "Checking the live app, then testing in a browser" },
   { key: "done", label: "Result recorded" },
 ];
 
@@ -385,7 +447,7 @@ function History({ detail }: { detail: ProjectDetail }) {
   return (
     <section className="card" aria-labelledby="hist-h">
       <h2 id="hist-h" className="card-title lg">
-        Previous runs
+        Earlier runs
       </h2>
       <div className="table-wrap">
         <table className="table">

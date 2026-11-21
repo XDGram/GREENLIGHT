@@ -1,25 +1,27 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
-import { Empty, ErrorNotice, LoadingRows, Pill, Tag } from "../components/Bits";
+import { ErrorNotice, LoadingRows, ResultMark, Tag } from "../components/Bits";
 import { ChromeOrb } from "../components/Chrome";
 import * as I from "../components/Icons";
-import { ApprovalsBell, TopBar } from "../components/Shell";
+import { TopBar } from "../components/Shell";
 import { Timeline } from "../components/Timeline";
 import { claimStatusLabel, credits, formatDateTime, host, shortHash } from "../format";
-import { Link } from "../router";
+import { Link, useRouter } from "../router";
+import { OUTCOME_LABEL, outcomeOf } from "../plain";
 import { certificationPath, claimResults, doneCount, type PathStep } from "../state";
-import type { ProjectDetail, VersionView } from "../types";
+import type { FixItem, ProjectDetail, Session, VersionView } from "../types";
 import { useData } from "../useData";
 import type { SignInRequired } from "../api";
 
-export function ProjectPage({ id, pending, onSignIn, load, sample = false }: { id: string; pending: number; onSignIn: (e: SignInRequired) => void; load?: () => Promise<ProjectDetail>; sample?: boolean }) {
+export function ProjectPage({ id, pending, onSignIn, load, sample = false, session }: { id: string; pending: number; onSignIn: (e: SignInRequired) => void; load?: () => Promise<ProjectDetail>; sample?: boolean; session?: Session }) {
   const { value, reload } = useData(load ?? (() => api.project(id)), [id], { onSignIn });
   const [picked, setPicked] = useState<number | null>(null);
+  const fixes = useData(() => (sample ? Promise.resolve([] as FixItem[]) : api.fixes(id)), [id, sample], { onSignIn, refreshMs: 60_000 });
 
   if (value.state === "loading") {
     return (
       <>
-        <TopBar title="Loading…" eyebrow={<Link href="/app/projects">Projects</Link>} />
+        <TopBar title="Loading…" eyebrow={<Link href="/app/projects">My projects</Link>} />
         <LoadingRows />
       </>
     );
@@ -27,7 +29,7 @@ export function ProjectPage({ id, pending, onSignIn, load, sample = false }: { i
   if (value.state === "error") {
     return (
       <>
-        <TopBar title="Project" eyebrow={<Link href="/app/projects">Projects</Link>} />
+        <TopBar title="Project" eyebrow={<Link href="/app/projects">My projects</Link>} />
         <ErrorNotice error={value.error} onRetry={reload} />
       </>
     );
@@ -35,81 +37,335 @@ export function ProjectPage({ id, pending, onSignIn, load, sample = false }: { i
 
   const d = value.data;
   const v = d.versions.find((x) => x.version === picked) ?? d.versions[0];
+  const openFixes = fixes.value.state === "ready" ? fixes.value.data.filter((f) => !["fixed", "dismissed"].includes(f.status)) : [];
+
+  if (sample) {
+    return (
+      <>
+        <TopBar title={d.project.name} eyebrow={<span>Example project · read-only</span>}>
+          <Link href="/app/projects/new" className="btn">
+            Test your own app
+          </Link>
+        </TopBar>
+        <p className="small" style={{ margin: 0 }}>
+          A real project in Greenlight, approved by its owner: what it claims, the exact browser steps behind each claim and what a run costs. Nothing here can be changed.
+        </p>
+        {v ? <VersionView detail={d} v={v} /> : null}
+      </>
+    );
+  }
+
   return (
     <>
       <TopBar
         title={d.project.name}
         eyebrow={
-          sample ? (
-            <>
-              <span>Sample project · read-only</span>
-              <I.ChevronRight size={13} aria-hidden="true" />
-              <span>A real Greenlight project, approved by its owner</span>
-            </>
-          ) : (
-            <>
-              <Link href="/app/projects">Projects</Link>
-              <I.ChevronRight size={13} aria-hidden="true" />
-              <span className="mono">{d.project.id}</span>
-              {value.refreshing ? <span className="refreshing" aria-label="Refreshing" /> : null}
-            </>
-          )
+          <>
+            <Link href="/app/projects">My projects</Link>
+            <I.ChevronRight size={13} aria-hidden="true" />
+            <a href={d.project.url} target="_blank" rel="noopener noreferrer">
+              {host(d.project.url)}
+            </a>
+            {value.refreshing ? <span className="refreshing" aria-label="Refreshing" /> : null}
+          </>
         }
       >
-        {v ? <ApprovalPill v={v} /> : null}
-        {v?.estimate ? <Pill form="outline" icon={<I.Coins size={14} />} title={`${credits(v.estimate.credits)} credits`} sub={`Estimate${v.estimate.cap != null ? ` · cap ${v.estimate.cap}` : ""}`} /> : null}
-        {d.versions.length > 1 ? (
-          <div className="seg" role="group" aria-label="Test version">
-            {d.versions.map((x) => (
-              <button key={x.version} type="button" aria-pressed={x.version === v?.version} onClick={() => setPicked(x.version)}>
-                v{x.version}
-              </button>
-            ))}
-          </div>
-        ) : null}
-        {sample ? (
-          <Link href="/app/try/new" className="btn">
-            Test your own app
+        <Link href={`/app/projects/${d.project.id}/tests`} className="btn ghost">
+          <I.FileText size={14} aria-hidden="true" /> Test plan
+        </Link>
+        {v?.approval ? (
+          <Link href={`/app/projects/${d.project.id}/verify`} className="btn">
+            <I.Play size={14} aria-hidden="true" /> Test it
           </Link>
-        ) : (
-          <>
-            <ApprovalsBell pending={pending} />
-            <Link href={`/app/projects/${d.project.id}/tests`} className="btn ghost">
-              <I.Pencil size={14} aria-hidden="true" /> {v ? "Edit tests" : "Write tests"}
-            </Link>
-            {v ? (
-              <Link href={`/app/projects/${d.project.id}/verify`} className="btn">
-                <I.Play size={14} aria-hidden="true" /> Verify
-              </Link>
-            ) : null}
-          </>
-        )}
+        ) : null}
       </TopBar>
 
-      {sample ? (
+      <Journey detail={d} openFixes={openFixes.length} />
+      <Understanding detail={d} onChanged={reload} session={session} />
+      <LatestResult detail={d} openFixes={openFixes} />
+      {d.details ? <DetailsCard detail={d} onChanged={reload} /> : null}
+      {d.records.length ? <RunsCard detail={d} /> : null}
+
+      {v ? (
+        <details className="tech">
+          <summary>Technical details: versions, approval record, files and credit estimate</summary>
+          <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap)" }}>
+            {d.versions.length > 1 ? (
+              <div className="seg" role="group" aria-label="Test plan version">
+                {d.versions.map((x) => (
+                  <button key={x.version} type="button" aria-pressed={x.version === v.version} onClick={() => setPicked(x.version)}>
+                    v{x.version}
+                  </button>
+                ))}
+              </div>
+            ) : null}
+            <VersionView detail={d} v={v} />
+          </div>
+        </details>
+      ) : null}
+      {pending ? null : null}
+    </>
+  );
+}
+
+/** Where the project is: understand → plan → approve → test → fix. */
+function Journey({ detail, openFixes }: { detail: ProjectDetail; openFixes: number }) {
+  const pid = detail.project.id;
+  const u = detail.details?.understanding;
+  const v = detail.versions[0];
+  const rec = detail.records[0];
+  const steps = [
+    { t: "Learn the app", s: u?.analysis ? "Done" : u?.inspectedAt ? "Inspected" : "Not yet", done: Boolean(u?.inspectedAt), href: `/app/projects/${pid}#understanding` },
+    { t: "Test plan", s: v ? `${v.tests.length} test${v.tests.length === 1 ? "" : "s"}` : "Not written", done: Boolean(v), href: `/app/projects/${pid}/tests` },
+    { t: "Approve", s: v?.approval ? "Approved" : v ? "Waiting for you" : "—", done: Boolean(v?.approval), href: `/app/projects/${pid}/tests` },
+    { t: "Test in a browser", s: rec ? `${rec.claims.filter((c) => c.status === "passed").length}/${rec.claims.length} working` : "Not run", done: Boolean(rec), href: rec ? `/app/projects/${pid}/runs/${rec.id}` : `/app/projects/${pid}/verify` },
+    { t: "Fix", s: openFixes ? `${openFixes} open` : rec && rec.status === "passed" ? "Nothing to fix" : "—", done: Boolean(rec) && openFixes === 0 && rec.status === "passed", href: "/app/fixes" },
+  ];
+  const now = steps.findIndex((x) => !x.done);
+  return (
+    <nav className="journey" aria-label="Progress">
+      {steps.map((x, i) => (
+        <Link key={x.t} href={x.href} className={x.done ? "done" : i === now ? "now" : undefined} aria-current={i === now ? "step" : undefined}>
+          <span className="j-n">Step {i + 1}</span>
+          <span className="j-t">{x.t}</span>
+          <span className="j-s">{x.s}</span>
+        </Link>
+      ))}
+    </nav>
+  );
+}
+
+const SOURCE: Record<string, string> = { description: "From your description", live_app: "Seen on the live app", repository: "Seen in the code", description_and_live_app: "Description and live app" };
+
+function Understanding({ detail, onChanged, session }: { detail: ProjectDetail; onChanged: () => void; session?: Session }) {
+  const { search } = useRouter();
+  const u = detail.details?.understanding ?? null;
+  const ai = session?.features.ai ?? false;
+  const [busy, setBusy] = useState<"inspect" | "analyze" | "answers" | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>(u?.answers ?? {});
+  const run = async (step: "inspect" | "analyze" | "answers") => {
+    setBusy(step);
+    setErr(null);
+    try {
+      if (step === "answers") await api.understand(detail.project.id, { step, answers });
+      else await api.understand(detail.project.id, { step });
+      if (step === "inspect" && ai) {
+        setBusy("analyze");
+        await api.understand(detail.project.id, { step: "analyze" });
+      }
+      onChanged();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+  // Right after submitting: learn the app straight away.
+  const auto = search.get("understand") === "1" && !u?.inspectedAt;
+  useEffect(() => {
+    if (auto && !busy) void run("inspect");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auto]);
+
+  const repo = u?.repository;
+  const app = u?.app;
+  const a = u?.analysis;
+  return (
+    <section className="card" aria-labelledby="understanding" id="understanding">
+      <div className="card-head">
+        <h2 id="understanding" className="card-title lg">
+          What Greenlight learned
+        </h2>
+        <button type="button" className="btn ghost sm" onClick={() => run("inspect")} disabled={busy !== null}>
+          {busy === "inspect" || busy === "analyze" ? <span className="spinner" aria-hidden="true" /> : <I.RefreshCw size={14} aria-hidden="true" />}
+          {u?.inspectedAt ? "Look again" : "Learn my app"}
+        </button>
+      </div>
+      {busy === "inspect" ? <p className="small" aria-live="polite" style={{ margin: 0 }}>Reading the repository and opening your live app in a browser…</p> : null}
+      {busy === "analyze" ? <p className="small" aria-live="polite" style={{ margin: 0 }}>Comparing your description with what was found…</p> : null}
+      {err ? (
+        <p className="small" role="alert" style={{ margin: 0 }}>
+          {err}
+        </p>
+      ) : null}
+      {!u?.inspectedAt && !busy ? (
         <p className="small" style={{ margin: 0 }}>
-          This is how a real project looks inside Greenlight: approved claims, the exact browser tests behind them, the credit estimate and every run. You can read everything here; nothing in the demo can change it.
+          Greenlight reads your public repository and opens your live app in a headless browser to see what it can test. Nothing is tested and no credits are used.
         </p>
       ) : null}
 
-      {!v ? (
-        <section className="card">
-          <Empty title="No claims or tests yet">
-            <span>Draft the claims and browser tests for {d.project.name}, review them, and approve the exact version you want verified.</span>
-            {!sample ? (
-              <Link href={`/app/projects/${d.project.id}/tests`} className="btn">
-                Write claims and tests
-              </Link>
-            ) : null}
-          </Empty>
-        </section>
-      ) : (
-        <VersionView detail={d} v={v} />
-      )}
+      {a ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <p style={{ margin: 0, maxWidth: "75ch" }}>{a.summary}</p>
+          <p className="small" style={{ margin: 0 }}>
+            <b style={{ color: "var(--ink)", fontWeight: 500 }}>Built with:</b> {a.framework}
+          </p>
+          <div>
+            <h3 className="card-title" style={{ fontSize: 15, margin: "0 0 8px" }}>
+              What can be tested
+            </h3>
+            <ul className="list">
+              {a.features.map((f) => (
+                <li key={f.name} className="list-row" style={{ alignItems: "flex-start" }}>
+                  <ResultMark status={f.testable ? "passed" : null} />
+                  <div className="list-main">
+                    <b>{f.name}</b>
+                    <span>
+                      {f.description} · {SOURCE[f.source] ?? f.source}
+                      {f.testable ? "" : ` · can't be tested: ${f.why}`}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          {a.mismatches.length ? (
+            <div className="notice" role="status">
+              <I.CircleAlert size={18} aria-hidden="true" />
+              <div style={{ flex: "1 1 260px", fontSize: 13 }}>
+                <b>Your description and the live app don't fully match.</b>
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  {a.mismatches.map((m) => (
+                    <li key={m.topic}>
+                      {m.topic}: you said “{m.description_says}”; the app shows {m.app_shows}.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : null}
+          {a.questions.length ? (
+            <div className="confirm-box">
+              <b style={{ fontWeight: 600 }}>A few questions to get the tests right</b>
+              {a.questions.map((q) => (
+                <label key={q.id} className="field">
+                  <span>
+                    {q.question} <span className="hint">({q.why})</span>
+                  </span>
+                  <input value={answers[q.id] ?? ""} onChange={(e) => setAnswers({ ...answers, [q.id]: e.target.value })} maxLength={1000} />
+                </label>
+              ))}
+              <div className="tags">
+                <button type="button" className="btn sm" onClick={() => run("answers")} disabled={busy !== null}>
+                  {busy === "answers" ? <span className="spinner" aria-hidden="true" /> : null} Save answers
+                </button>
+                <Link href={`/app/projects/${detail.project.id}/tests`} className="btn ghost sm">
+                  Continue to the test plan
+                </Link>
+              </div>
+            </div>
+          ) : null}
+          <p className="small" style={{ margin: 0 }}>
+            {a.limits}
+          </p>
+        </div>
+      ) : u?.inspectedAt && !busy ? (
+        ai ? (
+          <div className="tags">
+            <button type="button" className="btn sm" onClick={() => run("analyze")}>
+              Compare with my description
+            </button>
+          </div>
+        ) : (
+          <p className="small" style={{ margin: 0 }}>
+            AI comparison isn't configured on this server, so here is what was read. You can still write the test plan yourself.
+          </p>
+        )
+      ) : null}
 
-      {!sample && d.details ? <DetailsCard detail={d} onChanged={reload} /> : null}
-      {!sample && d.records.length ? <RunsCard detail={d} /> : null}
-    </>
+      {u?.inspectedAt ? (
+        <div className="row">
+          <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+            <h3 className="card-title" style={{ fontSize: 15, margin: 0 }}>
+              <I.GitBranch size={15} aria-hidden="true" /> Code
+            </h3>
+            {repo?.status === "ok" ? (
+              <dl className="kv-list">
+                <dt>Repository</dt>
+                <dd>{repo.repository?.fullName}</dd>
+                <dt>Looks like</dt>
+                <dd>{repo.frameworks?.length ? repo.frameworks.map((f) => f.name).join(", ") : "No framework detected"}</dd>
+                <dt>Languages</dt>
+                <dd>{repo.languages?.map((l) => `${l.name} ${l.share}%`).join(", ") || "—"}</dd>
+                <dt>Pages found</dt>
+                <dd>{repo.routes?.length ? `${repo.routes.length} route files` : "None recognised"}</dd>
+                <dt>Read</dt>
+                <dd>{repo.read?.join(", ")}</dd>
+              </dl>
+            ) : (
+              <p className="small" style={{ margin: 0 }}>
+                {repo?.reason ?? "Not read."} Nothing from the code was used.
+              </p>
+            )}
+          </div>
+          <div style={{ flex: "1 1 300px", display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+            <h3 className="card-title" style={{ fontSize: 15, margin: 0 }}>
+              <I.Globe size={15} aria-hidden="true" /> Live app
+            </h3>
+            {app?.status === "ok" ? (
+              <>
+                {u.screenshot ? <img className="shot-big" src={u.screenshot} alt={`The start page of ${detail.project.name}, as the browser saw it`} /> : null}
+                <dl className="kv-list">
+                  <dt>Pages opened</dt>
+                  <dd>{app.pages?.map((p) => p.title || host(p.url)).join(" · ")}</dd>
+                  <dt>Buttons</dt>
+                  <dd>{app.pages?.[0]?.buttons.slice(0, 8).join(" · ") || "—"}</dd>
+                  <dt>Inputs</dt>
+                  <dd>{app.pages?.[0]?.inputs.map((i) => i.label || i.type).slice(0, 8).join(" · ") || "—"}</dd>
+                </dl>
+              </>
+            ) : (
+              <p className="small" style={{ margin: 0 }}>
+                {app?.reason ?? "Not opened."}
+              </p>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function LatestResult({ detail, openFixes }: { detail: ProjectDetail; openFixes: FixItem[] }) {
+  const rec = detail.records[0];
+  if (!rec) return null;
+  const count = (o: string) => rec.claims.filter((c) => outcomeOf(c.status) === o).length;
+  return (
+    <section className="card" aria-labelledby="latest-h">
+      <div className="card-head">
+        <h2 id="latest-h" className="card-title lg">
+          Latest test run
+        </h2>
+        <span className="small">{formatDateTime(rec.startedAt)}</span>
+      </div>
+      <div className="tags">
+        <span className="outcome working">{count("working")} working</span>
+        <span className="outcome not_working">{count("not_working")} not working</span>
+        <span className="outcome could_not_verify">{count("could_not_verify")} could not verify</span>
+      </div>
+      <ul className="list">
+        {rec.claims.map((c) => (
+          <li key={c.id} className="list-row">
+            <ResultMark status={c.status} />
+            <div className="list-main">
+              <b>{c.text}</b>
+              <span>{OUTCOME_LABEL[outcomeOf(c.status)]}</span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      <div className="tags">
+        <Link href={`/app/projects/${detail.project.id}/runs/${rec.id}`} className="btn sm">
+          See results and evidence
+        </Link>
+        {openFixes.length ? (
+          <Link href="/app/fixes" className="btn ghost sm">
+            <I.Wrench size={14} aria-hidden="true" /> {openFixes.length} in the Fix Centre
+          </Link>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
@@ -318,10 +574,6 @@ function RunsCard({ detail }: { detail: ProjectDetail }) {
   );
 }
 
-function ApprovalPill({ v }: { v: VersionView }) {
-  if (!v.approval) return <Pill form="outline" icon={<I.Clock size={14} />} title="Awaiting approval" sub={`Version ${v.version}`} href={v.approveUrl ?? undefined} />;
-  return <Pill icon={<I.Check size={14} strokeWidth={2.4} />} title="Spec approved" sub={`Version ${v.version}`} />;
-}
 
 function VersionView({ detail, v }: { detail: ProjectDetail; v: VersionView }) {
   const steps = certificationPath(detail, v);

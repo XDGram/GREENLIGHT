@@ -11,6 +11,9 @@ export type Route =
   | { name: "project_verify"; id: string }
   | { name: "project_run"; id: string; recordId: string }
   | { name: "approvals" }
+  | { name: "fixes" }
+  | { name: "fix"; id: string }
+  | { name: "sample" }
   | { name: "records" }
   | { name: "integrations" }
   | { name: "account" }
@@ -35,6 +38,10 @@ export function parse(pathname: string): Route {
   const r = /^\/app\/projects\/(prj_[0-9a-f]{32})\/runs\/(vr_[0-9a-f]{32})$/.exec(p);
   if (r) return { name: "project_run", id: r[1]!, recordId: r[2]! };
   if (p === "/app/approvals") return { name: "approvals" };
+  if (p === "/app/fixes") return { name: "fixes" };
+  const fx = /^\/app\/fixes\/(fx_[0-9a-f]{32})$/.exec(p);
+  if (fx) return { name: "fix", id: fx[1]! };
+  if (p === "/app/sample") return { name: "sample" };
   if (p === "/app/records") return { name: "records" };
   if (p === "/app/integrations") return { name: "integrations" };
   if (p === "/app/account") return { name: "account" };
