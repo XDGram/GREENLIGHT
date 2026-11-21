@@ -186,20 +186,22 @@ export function loadConfig(env = process.env) {
   }
   // Claude API (AI-drafted claims and tests). The key is non-enumerable: never serialised or logged.
   const ai = { model: env.GREENLIGHT_AI_MODEL || env.GREENLIGHT_GUEST_AI_MODEL || "claude-opus-5-5" };
-  Object.defineProperty(ai, "apiKey", { value: env.ANTHROPIC_API_KEY || null, enumerable: false });
+  // Values pasted into a dashboard often carry a trailing newline: trim secrets and ids.
+  const clean = (v) => (typeof v === "string" ? v.trim() : "") || null;
+  Object.defineProperty(ai, "apiKey", { value: clean(env.ANTHROPIC_API_KEY), enumerable: false });
   Object.freeze(ai);
   // Normal users: Sign in with Google (OpenID Connect, src/server/approval-web.js). Each Google
   // identity gets its own account (g-<hash>) and must approve its tests in the browser.
   let google = null;
-  if (env.GREENLIGHT_GOOGLE_CLIENT_ID) {
+  if (clean(env.GREENLIGHT_GOOGLE_CLIENT_ID)) {
     if (!supabase) throw new Error("Sign in with Google needs Supabase persistence");
     assertPublicBaseUrl(env.GREENLIGHT_PUBLIC_BASE_URL);
-    if (!env.GREENLIGHT_GOOGLE_CLIENT_SECRET) throw new Error("Sign in with Google needs GREENLIGHT_GOOGLE_CLIENT_SECRET (server-side only)");
+    if (!clean(env.GREENLIGHT_GOOGLE_CLIENT_SECRET)) throw new Error("Sign in with Google needs GREENLIGHT_GOOGLE_CLIENT_SECRET (server-side only)");
     if (typeof env.GREENLIGHT_APPROVAL_SIGNING_KEY !== "string" || env.GREENLIGHT_APPROVAL_SIGNING_KEY.length < 32) {
       throw new Error("Sign in with Google needs GREENLIGHT_APPROVAL_SIGNING_KEY (a random secret of at least 32 characters, server-side only)");
     }
-    google = { clientId: String(env.GREENLIGHT_GOOGLE_CLIENT_ID) };
-    Object.defineProperty(google, "clientSecret", { value: env.GREENLIGHT_GOOGLE_CLIENT_SECRET, enumerable: false });
+    google = { clientId: clean(env.GREENLIGHT_GOOGLE_CLIENT_ID) };
+    Object.defineProperty(google, "clientSecret", { value: clean(env.GREENLIGHT_GOOGLE_CLIENT_SECRET), enumerable: false });
     Object.freeze(google);
   }
   // Accounts whose certifications need a signed browser approval (owner-token approvals refused).

@@ -593,7 +593,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         const d = await store.getProjectDetails(project.id).catch(() => null);
         const requirements = text(body.requirements, 4000, "Requirements") ?? d?.purpose ?? null;
         if (!requirements || requirements.length < 20) throw new GreenlightError("invalid_request", "Describe what the app should do (at least 20 characters).");
-        const { draft, pageRead } = await draftTests({ name: project.name, url: project.url, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, maxTests: 5 });
+        const { draft, pageRead } = await draftTests({ name: project.name, url: project.url, requirements, config, client: ai.client, fetchImpl: ai.fetchImpl, maxTests: 5, log });
         const structured = { name: project.name, url: project.url, description: draft.description ?? d?.description ?? null, claims: draft.claims ?? [], tests: draft.tests ?? [] };
         let check;
         try {

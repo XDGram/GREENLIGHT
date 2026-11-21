@@ -37,18 +37,28 @@ set `GREENLIGHT_GOOGLE_CLIENT_ID` and `GREENLIGHT_GOOGLE_CLIENT_SECRET` (secret)
 
 ## Setup checklist (operator)
 
-1. **Google sign-in.** Google Cloud console → APIs & Services → Credentials → Create OAuth client
-   ID → "Web application". Authorised redirect URI, exactly:
-   `https://greenlight-api-xi.vercel.app/api/auth/google/callback`. (The OAuth consent screen needs
-   the `openid`, `email` and `profile` scopes only; while it is in "Testing", add the Google
-   accounts that may sign in as test users, or publish it.) In Vercel → Project → Settings →
-   Environment Variables (Production), add `GREENLIGHT_GOOGLE_CLIENT_ID` and, marked sensitive,
-   `GREENLIGHT_GOOGLE_CLIENT_SECRET`. Redeploy. `GREENLIGHT_APPROVAL_SIGNING_KEY` is already set.
-2. **Claude API.** Create a key in the Claude Console and add it in Vercel as the sensitive
-   variable `ANTHROPIC_API_KEY` (Production). Optional: `GREENLIGHT_AI_MODEL` (default
-   `claude-opus-5-5`). Redeploy. Without it, drafting answers `ai_unavailable` and the app offers
-   manual writing only; with it, every draft still goes through the rules check, your edits and
-   your approval.
+1. **Google sign-in.** In the Google Cloud console (console.cloud.google.com), with a project selected:
+   - *Google Auth Platform → Branding / OAuth consent screen*: user type **External**; app name,
+     support email and developer contact. Scopes: only `openid`, `.../auth/userinfo.email`,
+     `.../auth/userinfo.profile` (non-sensitive, no Google verification needed). While the
+     publishing status is **Testing**, only listed test users can sign in; choose **Publish app**
+     (In production) to let anyone sign in.
+   - *Clients → Create client*: type **Web application**. Authorised redirect URI, exactly:
+     `https://greenlight-api-xi.vercel.app/api/auth/google/callback`. No JavaScript origins are
+     needed (the server does the exchange).
+   - In Vercel → project `greenlight-api` → Settings → Environment Variables, environment
+     **Production**: `GREENLIGHT_GOOGLE_CLIENT_ID` (the client ID) and
+     `GREENLIGHT_GOOGLE_CLIENT_SECRET` (mark **Sensitive**). `GREENLIGHT_APPROVAL_SIGNING_KEY`
+     is already set. Surrounding whitespace is ignored.
+2. **Claude API.** In the Claude Console (platform.claude.com) → API keys → Create key (a
+   workspace with billing). Add it in Vercel as `ANTHROPIC_API_KEY` (Production, **Sensitive**).
+   Optional: `GREENLIGHT_AI_MODEL` (default `claude-opus-5-5`); the key must have access to it.
+3. **Redeploy.** Vercel applies environment variables only to new deployments.
+4. **Verify.** Admin → System health shows "Sign in with Google: Configured" and "Claude API key:
+   Configured"; the landing page shows **Sign in with Google**; after signing in, Integrations
+   shows Claude API **Connected**, and "Draft with Claude" on a project's Claims and tests page
+   returns a draft. Problems show in Vercel's runtime logs as `google_signin_failed` or
+   `ai_error` (type and status only, never keys).
 
 ## User API (`/app/api/*`, session cookie, same-origin JSON writes)
 

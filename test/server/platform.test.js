@@ -14,6 +14,7 @@ import { loadConfig, createServerContext, startServer, SupabaseStore, createSupa
 import { GOOGLE_TOKEN_URL, VERCEL_TOKEN_URL, VERCEL_ISSUER } from "../../src/server/approval-web.js";
 import { googleAccount, verifyBrowserApproval, browserApprovalRequired } from "../../src/server/approval-policy.js";
 import { createFakeSupabase } from "./fake-supabase.js";
+import Anthropic from "@anthropic-ai/sdk";
 
 const KEY = `sb_secret_${"p".repeat(22)}_platform1`;
 const BASE = "https://greenlight.example.com";
@@ -52,7 +53,7 @@ function fakes() {
       const pkceOk = entry && createHash("sha256").update(p.get("code_verifier") ?? "").digest("base64url") === entry.challenge;
       if (u === GOOGLE_TOKEN_URL) {
         if (!pkceOk || p.get("client_secret") !== GOOGLE_SECRET || p.get("client_id") !== GOOGLE_ID || p.get("redirect_uri") !== `${BASE}/api/auth/google/callback`) return new Response("{}", { status: 400 });
-        return new Response(JSON.stringify({ id_token: jwt({ iss: "https://accounts.google.com", aud: GOOGLE_ID, sub: entry.sub, nonce: entry.nonce, iat: nowS(), exp: nowS() + 300, email: entry.email, email_verified: true, name: "Dev Person" }) }), { status: 200 });
+        return new Response(JSON.stringify({ id_token: jwt({ iss: "https://accounts.google.com", aud: entry.aud ?? GOOGLE_ID, sub: entry.sub, nonce: entry.nonce, iat: nowS(), exp: nowS() + 300, email: entry.email, email_verified: true, name: "Dev Person" }) }), { status: 200 });
       }
       if (!pkceOk || p.get("client_assertion") !== "deployment-oidc-token") return new Response("{}", { status: 400 });
       return new Response(JSON.stringify({ id_token: jwt({ iss: VERCEL_ISSUER, aud: VERCEL_ID, sub: entry.sub, nonce: entry.nonce, iat: nowS(), exp: nowS() + 300, preferred_username: "admin" }) }), { status: 200 });
@@ -79,7 +80,7 @@ function fakes() {
   return { state, fetchImpl, getJwks: async () => JWKS };
 }
 
-async function setup({ ai } = {}) {
+async function setup({ ai, google = true, extraEnv = {} } = {}) {
   const fake = await createFakeSupabase({ serviceRoleKey: KEY });
   closers.push(() => fake.close());
   const admin = createSupabaseClient({ url: fake.url, serviceRoleKey: KEY, fetchImpl: fake.fetch });
@@ -91,7 +92,8 @@ async function setup({ ai } = {}) {
     GREENLIGHT_WORK_DIR: workDir,
     GREENLIGHT_PORT: "0",
     GREENLIGHT_PUBLIC_BASE_URL: BASE,
-    GREENLIGHT_GOOGLE_CLIENT_ID: GOOGLE_ID,
+    ...(google ? { GREENLIGHT_GOOGLE_CLIENT_ID: GOOGLE_ID } : {}),
+    ...extraEnv,
     GREENLIGHT_GOOGLE_CLIENT_SECRET: GOOGLE_SECRET,
     GREENLIGHT_VERCEL_APP_CLIENT_ID: VERCEL_ID,
     GREENLIGHT_APPROVERS: JSON.stringify([{ vercelSub: ADMIN_SUB, account: "xdgram", user: "admin" }]),
@@ -424,4 +426,117 @@ test("sign-in boundaries: no open redirects, forged state refused, logout is sam
   const forged = browser(h);
   forged.jar.set("__Host-gl_session", Buffer.from(JSON.stringify({ kind: "session", role: "admin", account: "xdgram", exp: Date.now() + 1e6 })).toString("base64url") + ".bad");
   assert.equal((await forged.go("GET", "/app/api/admin/overview")).status, 401);
+});
+
+test("Google callback edge cases: cancelled consent, failed token exchange and a token for another client never create a session", async () => {
+  const h = await setup();
+  const b = browser(h);
+  const start = async () => Object.fromEntries(new URL((await b.go("GET", "/api/auth/google/login?next=%2Fapp")).location).searchParams);
+
+  // The person cancels on Google's consent screen: Google returns error=access_denied with our state.
+  let q = await start();
+  const cancelled = await b.go("GET", `/api/auth/google/callback?error=access_denied&state=${encodeURIComponent(q.state)}`);
+  assert.deepEqual([cancelled.status, cancelled.location], [302, "/app?signin=cancelled"]);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 401);
+
+  // Google refuses the code (expired, reused or wrong secret).
+  q = await start();
+  const failed = await b.go("GET", `/api/auth/google/callback?code=unknown-code&state=${encodeURIComponent(q.state)}`);
+  assert.equal(failed.status, 401);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 401);
+
+  // An ID token issued to a different OAuth client is refused (audience check).
+  q = await start();
+  h.f.state.codes.set("code-aud", { challenge: q.code_challenge, nonce: q.nonce, sub: "s", email: "x@example.com", aud: "someone-else.apps.googleusercontent.com" });
+  assert.equal((await b.go("GET", `/api/auth/google/callback?code=code-aud&state=${encodeURIComponent(q.state)}`)).status, 401);
+  // A nonce from another sign-in attempt is refused.
+  q = await start();
+  h.f.state.codes.set("code-nonce", { challenge: q.code_challenge, nonce: "other-nonce", sub: "s", email: "x@example.com" });
+  assert.equal((await b.go("GET", `/api/auth/google/callback?code=code-nonce&state=${encodeURIComponent(q.state)}`)).status, 401);
+  assert.equal((await b.go("GET", "/app/api/session")).status, 401);
+  assert.deepEqual(await h.fake.sql("select count(*)::int as n from greenlight.web_identities"), [{ n: 0 }], "no account was created");
+});
+
+test("without Google credentials: a clear setup message, the app offers no Google button, and the administrator sign-in is unchanged", async () => {
+  const h = await setup({ google: false });
+  const b = browser(h);
+  const login = await b.go("GET", "/api/auth/google/login?next=%2Fapp");
+  assert.equal(login.status, 404);
+  assert.match(login.text, /Sign in with Google is not configured on this server/);
+  const s = await b.go("GET", "/app/api/session");
+  assert.deepEqual([s.status, s.body.google, s.body.loginUrl], [401, false, "/approve/login?next=%2Fapp"]);
+  const admin = browser(h);
+  assert.equal((await admin.vercelSignIn(ADMIN_SUB)).status, 302);
+  assert.equal((await admin.go("GET", "/app/api/session")).body.role, "admin");
+});
+
+test("credentials pasted with whitespace still work; keys never reach the browser", async () => {
+  const c = loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_PUBLIC_BASE_URL: BASE, GREENLIGHT_GOOGLE_CLIENT_ID: ` ${GOOGLE_ID}\n`, GREENLIGHT_GOOGLE_CLIENT_SECRET: `${GOOGLE_SECRET}\n`, GREENLIGHT_APPROVAL_SIGNING_KEY: SIGNING_KEY, ANTHROPIC_API_KEY: " sk-ant-trim-me\n" });
+  assert.deepEqual([c.google.clientId, c.google.clientSecret, c.ai.apiKey], [GOOGLE_ID, GOOGLE_SECRET, "sk-ant-trim-me"]);
+  assert.equal(loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: KEY, GREENLIGHT_GOOGLE_CLIENT_ID: "   " }).google, null, "blank means not configured");
+
+  const h = await setup({ extraEnv: { ANTHROPIC_API_KEY: "sk-ant-never-in-browser" } });
+  h.f.state.github.set("acme/shop", { head: HEAD });
+  const b = browser(h);
+  await b.googleSignIn("google-sub-keys");
+  const pid = (await b.go("POST", "/app/api/projects", { json: PROJECT })).body.project.id;
+  for (const p of ["/app/api/session", "/app/api/integrations", `/app/api/projects/${pid}`, "/app/api/guest/me"]) {
+    const r = await b.go("GET", p);
+    for (const secret of ["sk-ant-never-in-browser", GOOGLE_SECRET, SIGNING_KEY, KEY]) assert.ok(!r.text.includes(secret), `${secret.slice(0, 8)}… in ${p}`);
+  }
+  assert.equal((await b.go("GET", "/app/api/session")).body.features.ai, true);
+});
+
+test("Claude errors are mapped to clear messages and never save anything", async () => {
+  let throwIt = null;
+  const client = { beta: { messages: { create: async () => { throw throwIt; } } } };
+  const h = await setup({ ai: { client, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
+  h.f.state.github.set("acme/shop", { head: HEAD });
+  const b = browser(h);
+  await b.googleSignIn("google-sub-errors");
+  const pid = (await b.go("POST", "/app/api/projects", { json: PROJECT })).body.project.id;
+  const cases = [
+    [new Anthropic.RateLimitError(429, { type: "error" }, "rate limited", new Headers()), 502, "ai_failed", /busy/],
+    [new Anthropic.AuthenticationError(401, { type: "error" }, "bad key", new Headers()), 503, "ai_unavailable", /not available/],
+    [new Anthropic.NotFoundError(404, { type: "error" }, "model not found", new Headers()), 503, "ai_unavailable", /model is not available/],
+    [new Anthropic.InternalServerError(529, { type: "error" }, "overloaded", new Headers()), 502, "ai_failed", /could not be reached/],
+    [new Anthropic.APIConnectionError({ message: "network" }), 502, "ai_failed", /could not be reached/],
+  ];
+  for (const [err, status, code, msg] of cases) {
+    throwIt = err;
+    const r = await b.go("POST", `/app/api/projects/${pid}/draft`, { json: {} });
+    assert.deepEqual([r.status, r.body.error.code], [status, code], err.constructor.name);
+    assert.match(r.body.error.message, msg);
+  }
+  assert.equal((await b.go("GET", `/app/api/projects/${pid}`)).body.versions.length, 0);
+});
+
+test("AI drafts follow the spec rules and still need a person's approval before anything can run", async () => {
+  // The model returns a step that checks inside a "do" step: the rules check catches it.
+  const client = {
+    beta: {
+      messages: {
+        create: async (req) => ({
+          stop_reason: "end_turn",
+          content: [{ type: "text", text: JSON.stringify({ name: "Shop", description: "d", claims: [{ id: "c1", text: "The home page names the shop." }], tests: [{ title: "Home", claims: ["c1"], steps: [{ name: "Open", kind: "do", text: "Open the start page and verify it shows Shop." }, { name: "Name", kind: "expect_text", text: "Shop" }] }], notes: "" }) }],
+          _req: req,
+        }),
+      },
+    },
+  };
+  const h = await setup({ ai: { client, fetchImpl: async () => new Response("<h1>Shop</h1>", { status: 200, headers: { "content-type": "text/html" } }) } });
+  h.f.state.github.set("acme/shop", { head: HEAD });
+  const b = browser(h);
+  await b.googleSignIn("google-sub-rules");
+  const pid = (await b.go("POST", "/app/api/projects", { json: PROJECT })).body.project.id;
+  const d = await b.go("POST", `/app/api/projects/${pid}/draft`, { json: {} });
+  assert.equal(d.body.check.ok, false, "a checking 'do' step is refused by the spec rules");
+  assert.ok(d.body.check.problems.length > 0);
+  assert.equal((await b.go("POST", `/app/api/projects/${pid}/versions`, { json: { draft: d.body.draft } })).status, 422, "it cannot be saved as is");
+  // Fixed by the person, it saves as a version that is pending approval; certification is refused until approved.
+  const fixed = { ...d.body.draft, tests: [{ ...d.body.draft.tests[0], steps: [{ name: "Open", kind: "do", text: "Open the start page." }, { name: "Name", kind: "expect_text", text: "Shop" }] }] };
+  const v = await b.go("POST", `/app/api/projects/${pid}/versions`, { json: { draft: fixed } });
+  assert.deepEqual([v.status, v.body.version.status], [201, "pending_approval"]);
+  const c = await b.go("POST", `/app/api/projects/${pid}/certifications`, { json: { version: 1, commit: HEAD, confirmSpend: 60 } });
+  assert.deepEqual([c.status, c.body.error.code], [403, "approval_not_certifiable"]);
 });

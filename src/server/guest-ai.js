@@ -129,7 +129,7 @@ export async function readStartPage(url, { fetchImpl = globalThis.fetch, checkHo
  * Draft claims and tests for a guest's app.
  * @returns {{draft: object, pageRead: boolean}}
  */
-export async function draftTests({ name, url, requirements, config, client, fetchImpl, maxTests = 3 }) {
+export async function draftTests({ name, url, requirements, config, client, fetchImpl, maxTests = 3, log = () => {} }) {
   const apiKey = config.ai?.apiKey ?? config.guest?.anthropicApiKey;
   if (!client && !apiKey) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server.");
   const anthropic = client ?? new Anthropic({ apiKey, timeout: 45_000, maxRetries: 0 });
@@ -159,8 +159,12 @@ export async function draftTests({ name, url, requirements, config, client, fetc
       messages: [{ role: "user", content: user }],
     });
   } catch (err) {
+    // For the operator: which upstream error it was (never the key or the prompt).
+    log({ event: "ai_error", type: err?.constructor?.name ?? "Error", status: err?.status ?? null, requestId: err?.requestID ?? err?.request_id ?? null });
     if (err instanceof Anthropic.RateLimitError) throw new GreenlightError("ai_failed", "The AI is busy right now; try again in a minute, or use the form.");
     if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) throw new GreenlightError("ai_unavailable", "AI test writing is not available on this server right now.");
+    // 404/400: the key works but the configured model or option is not available to it.
+    if (err instanceof Anthropic.NotFoundError || err instanceof Anthropic.BadRequestError) throw new GreenlightError("ai_unavailable", "AI test writing is not available on this server right now (the configured model is not available to its API key).");
     if (err instanceof Anthropic.APIError || err instanceof Anthropic.APIConnectionError) throw new GreenlightError("ai_failed", "The AI could not be reached; try again, or use the form.");
     throw err;
   }
