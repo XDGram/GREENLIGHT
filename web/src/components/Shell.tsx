@@ -8,7 +8,7 @@ type NavItem = { href: string; label: string; icon: typeof I.Home; match: Route[
 
 function journeyNav(_project: string | null): NavItem[] {
   return [
-    { href: "/app", label: "Check an app", icon: I.Play, match: ["home"] },
+    { href: "/app", label: "Check", icon: I.Play, match: ["home"] },
     { href: "/app/projects", label: "My checks", icon: I.Projects, match: ["projects", "check", "project", "project_run"] },
   ];
 }
@@ -16,7 +16,7 @@ const SETUP: NavItem[] = [
   { href: "/app/integrations", label: "Integrations", icon: I.Plug, match: ["integrations"] },
   { href: "/app/account", label: "Account", icon: I.UserRound, match: ["account"] },
 ];
-const ADMIN: NavItem[] = [{ href: "/app/admin", label: "Administration", icon: I.Server, match: ["admin", "admin_list"] }];
+const ADMIN: NavItem[] = [{ href: "/app/admin", label: "Admin", icon: I.Server, match: ["admin", "admin_list"] }];
 
 function NavLinks({ items, pending = 0 }: { items: NavItem[]; pending?: number }) {
   const { route } = useRouter();
@@ -46,10 +46,11 @@ export function Sidebar({ session, pending, onSignOut, project }: { session: Ses
       <Link href="/app" className="brand">
         <Logo />
         <span className="brand-name">Greenlight</span>
+        <span className="brand-tag">KANE</span>
       </Link>
       <div className="nav">
         <NavLinks items={journeyNav(project)} pending={pending} />
-        <div className="nav-sep" aria-hidden="true" />
+        {/* one strip of boxed links, as in the reference */}
         {guest ? null : <NavLinks items={SETUP.filter((n) => n.label === "Account")} />}
         {session.role === "admin" ? <NavLinks items={ADMIN} /> : null}
       </div>
@@ -58,7 +59,7 @@ export function Sidebar({ session, pending, onSignOut, project }: { session: Ses
         <Avatar name={display} />
         <div className="side-user-name">{display}</div>
         <div className="side-user-meta">
-          {guest ? "No account · remembered on this browser" : session.role === "admin" ? "Administrator · Vercel" : `Google${session.email && session.email !== display ? ` · ${session.email}` : ""}`}
+          {guest ? "No account" : session.role === "admin" ? "Administrator · Vercel" : `Google${session.email && session.email !== display ? ` · ${session.email}` : ""}`}
         </div>
         {guest && session.guestRuns ? (
           <div className="side-user-meta">

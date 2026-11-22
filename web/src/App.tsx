@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { Logo } from "./components/Chrome";
+import { FlowStrip, PixelHero, TypedBracket, ValueCells } from "./components/Hero";
 import { Sidebar, TopBar } from "./components/Shell";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckForm, CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
@@ -227,42 +227,97 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
     await guestApi.start();
     setStarted(true);
   };
+  const toForm = () => document.getElementById("check")?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
     <div className="page">
-      <div className="frame" style={{ maxWidth: 880, gridTemplateColumns: "minmax(0,1fr)" }}>
+      <div className="frame">
+        <PixelHero
+          nav={
+            <nav className="nav" aria-label="Main" style={{ marginLeft: 0 }}>
+              <a className="nav-item" aria-current="page" href="#check">
+                Check
+              </a>
+              <a className="nav-item" href="#how">
+                How it works
+              </a>
+              {googleUrl ? (
+                <a className="nav-item" href={googleUrl}>
+                  Sign in
+                </a>
+              ) : null}
+            </nav>
+          }
+          right={
+            <a className="nav-item" href={ADMIN_LOGIN}>
+              ↗ Admin
+            </a>
+          }
+        />
         <main className="main" id="main">
-          <header className="topbar">
-            <div className="title-block" style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <Logo />
-              <span className="brand-name">Greenlight</span>
+          <section className="headline">
+            <h1>
+              Does your app do what its <TypedBracket words={["README", "claims", "demo"]} /> says?
+            </h1>
+            <div className="headline-side">
+              <div className="trust">
+                <span className="sq" aria-hidden="true" /> Tested by <b>Kane</b> · real browser · live app
+              </div>
+              <p style={{ margin: 0 }}>Paste your GitHub repository, live URL and README. Kane checks every claim on your live app and returns a verdict, with a suggested fix for anything that fails.</p>
+              <div className="cta-row">
+                <button type="button" className="btn" onClick={toForm}>
+                  Get started
+                </button>
+                <a className="btn ghost" href="#how">
+                  ▷ How it works
+                </a>
+              </div>
             </div>
-          </header>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <h1 style={{ margin: 0 }}>Does your app do what its README says?</h1>
-            <p style={{ margin: 0 }}>
-              Paste your GitHub repository, your live URL and your README. Kane tests each claim on the live app in a real browser and gives you a verdict, with a suggested fix for anything that fails.
-            </p>
+          </section>
+
+          <FlowStrip />
+
+          <div id="check" style={{ scrollMarginTop: 16, display: "flex", flexDirection: "column", gap: "var(--gap)", paddingTop: 24 }}>
+            <div className="sec-label">
+              <span>[N.01/02]</span> <b>&gt; Check</b>
+            </div>
+            <h2 className="slash-title">
+              <i>/</i> Paste. Run. Verdict. <i>/</i>
+            </h2>
+            {guestMode ? (
+              <CheckForm
+                session={null}
+                beforeFirstCall={start}
+                onStarted={async (id) => {
+                  navigate(`/app/check/${id}`);
+                  await onEntered();
+                }}
+              />
+            ) : (
+              <p className="small">Visitor access is not enabled on this server.</p>
+            )}
           </div>
-          {guestMode ? (
-            <CheckForm
-              session={null}
-              beforeFirstCall={start}
-              onStarted={async (id) => {
-                navigate(`/app/check/${id}`);
-                await onEntered();
-              }}
-            />
-          ) : (
-            <p className="small">Visitor access is not enabled on this server.</p>
-          )}
-          <p className="small" style={{ margin: 0 }}>
-            No sign-up: this browser remembers your checks.{" "}
+
+          <div id="how" style={{ scrollMarginTop: 16, display: "flex", flexDirection: "column", gap: "var(--gap)", paddingTop: 32 }}>
+            <div className="sec-label">
+              <span>[N.02/02]</span> <b>&gt; How it works</b>
+            </div>
+            <h2 className="slash-title">
+              <i>/</i> Less guessing.
+              <br />
+              Proof from a real browser. <i>/</i>
+            </h2>
+            <ValueCells />
+          </div>
+
+          <p className="small mono" style={{ margin: "12px 0 0" }}>
+            No sign-up · this browser remembers your checks
             {googleUrl ? (
               <>
-                <a href={googleUrl}>Sign in with Google</a> ·{" "}
+                {" "}
+                · <a href={googleUrl}>Sign in with Google</a>
               </>
-            ) : null}
-            <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+            ) : null}{" "}
+            · <a href={ADMIN_LOGIN}>Administrator sign-in</a>
           </p>
         </main>
       </div>

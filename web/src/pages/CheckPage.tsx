@@ -81,12 +81,27 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
     }
   };
 
+  const runsNote = guestRuns
+    ? noRunsLeft
+      ? guestRuns.paused
+        ? "Kane runs are paused by the administrator right now."
+        : !guestRuns.enabled
+          ? "Kane runs for visitors are not switched on on this server."
+          : guestRuns.leftForYou < 1
+            ? "You have used your free Kane run on this browser."
+            : guestRuns.leftToday >= 1 && overBudget && guestRuns.creditsLeftToday >= (found?.costs[0] ?? Infinity)
+              ? `Today's free budget has ${guestRuns.creditsLeftToday} credits left: test fewer claims.`
+              : "Today's free Kane runs are used up. Try again tomorrow."
+      : `No account needed · ${guestRuns.leftForYou} free run${guestRuns.leftForYou === 1 ? "" : "s"} left · results stay private`
+    : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap)" }}>
-      <section className="card" aria-labelledby="c1">
-        <h2 id="c1" className="card-title">
-          1 · Your app
-        </h2>
+      <section className="step-card" aria-labelledby="c1">
+        <div className="step-card-head">
+          <h2 id="c1">Your app</h2>
+          <span className="num-tag">001</span>
+        </div>
         <div className="form-grid">
           <label className="field">
             <span>GitHub repository</span>
@@ -98,14 +113,14 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
           </label>
         </div>
         <label className="field">
-          <span>README or notes (optional)</span>
+          <span>README or notes · optional</span>
           <textarea value={notes} onChange={(e) => (setNotes(e.target.value), changed())} placeholder={"Paste your README, or list what the app does, one per line:\n- Users can sign up with email\n- The dashboard shows their tasks"} rows={8} />
           <span className="hint">Leave empty to use the README from the repository. Each bullet point or line becomes one claim.</span>
         </label>
         {!found ? (
           <div>
             <button type="button" className="btn" onClick={findClaims} disabled={busy !== null || !repository.trim() || !url.trim()}>
-              {busy === "claims" ? <span className="spinner" aria-hidden="true" /> : <I.Search size={15} aria-hidden="true" />}
+              {busy === "claims" ? <span className="spinner" aria-hidden="true" /> : null}
               Check my app
             </button>
           </div>
@@ -113,72 +128,54 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
       </section>
 
       {found ? (
-        <section className="card" aria-labelledby="c2">
-          <h2 id="c2" className="card-title">
-            2 · What Kane will test
-          </h2>
-          {claims.length === 0 ? (
-            <p className="small" style={{ margin: 0 }}>
-              No claims were found{found.source === "none" ? " (the repository's README could not be read)" : ""}. Add what the app should do below.
-            </p>
-          ) : (
-            <p className="small" style={{ margin: 0 }}>
-              Found {found.claims.length} claim{found.claims.length === 1 ? "" : "s"} in {found.source === "readme" ? "the repository's README" : "your notes"}. One run can test up to {max}. Pick which ones, or edit them.
-            </p>
-          )}
+        <section className="step-card" aria-labelledby="c2">
+          <div className="step-card-head">
+            <h2 id="c2">What Kane will test</h2>
+            <span className="num-tag">002</span>
+          </div>
+          <p className="small" style={{ margin: 0 }}>
+            {claims.length === 0
+              ? `No claims were found${found.source === "none" ? " (the repository's README could not be read)" : ""}. Add what the app should do below.`
+              : `Found ${found.claims.length} claim${found.claims.length === 1 ? "" : "s"} in ${found.source === "readme" ? "the repository's README" : "your notes"}. One run can test up to ${max}. Pick which ones, or edit them.`}
+          </p>
           <ul className="list" style={{ gap: 8 }}>
             {claims.map((c, i) => (
-              <li key={i} className="editor-row" style={{ alignItems: "center" }}>
-                <label className="check-chip" style={{ flex: "none" }}>
+              <li key={i} className="claim-row">
+                <label className="check-chip">
                   <input type="checkbox" checked={c.on} onChange={() => toggle(i)} aria-label={`Test claim ${i + 1}`} />
                   {c.on ? "Test" : "Skip"}
                 </label>
-                <label className="field" style={{ flex: "1 1 240px" }}>
+                <label className="field">
                   <span className="sr-only">Claim {i + 1}</span>
                   <input value={c.text} onChange={(e) => setClaims((cs) => cs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
                 </label>
               </li>
             ))}
           </ul>
-          <div className="editor-row">
+          <div className="editor-row" style={{ alignItems: "flex-end" }}>
             <label className="field" style={{ flex: "1 1 240px" }}>
-              <span className="sr-only">Add a claim</span>
-              <input value={extra} onChange={(e) => setExtra(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addClaim()} placeholder="Add a claim, e.g. Users can reset their password" />
+              <span>Add a claim</span>
+              <input value={extra} onChange={(e) => setExtra(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addClaim()} placeholder="Users can reset their password" />
             </label>
             <button type="button" className="btn ghost" onClick={addClaim} disabled={!extra.trim()}>
-              <I.Plus size={15} aria-hidden="true" />
-              Add
+              + Add
             </button>
           </div>
 
-          <div className="confirm-box" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div className="confirm-box">
             <p style={{ margin: 0 }}>
               {chosen.length ? (
                 <>
-                  Kane will open <b>{url}</b> in a real browser and test {chosen.length} claim{chosen.length === 1 ? "" : "s"}. Estimated cost: <b>{cost} credits</b>.
+                  Kane opens <b>{url}</b> in a real browser and tests {chosen.length} claim{chosen.length === 1 ? "" : "s"}. Estimated cost: <b>{cost} credits</b>.
                 </>
               ) : (
                 "Tick at least one claim to test."
               )}
             </p>
-            {guestRuns ? (
-              <p className="small" style={{ margin: 0 }}>
-                {noRunsLeft
-                  ? guestRuns.paused
-                    ? "Kane runs are paused by the administrator right now."
-                    : !guestRuns.enabled
-                      ? "Kane runs for visitors are not switched on on this server."
-                      : guestRuns.leftForYou < 1
-                        ? "You have used your free Kane run on this browser."
-                        : guestRuns.leftToday >= 1 && overBudget && guestRuns.creditsLeftToday >= (found?.costs[0] ?? Infinity)
-                          ? `Today's free budget has ${guestRuns.creditsLeftToday} credits left: test fewer claims.`
-                          : "Today's free Kane runs are used up. Try again tomorrow."
-                  : `No account needed: you get ${guestRuns.leftForYou} free run${guestRuns.leftForYou === 1 ? "" : "s"}. Visitor results are private and never published.`}
-              </p>
-            ) : null}
+            {runsNote ? <p className="small mono" style={{ margin: 0 }}>{runsNote}</p> : null}
             <div>
-              <button type="button" className="btn" onClick={run} disabled={busy !== null || !chosen.length || cost == null || noRunsLeft}>
-                {busy === "run" ? <span className="spinner" aria-hidden="true" /> : <I.Play size={15} aria-hidden="true" />}
+              <button type="button" className="btn green" onClick={run} disabled={busy !== null || !chosen.length || cost == null || noRunsLeft}>
+                {busy === "run" ? <span className="spinner" aria-hidden="true" /> : <I.Play size={14} aria-hidden="true" />}
                 {cost != null ? `Run · ${cost} credits` : "Run"}
               </button>
             </div>
@@ -197,7 +194,12 @@ export function CheckPage({ session }: { session: Session }) {
   const { navigate } = useRouter();
   return (
     <>
-      <TopBar title="Check your app" eyebrow="Greenlight · tested by Kane" />
+      <div className="sec-label">
+        <span>[N.01/03]</span> <b>&gt; Check</b>
+      </div>
+      <h1 className="slash-title">
+        <i>/</i> Paste. Run. Verdict. <i>/</i>
+      </h1>
       <CheckForm session={session} onStarted={(id) => navigate(`/app/check/${id}`)} />
     </>
   );
@@ -296,37 +298,46 @@ function Verdict({ run }: { run: RunDetail }) {
   const status = run.record.status === "passed" || run.record.status === "failed" ? run.record.status : "couldnt_verify";
   const v = VERDICT[status]!;
   const tests = run.tests ?? [];
+  const passed = run.claims.filter((c) => c.status === "passed").length;
   return (
     <>
-      <section className={status === "passed" ? "card-dark" : "card"} aria-labelledby="verdict">
-        <div className="eyebrow">Verdict</div>
-        <h2 id="verdict" style={{ margin: 0, fontSize: 32 }}>
-          {v.title}
-        </h2>
-        <p style={{ margin: 0 }}>{v.text}</p>
-        <p className="small" style={{ margin: 0 }}>
-          {run.claims.filter((c) => c.status === "passed").length} of {run.claims.length} claims passed
-          {run.credits?.actualSpend != null ? ` · ${Math.round(run.credits.actualSpend)} credits used` : ""}
-          {run.record.endedAt ? ` · ${new Date(run.record.endedAt).toLocaleString()}` : ""}
-        </p>
+      <section className={`verdict ${status === "passed" ? "pass" : ""}`} aria-labelledby="verdict">
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <span className="eyebrow" style={{ color: "inherit" }}>
+            Verdict · tested by Kane
+          </span>
+          <h2 id="verdict" className="verdict-word">
+            {v.title}
+          </h2>
+          <p style={{ margin: 0 }}>{v.text}</p>
+          <p className="small mono" style={{ margin: 0 }}>
+            {passed}/{run.claims.length} claims passed
+            {run.credits?.actualSpend != null ? ` · ${Math.round(run.credits.actualSpend)} credits used` : ""}
+            {run.record.endedAt ? ` · ${new Date(run.record.endedAt).toLocaleString()}` : ""}
+          </p>
+        </div>
+        <span className="verdict-mark">
+          [{passed}/{run.claims.length}]
+        </span>
       </section>
-      <section className="card" aria-labelledby="claims-h">
-        <h2 id="claims-h" className="card-title">
-          Claims
-        </h2>
-        <ul className="list" style={{ gap: 14 }}>
+      <section className="step-card" aria-labelledby="claims-h">
+        <div className="step-card-head">
+          <h2 id="claims-h">Claims</h2>
+          <span className="num-tag">003</span>
+        </div>
+        <ul className="claim-list">
           {run.claims.map((c) => {
             const t = tests.find((x) => x.claims.includes(c.id));
             const bad = c.status !== "passed";
+            const word = c.status === "passed" ? "Passed" : c.status === "failed" ? "Failed" : "Could not verify";
             return (
-              <li key={c.id} style={{ display: "grid", gridTemplateColumns: "22px minmax(0,1fr)", gap: 12, alignItems: "start" }}>
+              <li key={c.id}>
                 <ResultMark status={c.status} />
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  <div>
-                    <b>{c.status === "passed" ? "Passed" : c.status === "failed" ? "Failed" : "Could not verify"}</b> · {c.text}
-                  </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+                  <div>{c.text}</div>
                   {bad ? <Fix status={c.status} claim={c.text ?? ""} note={t?.failureMessage ?? null} reasons={t?.reasons ?? []} /> : null}
                 </div>
+                <span className={`claim-status ${c.status}`}>{word}</span>
               </li>
             );
           })}

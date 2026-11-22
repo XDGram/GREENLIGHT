@@ -1,11 +1,12 @@
 import { useId } from "react";
 import { initials } from "../format";
 
-export function Logo({ size = 26 }: { size?: number }) {
+export function Logo({ size = 22 }: { size?: number }) {
+  // A square "go" light: green tile, black check.
   return (
-    <svg width={size} height={size} viewBox="0 0 26 26" fill="none" aria-hidden="true">
-      <circle cx="13" cy="13" r="12" fill="var(--ink)" />
-      <path d="M7.5 13.5l3.6 3.6 7.4-8" stroke="var(--on-dark)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <rect width="22" height="22" fill="var(--green)" />
+      <path d="M5.5 11.5l3.6 3.6 7.4-8" stroke="var(--ink)" strokeWidth="2.4" strokeLinecap="square" />
     </svg>
   );
 }

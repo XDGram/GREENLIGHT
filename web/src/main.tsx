@@ -8,6 +8,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 import "./styles/tokens.css";
 import "./styles/app.css";
+import "./styles/theme.css";
 import { App } from "./App";
 import { RouterProvider } from "./router";
 
