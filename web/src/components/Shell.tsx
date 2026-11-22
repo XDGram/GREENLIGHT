@@ -6,16 +6,10 @@ import * as I from "./Icons";
 
 type NavItem = { href: string; label: string; icon: typeof I.Home; match: Route["name"][] };
 
-function journeyNav(project: string | null): NavItem[] {
-  const p = project ? `/app/projects/${project}` : null;
+function journeyNav(_project: string | null): NavItem[] {
   return [
-    { href: "/app", label: "Overview", icon: I.Home, match: ["home"] },
-    { href: "/app/projects", label: "My projects", icon: I.Projects, match: ["projects", "project"] },
-    { href: "/app/projects/new", label: "Submit an app", icon: I.Plus, match: ["project_new"] },
-    { href: p ? `${p}/tests` : "/app/projects", label: "Test plan", icon: I.FileText, match: ["project_tests", "approvals"] },
-    { href: p ? `${p}/verify` : "/app/projects", label: "Verification", icon: I.Play, match: ["project_verify"] },
-    { href: "/app/fixes", label: "Fix Centre", icon: I.Wrench, match: ["fixes", "fix"] },
-    { href: "/app/records", label: "Evidence & history", icon: I.Records, match: ["records", "project_run"] },
+    { href: "/app", label: "Check an app", icon: I.Play, match: ["home"] },
+    { href: "/app/projects", label: "My checks", icon: I.Projects, match: ["projects", "check", "project", "project_run"] },
   ];
 }
 const SETUP: NavItem[] = [
@@ -56,7 +50,7 @@ export function Sidebar({ session, pending, onSignOut, project }: { session: Ses
       <div className="nav">
         <NavLinks items={journeyNav(project)} pending={pending} />
         <div className="nav-sep" aria-hidden="true" />
-        <NavLinks items={guest ? SETUP.filter((n) => n.label === "Integrations") : SETUP} />
+        {guest ? null : <NavLinks items={SETUP.filter((n) => n.label === "Account")} />}
         {session.role === "admin" ? <NavLinks items={ADMIN} /> : null}
       </div>
       <div className="side-spacer" />
@@ -68,7 +62,7 @@ export function Sidebar({ session, pending, onSignOut, project }: { session: Ses
         </div>
         {guest && session.guestRuns ? (
           <div className="side-user-meta">
-            {session.guestRuns.leftForYou} real browser run{session.guestRuns.leftForYou === 1 ? "" : "s"} left
+            {session.guestRuns.leftForYou} free Kane run{session.guestRuns.leftForYou === 1 ? "" : "s"} left
           </div>
         ) : (
           <div className="side-user-meta">Session ends in {minutes >= 120 ? `${Math.round(minutes / 60)} h` : `${minutes} min`}</div>

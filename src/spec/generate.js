@@ -21,6 +21,11 @@ export const TESTS_DIR = path.join(".greenlight", "tests");
 
 export const testFileName = (testId) => `${testId}_test.md`;
 
+/** Kane step text for a plain-English claim that Kane judges by using the app. */
+export function checkStep(text) {
+  return `Use the app as a normal visitor would to find out whether this claim is true, then verify it: ${text}`;
+}
+
 /** Kane step text for an exact visible-text assertion. */
 export function expectTextStep(text) {
   return `Verify the page shows the exact text "${text}".`;
@@ -47,7 +52,7 @@ export function renderTest(spec, test) {
   ];
   for (const s of test.steps) {
     lines.push(`## ${s.name}`);
-    lines.push(s.kind === "expect_text" ? expectTextStep(s.text) : s.text);
+    lines.push(s.kind === "expect_text" ? expectTextStep(s.text) : s.kind === "check" ? checkStep(s.text) : s.text);
     lines.push("");
   }
   return lines.join("\n");

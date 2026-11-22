@@ -116,7 +116,11 @@ async function setup({ env = {}, ai = true } = {}) {
   });
   const state = { greenlightJson: true, visited: [], kane: new Map(), kaneCalls: [] };
   const calls = [];
-  const tagOf = (file) => (file.startsWith("home") ? "clm-001" : "clm-002");
+  const tagOf = (file) => {
+    const n = /^claim-(\d+)_/.exec(file);
+    if (n) return `clm-${n[1].padStart(3, "0")}`;
+    return file.startsWith("home") ? "clm-001" : "clm-002";
+  };
   const deps = {
     runKane: async (opts) => {
       const files = opts.args.filter((a) => a.endsWith("_test.md"));
@@ -487,4 +491,51 @@ test("guest credits: exact cost confirmed, strict per-run ceiling, shared daily 
   const one = await c.g.go("POST", `/app/api/projects/${c.pid}/certifications`, { version: 1, confirmSpend: 57, tests: ["home_test.md"] });
   assert.deepEqual([one.status, one.body.error.code], [429, "guest_limit_reached"]);
   assert.equal(h.state.kaneCalls.length, 1, "only the one run that fitted every limit reached Kane");
+});
+
+test("the one-page check: README claims, one Run click approves and starts Kane, verdict per claim with Kane's note", async () => {
+  const h = await setup({ ai: false, env: { GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "1" } });
+  const g = browser(h, "203.0.113.77");
+  await g.go("POST", "/app/api/guest/start", {});
+  const base = { repository: "https://github.com/acme/shop", url: "https://shop.example.com/" };
+
+  // Claims: from the pasted notes, or from the repository's README when nothing was pasted.
+  const pasted = await g.go("POST", "/app/api/checks/claims", { ...base, notes: "# Shop\n- Visitors can add products to the cart\n- The cart shows a total\n```\nnpm i\n```" });
+  assert.equal(pasted.status, 200, pasted.text);
+  assert.deepEqual(pasted.body.claims, ["Visitors can add products to the cart", "The cart shows a total"]);
+  assert.equal(pasted.body.source, "notes");
+  assert.deepEqual([pasted.body.maxClaims, pasted.body.costs], [2, [57, 94]], "the visitor's 100-credit ceiling fits two claims");
+  const fromReadme = await g.go("POST", "/app/api/checks/claims", base);
+  assert.deepEqual([fromReadme.body.source, fromReadme.body.claims], ["readme", ["Add products to a cart and see the total."]]);
+
+  // Run: the confirmation must cover the cost shown; too many claims are refused before anything is stored.
+  const claims = pasted.body.claims;
+  assert.equal((await g.go("POST", "/app/api/checks", { ...base, claims, confirm: true, confirmSpend: 50 })).body.error.code, "confirmation_required");
+  assert.equal((await g.go("POST", "/app/api/checks", { ...base, claims: [...claims, "A third claim here"], confirm: true, confirmSpend: 200 })).status, 400);
+  assert.equal((await g.go("POST", "/app/api/checks", { ...base, claims: ["See https://evil.example now"], confirm: true, confirmSpend: 57 })).status, 400);
+  assert.equal((await g.go("GET", "/app/api/projects")).body.projects.length, 0, "refused runs store nothing");
+
+  h.state.kane.set("claim-2_test.md", "failed");
+  const started = await g.go("POST", "/app/api/checks", { ...base, notes: "README", claims, confirm: true, confirmSpend: 94 });
+  assert.equal(started.status, 202, started.text);
+  assert.equal(started.body.estimate, 94);
+  assert.deepEqual(h.state.kaneCalls.length, 0, "Kane runs in the job, not in the request");
+  await h.ctx.jobs.idle();
+  assert.deepEqual(h.state.kaneCalls.at(-1), ["claim-1_test.md", "claim-2_test.md"]);
+
+  const pid = started.body.projectId;
+  const job = (await g.go("GET", `/app/api/jobs/${started.body.job.id}`)).body.job;
+  assert.equal(job.status, "succeeded", JSON.stringify(job.error));
+  const detail = (await g.go("GET", `/app/api/projects/${pid}`)).body;
+  assert.equal(detail.versions[0].approval.identity.provider, "guest", "the Run click recorded the approval");
+  const run = (await g.go("GET", `/app/api/projects/${pid}/records/${job.recordId}`)).body;
+  assert.equal(run.record.status, "failed");
+  assert.deepEqual(run.claims.map((c) => [c.text, c.status]), [["Visitors can add products to the cart", "passed"], ["The cart shows a total", "failed"]]);
+  const bad = run.tests.find((t) => t.file === "claim-2_test.md");
+  assert.match(bad.failureMessage, /Cart total/);
+  assert.equal(bad.steps[0].kind, "check");
+
+  // One free run per visitor.
+  const again = await g.go("POST", "/app/api/checks", { ...base, claims: claims.slice(0, 1), confirm: true, confirmSpend: 57 });
+  assert.deepEqual([again.status, again.body.error.code], [429, "guest_limit_reached"]);
 });

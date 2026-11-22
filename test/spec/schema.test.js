@@ -138,9 +138,10 @@ test("expect_text must be exact, single-line, unquoted and variable-free", () =>
   has(errorsOf(withExpect(`"${"x".repeat(201)}"`)), /longer than 200/);
 });
 
-test("a step needs exactly one of do / expect_text, and a name", () => {
+test("a step needs exactly one of do / expect_text / check, and a name", () => {
   const step = (s) => spec({ tests: `  - id: a\n    title: T\n    claims: [CLM-001]\n    steps:\n${s}\n      - name: C\n        expect_text: X` });
-  has(errorsOf(step("      - name: S\n        do: Click it.\n        expect_text: Y")), /exactly one of "do" or "expect_text"/);
+  has(errorsOf(step("      - name: S\n        do: Click it.\n        expect_text: Y")), /exactly one of "do", "expect_text" or "check"/);
+  has(errorsOf(step("      - name: S\n        do: Click it.\n        check: It works.")), /exactly one of/);
   has(errorsOf(step("      - name: S")), /exactly one of/);
   has(errorsOf(step("      - do: Click it.")), /name: required/);
   has(errorsOf(step('      - name: "# heading"\n        do: Click it.')), /must not start with #/);
@@ -163,4 +164,12 @@ test("start_path, mode and max_steps are validated", () => {
   has(errorsOf(t("    mode: strict")), /mode: must be/);
   has(errorsOf(t("    max_steps: 99")), /max_steps/);
   assert.equal(parseSpec(t("    start_path: /shop/cart\n    mode: action\n    max_steps: 3")).tests[0].startPath, "/shop/cart");
+});
+
+test("a check step is a claim Kane judges and counts as the verifying step", () => {
+  const one = (c) => spec({ tests: `  - id: a\n    title: T\n    claims: [CLM-001]\n    steps:\n      - name: Claim\n        check: ${c}` });
+  const ok = parseSpec(one("Users can sign up and see their dashboard."));
+  assert.deepEqual(ok.tests[0].steps, [{ name: "Claim", kind: "check", text: "Users can sign up and see their dashboard." }]);
+  has(errorsOf(one("Open https://evil.example and sign up.")), /check: must not contain an absolute URL/);
+  has(errorsOf(one('"{{secret}} works"')), /must not contain \{\{variables\}\}/);
 });

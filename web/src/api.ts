@@ -140,6 +140,20 @@ export const api = {
   },
 };
 
+/** The one-page check: claims from the README or notes, then one Kane run. */
+export interface ClaimsResult {
+  claims: string[];
+  source: "notes" | "readme" | "none";
+  maxClaims: number;
+  costs: number[];
+  ceiling: number;
+  guestRuns: Session["guestRuns"] | null;
+}
+export const checkApi = {
+  claims: (body: { repository: string; url: string; notes: string }) => post<ClaimsResult>("/app/api/checks/claims", body),
+  run: (body: { repository: string; url: string; notes: string; claims: string[]; confirm: true; confirmSpend: number }) => post<{ projectId: string; job: Job; estimate: number }>("/app/api/checks", body),
+};
+
 export const adminApi = {
   overview: () => get<AdminOverview>("/app/api/admin/overview"),
   health: () => get<AdminHealth>("/app/api/admin/health"),

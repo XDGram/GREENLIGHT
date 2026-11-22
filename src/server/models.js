@@ -107,7 +107,7 @@ export function webApprovalValidFor(approval, hash) {
  * The permanent verification record for one server certification run.
  * `certified` is computed here and only here.
  */
-export function buildVerificationRecord({ id, project, version, approval, deployment, evaluation, manifest, credits, startedAt, endedAt, now, certifiable = true, testsRun = null }) {
+export function buildVerificationRecord({ id, project, version, approval, deployment, evaluation, manifest, credits, startedAt, endedAt, now, certifiable = true, notCertifiableReason = "guest_verification", testsRun = null }) {
   const evidenceStored = manifest?.evidence?.status === "stored";
   const runUsable = evaluation.run?.usable === true;
   const status = evaluation.project.status; // passed | failed | couldnt_verify
@@ -132,7 +132,7 @@ export function buildVerificationRecord({ id, project, version, approval, deploy
           ...(status !== "passed" ? [`status_${status}`] : []),
           ...(runUsable ? [] : ["run_not_usable"]),
           ...(evidenceStored ? [] : [`evidence_${manifest?.evidence?.status ?? "missing"}`]),
-          ...(certifiable ? [] : ["guest_verification"]),
+          ...(certifiable ? [] : [notCertifiableReason]),
           ...(testsRun ? ["partial_rerun"] : []),
         ],
     ...(testsRun ? { testsRun } : {}),

@@ -212,7 +212,7 @@ export async function buildFailureReport({ evaluation, catalog, manifest, runDir
             index: stepIndex,
             name: step.name,
             kind: step.kind,
-            expected: step.kind === "expect_text" ? { exactText: step.text } : { action: step.text },
+            expected: step.kind === "expect_text" ? { exactText: step.text } : step.kind === "check" ? { claim: step.text } : { action: step.text },
           }
         : null,
       actual: {

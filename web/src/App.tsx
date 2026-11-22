@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { ChromeOrb, Logo } from "./components/Chrome";
-import * as I from "./components/Icons";
+import { Logo } from "./components/Chrome";
 import { Sidebar, TopBar } from "./components/Shell";
 import { AccountPage } from "./pages/AccountPage";
+import { CheckForm, CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
 import { AdminListPage, AdminPage } from "./pages/AdminPage";
 import { FixCentrePage, FixPage } from "./pages/FixCentrePage";
-import { HomePage } from "./pages/HomePage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
 import { NewProjectPage } from "./pages/NewProjectPage";
 import { ProjectPage } from "./pages/ProjectPage";
@@ -104,10 +103,13 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
   let page;
   switch (route.name) {
     case "home":
-      page = <HomePage session={session} projects={projects} reload={reload} />;
+      page = <CheckPage session={session} />;
+      break;
+    case "check":
+      page = <CheckResultPage key={route.id} id={route.id} />;
       break;
     case "projects":
-      page = <ProjectsPage projects={projects} reload={reload} />;
+      page = <ChecksListPage />;
       break;
     case "project_new":
       page = <NewProjectPage session={session} onCreated={reload} />;
@@ -175,6 +177,7 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
       projects: "My projects",
       project_new: "Submit an app",
       project: "Project",
+      check: "Result",
       sample: "Example project",
       project_tests: "Test plan",
       project_verify: "Verification",
@@ -215,101 +218,53 @@ function NotAllowed() {
   );
 }
 
-const HOW = [
-  { n: 1, title: "Submit your app", text: "Its GitHub repository and live URL, and what it should do." },
-  { n: 2, title: "Greenlight learns it", text: "Reads the public code and opens the live app, then proposes tests in plain English." },
-  { n: 3, title: "Test it for real", text: "After you approve the plan, a real browser runs it on your live app." },
-  { n: 4, title: "Understand and fix", text: "Every failure is explained, with a suggested fix you can hand to your coding agent." },
-  { n: 5, title: "Verify again", text: "Re-run the failed tests to confirm the fix." },
-];
-
-function Landing({ googleUrl, guestMode, sample, onEntered }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void> }) {
+function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void> }) {
   const { navigate } = useRouter();
-  const [busy, setBusy] = useState<"submit" | "sample" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const enter = async (to: "submit" | "sample") => {
-    setBusy(to);
-    setError(null);
-    try {
-      await guestApi.start();
-      navigate(to === "submit" ? "/app/projects/new" : "/app/sample");
-      await onEntered();
-    } catch (e) {
-      setError((e as Error).message);
-      setBusy(null);
-    }
+  const [started, setStarted] = useState(false);
+  // The first call starts a visitor session (a cookie on this browser): no sign-up.
+  const start = async () => {
+    if (started) return;
+    await guestApi.start();
+    setStarted(true);
   };
   return (
     <div className="page">
-      <div className="signin-wrap">
-        <div className="signin" style={{ maxWidth: 1040 }}>
-          <section className="card" style={{ gap: 22 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div className="frame" style={{ maxWidth: 880, gridTemplateColumns: "minmax(0,1fr)" }}>
+        <main className="main" id="main">
+          <header className="topbar">
+            <div className="title-block" style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Logo />
               <span className="brand-name">Greenlight</span>
             </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <h1>Find out if your app really works.</h1>
-              <p style={{ margin: 0 }}>
-                Give Greenlight your GitHub repository and live URL. It works out what your app should do, tests it in a real browser, explains anything that fails in plain English, and helps you fix it.
-              </p>
-            </div>
-            {guestMode ? (
-              <div className="landing-actions">
-                <button type="button" className="btn" onClick={() => enter("submit")} disabled={busy !== null}>
-                  {busy === "submit" ? <span className="spinner" aria-hidden="true" /> : <I.Play size={15} aria-hidden="true" />}
-                  Test your app, no account needed
-                </button>
-                {sample ? (
-                  <button type="button" className="btn ghost" onClick={() => enter("sample")} disabled={busy !== null}>
-                    {busy === "sample" ? <span className="spinner" aria-hidden="true" /> : <I.Eye size={15} aria-hidden="true" />}
-                    See an example project
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <p className="small" style={{ margin: 0 }}>
-                Visitor access is not enabled on this server.
-              </p>
-            )}
-            {error ? (
-              <div className="notice" role="alert">
-                <I.CircleAlert size={18} aria-hidden="true" />
-                <p>{error}</p>
-              </div>
-            ) : null}
-            <p className="small" style={{ margin: 0 }}>
-              No sign-up: this browser remembers your projects. Real browser runs are limited per visitor and never become public certificates.{" "}
-              {googleUrl ? (
-                <>
-                  <a href={googleUrl}>Sign in with Google</a> ·{" "}
-                </>
-              ) : null}
-              <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+          </header>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <h1 style={{ margin: 0 }}>Does your app do what its README says?</h1>
+            <p style={{ margin: 0 }}>
+              Paste your GitHub repository, your live URL and your README. Kane tests each claim on the live app in a real browser and gives you a verdict, with a suggested fix for anything that fails.
             </p>
-          </section>
-          <section className="card-dark" aria-labelledby="how-h" style={{ gap: 18 }}>
-            <h2 id="how-h" className="card-title" style={{ fontSize: 15 }}>
-              How it works
-            </h2>
-            <ol className="list" style={{ gap: 14 }}>
-              {HOW.map((h) => (
-                <li key={h.n} style={{ display: "grid", gridTemplateColumns: "28px minmax(0,1fr)", gap: 12 }}>
-                  <span className="step-n" style={{ borderColor: "var(--on-dark-line)" }} aria-hidden="true">
-                    {h.n}
-                  </span>
-                  <div>
-                    <div style={{ fontSize: 13.5, fontWeight: 500 }}>{h.title}</div>
-                    <div style={{ fontSize: 12.5, color: "var(--on-dark-muted)", lineHeight: 1.5 }}>{h.text}</div>
-                  </div>
-                </li>
-              ))}
-            </ol>
-            <div style={{ marginTop: "auto" }}>
-              <ChromeOrb intensity={0.9} />
-            </div>
-          </section>
-        </div>
+          </div>
+          {guestMode ? (
+            <CheckForm
+              session={null}
+              beforeFirstCall={start}
+              onStarted={async (id) => {
+                navigate(`/app/check/${id}`);
+                await onEntered();
+              }}
+            />
+          ) : (
+            <p className="small">Visitor access is not enabled on this server.</p>
+          )}
+          <p className="small" style={{ margin: 0 }}>
+            No sign-up: this browser remembers your checks.{" "}
+            {googleUrl ? (
+              <>
+                <a href={googleUrl}>Sign in with Google</a> ·{" "}
+              </>
+            ) : null}
+            <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+          </p>
+        </main>
       </div>
     </div>
   );

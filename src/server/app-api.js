@@ -47,7 +47,7 @@ import { SCHEMAS, verifyRecordIntegrity } from "./models.js";
 import { browserApprovalRequired, verifyBrowserApproval, signApproval, isGuestAccount } from "./approval-policy.js";
 import { buildApproval, selfHash, WEB_IDENTITY_PROVIDERS } from "./models.js";
 import { prepareCertification } from "./certify.js";
-import { buildSpecYaml, USER_LIMITS } from "./guest-spec.js";
+import { buildSpecYaml, USER_LIMITS, GUEST_LIMITS } from "./guest-spec.js";
 import { draftTests } from "./guest-ai.js";
 import { parseRepoUrl, checkBranch, checkRepository, checkCommit, probeDeployment, inspectRepository } from "./repo.js";
 import { readLiveApp } from "./browse.js";
@@ -55,6 +55,7 @@ import { analyzeProject, requirementsFrom, reviseTests } from "./understand.js";
 import { handleFixApi } from "./fix-centre.js";
 import { createAgentRequest } from "./agent-requests.js";
 import { handleAdminApi } from "./admin-api.js";
+import { claimsFromText, cleanClaim, checkCost, maxClaims, checkSpecYaml } from "./simple-check.js";
 
 export const APP_API_PREFIX = "/app/api/";
 const PROJECT = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})(?:\/(details|repository-check|deployment-check|draft|preview|versions|certifications|understand|fixes))?$/;
@@ -462,10 +463,13 @@ async function guestRunState(store, config, s) {
 }
 
 /**
- * Record a signed in-app approval of exactly this version, for a guest. The same write-once,
- * server-signed record the approval pages write; guest accounts can never certify with it.
+ * Record a signed in-app approval of exactly this version by the signed-in person (guest, Google
+ * or administrator session). The same write-once, server-signed record the approval pages write,
+ * with both confirmations made by one explicit click; guest accounts can never certify with it.
  */
-async function approveAsGuest({ config, store, s, project, v, now }) {
+async function approveInApp({ config, store, s, project, v, now }) {
+  const provider = WEB_IDENTITY_PROVIDERS[s.provider] ? s.provider : null;
+  if (!provider) throw new GreenlightError("forbidden", "This session cannot approve tests.");
   if (!config.approvalSigningKey) throw new GreenlightError("server_not_configured", "Approvals are not available on this server.");
   const derived = projectFromText(v.specText);
   if (derived.hash !== v.approvedTestHash) throw new GreenlightError("approval_hash_mismatch", "The stored tests do not match their recorded version.");
@@ -476,8 +480,11 @@ async function approveAsGuest({ config, store, s, project, v, now }) {
     approvedBy: s.user,
     now: at,
     extra: {
-      channel: WEB_IDENTITY_PROVIDERS.guest.channel,
-      identity: { provider: "guest", issuer: WEB_IDENTITY_PROVIDERS.guest.issuer, subject: s.sub, username: null, email: null, name: "Guest", authenticatedAt: null },
+      channel: WEB_IDENTITY_PROVIDERS[provider].channel,
+      identity:
+        provider === "guest"
+          ? { provider: "guest", issuer: WEB_IDENTITY_PROVIDERS.guest.issuer, subject: s.sub, username: null, email: null, name: "Guest", authenticatedAt: null }
+          : { provider, issuer: WEB_IDENTITY_PROVIDERS[provider].issuer, subject: s.sub, username: s.username ?? null, email: s.email ?? null, name: s.name ?? null, authenticatedAt: s.authAt ?? null },
       confirmations: {
         testSpecification: { hash: derived.hash, specFileSha256: derived.specFileSha256, confirmedAt: at.toISOString() },
         serverVersion: { hash: v.approvedTestHash, confirmedAt: at.toISOString() },
@@ -488,6 +495,113 @@ async function approveAsGuest({ config, store, s, project, v, now }) {
   record.recordSha256 = selfHash(record);
   await store.putApproval(project.id, v.version, record);
   return record;
+}
+
+/**
+ * The commit a run is recorded against when the person does not type one: the live site's
+ * /greenlight.json when it has one, otherwise the public branch head, recorded as unconfirmed.
+ */
+async function serverCommit({ store, project, config, fetchImpl, checkHost, now }) {
+  const live = await probeDeployment({ url: project.url, fetchImpl, ...(checkHost ? { checkHost } : {}), now });
+  if (live.status === "ok") return { commit: live.commit, commitSource: "live_site" };
+  const d = await store.getProjectDetails(project.id).catch(() => null);
+  const repo = d?.repository ? parseRepoUrl(d.repository) : null;
+  const rc = repo ? await checkRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now, token: config.githubToken }) : null;
+  if (rc?.status !== "ok") {
+    throw new GreenlightError("deployment_not_ready", "Greenlight can't tell which commit is live: the site doesn't publish /greenlight.json and the repository's latest commit can't be read (it may be private). Add /greenlight.json to the site, or make the repository public, then try again.");
+  }
+  return { commit: rc.head.sha, commitSource: "branch_head" };
+}
+
+/**
+ * Check everything that can be checked before spending, then queue one verification run of an
+ * approved version. Guests: the server picks the commit, the confirmation must cover the
+ * estimate, and the run is reserved atomically against the per-visitor and daily limits.
+ * @returns {Promise<object>} the queued job
+ */
+async function submitVerification({ config, store, s, project, body, jobs, fetchImpl, checkHost, now, log, autoCommit = false }) {
+  if (!jobs) throw new GreenlightError("server_not_configured", "Verification runs are not available on this server.");
+  if (!Number.isInteger(body.version) || body.version < 1) throw new GreenlightError("invalid_request", "Choose the approved test version to verify.");
+  if (body.confirmSpend !== undefined && (!Number.isFinite(body.confirmSpend) || body.confirmSpend <= 0)) throw new GreenlightError("invalid_request", "confirmSpend must be a positive number of credits.");
+  const request = {
+    commit: typeof body.commit === "string" ? body.commit.trim().toLowerCase() : body.commit,
+    confirmSpend: body.confirmSpend,
+    approvedTestHash: typeof body.approvedTestHash === "string" ? body.approvedTestHash : undefined,
+  };
+  if (body.environment !== undefined) {
+    if (!["preview", "production"].includes(body.environment)) throw new GreenlightError("invalid_request", "environment must be preview or production.");
+    request.environment = body.environment;
+  }
+  if (request.approvedTestHash === undefined) delete request.approvedTestHash;
+  let reservation = null;
+  if (s.role === "guest" || isGuestAccount(project.account)) {
+    if (!guestRunsEnabled(config)) throw new GreenlightError("server_not_configured", "Real browser runs are not available for guests on this server.");
+    if (await guestPaused(store)) throw new GreenlightError("guest_limit_reached", "Real browser runs are paused by the administrator right now.");
+    if (request.confirmSpend !== undefined) request.confirmSpend = Math.min(request.confirmSpend, config.guest.maxCreditsPerRun);
+    // The server decides the commit for guests, never a typed value.
+    Object.assign(request, await serverCommit({ store, project, config, fetchImpl, checkHost, now }));
+    if (Array.isArray(body.tests) && body.tests.length) {
+      if (body.tests.length > 50 || !body.tests.every((t) => typeof t === "string" && /^[a-z0-9-]+_test\.md$/.test(t))) throw new GreenlightError("invalid_request", "tests: a list of test files from the approved version.");
+      request.tests = [...new Set(body.tests)];
+    }
+    const { derived } = await prepareCertification({ store, project, versionNo: body.version, request, config });
+    // The cost of exactly this run, shown to the person before they confirm; their confirmation
+    // must cover it, and it must fit the per-run ceiling and today's shared budget.
+    const est = runEstimate(derived.spec, config, request.tests);
+    if (!Number.isFinite(body.confirmSpend) || body.confirmSpend < est) {
+      throw new GreenlightError("confirmation_required", `This run is estimated at ${est} credits; confirm that amount to start it.`, { estimate: est });
+    }
+    request.confirmSpend = Math.min(Math.ceil(est), config.guest.maxCreditsPerRun);
+    reservation = (
+      await store.reserveGuestRun(project.account, { credits: Math.ceil(est), perAccount: config.guest.realRunsPerGuest, perDay: config.guest.realRunsPerDay, dailyCredits: config.guest.dailyCredits, maxPerRun: config.guest.maxCreditsPerRun })
+    ).reservation;
+  } else {
+    if (autoCommit) Object.assign(request, await serverCommit({ store, project, config, fetchImpl, checkHost, now }));
+    // Everything that can be checked before spending (the job checks it all again).
+    await prepareCertification({ store, project, versionNo: body.version, request, config });
+  }
+  let job;
+  try {
+    job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: s.user });
+  } catch (err) {
+    if (reservation !== null) await store.releaseGuestRun(reservation).catch(() => {});
+    throw err;
+  }
+  if (reservation !== null) await store.attachGuestRun(reservation, job.id).catch(() => {});
+  log({ event: "certification_requested", account: s.account, projectId: project.id, version: body.version, jobId: job.id, confirmSpend: request.confirmSpend });
+  await activity(store, actorOf(s), "verification.requested", project.id, { version: body.version, jobId: job.id, commit: request.commit, confirmSpend: request.confirmSpend });
+  return job;
+}
+
+/** Per-run ceiling and claim limit for the one-page check. */
+function checkLimits(config, s) {
+  const guest = s.role === "guest";
+  const ceiling = guest ? config.guest?.maxCreditsPerRun ?? 0 : config.maxCreditsPerRun ?? 150;
+  const L = guest ? GUEST_LIMITS : USER_LIMITS;
+  const max = maxClaims(ceiling, config, Math.min(L.tests, L.claims));
+  return { ceiling, maxClaims: max, costs: Array.from({ length: max }, (_, i) => checkCost(i + 1, config)), limits: L };
+}
+
+/** The repository's README text, or null when GitHub can't show it. */
+async function readmeOf(repo, { fetchImpl, now, config }) {
+  try {
+    const r = await inspectRepository({ owner: repo.owner, repo: repo.repo, branch: repo.branch ?? "main", fetchImpl, now, token: config.githubToken });
+    return r?.readme ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** The repository with its branch: main, or the default branch GitHub reports. */
+async function repoWithBranch(input, { fetchImpl, now, config }) {
+  const repo = parseRepoUrl(input);
+  let check = await checkRepository({ owner: repo.owner, repo: repo.repo, branch: "main", fetchImpl, now, token: config.githubToken });
+  let branch = "main";
+  if (check.status === "branch_not_found" && check.repo?.defaultBranch && check.repo.defaultBranch !== "main") {
+    branch = checkBranch(check.repo.defaultBranch);
+    check = await checkRepository({ owner: repo.owner, repo: repo.repo, branch, fetchImpl, now, token: config.githubToken });
+  }
+  return { ...repo, branch, check };
 }
 
 const aiUse = new Map();
@@ -662,6 +776,67 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       }
     }
 
+    // ------------------------------------------------ the one-page check
+    if (path === "/app/api/checks/claims" && isPost) {
+      // Step 1: what will be tested. Free: reads the notes, or the README when none were pasted.
+      const body = await readJson(req);
+      liveUrl(body.url);
+      const repo = parseRepoUrl(body.repository);
+      let notes = text(body.notes, 20000, "README or notes");
+      let source = notes ? "notes" : "none";
+      if (!notes) {
+        const r = await repoWithBranch(repo.url, { fetchImpl, now, config });
+        notes = await readmeOf(r, { fetchImpl, now, config });
+        if (notes) source = "readme";
+      }
+      const lim = checkLimits(config, s);
+      return sendJson(res, 200, { claims: claimsFromText(notes ?? ""), source, maxClaims: lim.maxClaims, costs: lim.costs, ceiling: lim.ceiling, guestRuns: s.role === "guest" ? await guestRunState(store, config, s) : null });
+    }
+
+    if (path === "/app/api/checks" && isPost) {
+      // Step 2: one click. Creates the project, writes one Kane test per claim, records the
+      // person's approval of exactly those tests and starts the run they confirmed the cost of.
+      if (!jobs) throw new GreenlightError("server_not_configured", "Kane runs are not available on this server.");
+      const body = await readJson(req);
+      const appUrl = liveUrl(body.url);
+      const claims = (Array.isArray(body.claims) ? body.claims : []).map(cleanClaim);
+      if (!claims.length) throw new GreenlightError("invalid_request", "Choose at least one claim to test.");
+      const lim = checkLimits(config, s);
+      if (!lim.maxClaims) throw new GreenlightError("server_not_configured", "The per-run credit limit on this server is too low for a test.");
+      if (claims.length > lim.maxClaims) throw new GreenlightError("invalid_request", `One run can test up to ${lim.maxClaims} claims here; untick the rest.`);
+      const cost = checkCost(claims.length, config);
+      if (body.confirm !== true || !Number.isFinite(body.confirmSpend) || body.confirmSpend < cost) {
+        throw new GreenlightError("confirmation_required", `This run is estimated at ${cost} credits; confirm that amount to start it.`, { estimate: cost });
+      }
+      if (s.role === "guest") {
+        if (!guestRunsEnabled(config)) throw new GreenlightError("server_not_configured", "Kane runs are not available for visitors on this server.");
+        if (await guestPaused(store)) throw new GreenlightError("guest_limit_reached", "Kane runs are paused by the administrator right now.");
+        const st = await guestRunState(store, config, s);
+        if (st.leftForYou < 1) throw new GreenlightError("guest_limit_reached", "You have used your free Kane run. Sign in to run more.");
+        if (st.leftToday < 1 || st.creditsLeftToday < cost) throw new GreenlightError("guest_limit_reached", "Today's free Kane runs are used up. Try again tomorrow, or sign in.");
+        if ((await store.listProjects(s.account)).length >= (config.guest?.projectsPerGuest ?? 5)) throw new GreenlightError("guest_limit_reached", `Visitors can keep up to ${config.guest?.projectsPerGuest ?? 5} apps.`);
+      }
+      const repo = await repoWithBranch(body.repository, { fetchImpl, now, config });
+      const name = (repo.check?.repo?.fullName ?? `${repo.owner}/${repo.repo}`).slice(0, 120);
+      let specText;
+      try {
+        specText = checkSpecYaml({ name, url: appUrl, claims, limits: lim.limits });
+        projectFromText(specText);
+      } catch (err) {
+        if (err instanceof SpecError) throw new GreenlightError("invalid_request", "A claim can't be turned into a test.", { problems: err.errors });
+        throw err;
+      }
+      const notes = text(body.notes, 20000, "README or notes");
+      const at = now();
+      const project = await store.createProject({ name, url: appUrl, account: s.account, createdBy: s.user, now: at });
+      await store.putProjectDetails(project.id, s.account, { description: null, purpose: notes ?? claims.join("\n"), repository: repo.url, branch: repo.branch, repositoryCheck: repo.check, credentials: null, flow: "check" }, s.user);
+      const v = await proposeVersion({ store, project, specText, by: s.user, now });
+      await approveInApp({ config, store, s, project, v, now });
+      await activity(store, actorOf(s), "check.started", project.id, { claims: claims.length, version: v.version, hash: v.approvedTestHash, provider: s.provider });
+      const job = await submitVerification({ config, store, s, project, body: { version: v.version, confirmSpend: cost, approvedTestHash: v.approvedTestHash }, jobs, fetchImpl, checkHost, now, log, autoCommit: true });
+      return sendJson(res, 202, { projectId: project.id, job: jobView(job), estimate: cost });
+    }
+
     const am = APPROVE.exec(path);
     if (am && isPost) {
       // In-app approval is for guests; signed-in accounts approve on the /approve pages.
@@ -673,7 +848,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         throw new GreenlightError("approval_hash_mismatch", "These tests changed since you reviewed them; review the current tests and approve again.");
       }
       if (await store.getApproval(project.id, v.version)) throw new GreenlightError("conflict", "This test plan is already approved.");
-      await approveAsGuest({ config, store, s, project, v, now });
+      await approveInApp({ config, store, s, project, v, now });
       await activity(store, actorOf(s), "tests.approved", project.id, { version: v.version, hash: v.approvedTestHash, provider: "guest" });
       return sendJson(res, 200, await projectDetail(config, store, project));
     }
@@ -831,69 +1006,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       }
 
       if (action === "certifications") {
-        if (!jobs) throw new GreenlightError("server_not_configured", "Verification runs are not available on this server.");
-        if (!Number.isInteger(body.version) || body.version < 1) throw new GreenlightError("invalid_request", "Choose the approved test version to verify.");
-        if (body.confirmSpend !== undefined && (!Number.isFinite(body.confirmSpend) || body.confirmSpend <= 0)) throw new GreenlightError("invalid_request", "confirmSpend must be a positive number of credits.");
-        const request = {
-          commit: typeof body.commit === "string" ? body.commit.trim().toLowerCase() : body.commit,
-          confirmSpend: body.confirmSpend,
-          approvedTestHash: typeof body.approvedTestHash === "string" ? body.approvedTestHash : undefined,
-        };
-        if (body.environment !== undefined) {
-          if (!["preview", "production"].includes(body.environment)) throw new GreenlightError("invalid_request", "environment must be preview or production.");
-          request.environment = body.environment;
-        }
-        if (request.approvedTestHash === undefined) delete request.approvedTestHash;
-        let reservation = null;
-        if (s.role === "guest" || isGuestAccount(project.account)) {
-          if (!guestRunsEnabled(config)) throw new GreenlightError("server_not_configured", "Real browser runs are not available for guests on this server.");
-          if (await guestPaused(store)) throw new GreenlightError("guest_limit_reached", "Real browser runs are paused by the administrator right now.");
-          if (request.confirmSpend !== undefined) request.confirmSpend = Math.min(request.confirmSpend, config.guest.maxCreditsPerRun);
-          // The server decides the commit for guests: the live site's /greenlight.json when it has
-          // one, otherwise the public branch head, recorded as unconfirmed. Never a typed value.
-          const d = await store.getProjectDetails(project.id).catch(() => null);
-          const live = await probeDeployment({ url: project.url, fetchImpl, ...(checkHost ? { checkHost } : {}), now });
-          if (live.status === "ok") {
-            request.commit = live.commit;
-            request.commitSource = "live_site";
-          } else {
-            const repo = d?.repository ? parseRepoUrl(d.repository) : null;
-            const rc = repo ? await checkRepository({ owner: repo.owner, repo: repo.repo, branch: d.branch ?? "main", fetchImpl, now, token: config.githubToken }) : null;
-            if (rc?.status !== "ok") {
-              throw new GreenlightError("deployment_not_ready", "Greenlight can't tell which commit is live: the site doesn't publish /greenlight.json and the repository's latest commit can't be read (it may be private). Add /greenlight.json to the site, or make the repository public, then try again.");
-            }
-            request.commit = rc.head.sha;
-            request.commitSource = "branch_head";
-          }
-          if (Array.isArray(body.tests) && body.tests.length) {
-            if (body.tests.length > 50 || !body.tests.every((t) => typeof t === "string" && /^[a-z0-9-]+_test\.md$/.test(t))) throw new GreenlightError("invalid_request", "tests: a list of test files from the approved version.");
-            request.tests = [...new Set(body.tests)];
-          }
-          const { derived } = await prepareCertification({ store, project, versionNo: body.version, request, config });
-          // The cost of exactly this run, shown to the person before they confirm; their confirmation
-          // must cover it, and it must fit the per-run ceiling and today's shared budget.
-          const est = runEstimate(derived.spec, config, request.tests);
-          if (!Number.isFinite(body.confirmSpend) || body.confirmSpend < est) {
-            throw new GreenlightError("confirmation_required", `This run is estimated at ${est} credits; confirm that amount to start it.`, { estimate: est });
-          }
-          request.confirmSpend = Math.min(Math.ceil(est), config.guest.maxCreditsPerRun);
-          reservation = (
-            await store.reserveGuestRun(project.account, { credits: Math.ceil(est), perAccount: config.guest.realRunsPerGuest, perDay: config.guest.realRunsPerDay, dailyCredits: config.guest.dailyCredits, maxPerRun: config.guest.maxCreditsPerRun })
-          ).reservation;
-        } else {
-          // Everything that can be checked before spending (the job checks it all again).
-          await prepareCertification({ store, project, versionNo: body.version, request, config });
-        }
-        let job;
-        try {
-          job = await jobs.submit({ projectId: project.id, version: body.version, request, requestedBy: s.user });
-        } catch (err) {
-          if (reservation !== null) await store.releaseGuestRun(reservation).catch(() => {});
-          throw err;
-        }
-        if (reservation !== null) await store.attachGuestRun(reservation, job.id).catch(() => {});
-        log({ event: "certification_requested", account: s.account, projectId: project.id, version: body.version, jobId: job.id, confirmSpend: request.confirmSpend });
-        await activity(store, actorOf(s), "verification.requested", project.id, { version: body.version, jobId: job.id, commit: request.commit, confirmSpend: request.confirmSpend });
+        const job = await submitVerification({ config, store, s, project, body, jobs, fetchImpl, checkHost, now, log });
         return sendJson(res, 202, { job: jobView(job) });
       }
       throw new GreenlightError("not_found", "Not found.");

@@ -21,9 +21,13 @@
 //           do: Open the start page.          # an action, in plain English
 //         - name: Check the count
 //           expect_text: "Items in cart: 2"   # exact visible text that must be on the page
+//         - name: Claim
+//           check: Users can sign up.         # a claim in plain English that Kane judges
 //
 // Verification rules (from the Kane smoke test, where a vision-only check
-// misread the page): every test needs at least one `expect_text` step;
+// misread the page): every test needs at least one verifying step, either
+// `expect_text` (an exact visible-text check) or `check` (a plain-English claim
+// that Kane itself judges, used by the one-page "check my app" flow);
 // `do` steps may not verify anything; visual-only checks are rejected.
 
 import { parseYamlSubset, YamlSubsetError } from "./yaml-subset.js";
@@ -38,7 +42,7 @@ const TOP_KEYS = new Set(["version", "project", "claims", "tests"]);
 const PROJECT_KEYS = new Set(["name", "description", "url"]);
 const CLAIM_KEYS = new Set(["id", "text", "requirement"]);
 const TEST_KEYS = new Set(["id", "title", "claims", "start_path", "mode", "max_steps", "steps"]);
-const STEP_KEYS = new Set(["name", "do", "expect_text"]);
+const STEP_KEYS = new Set(["name", "do", "expect_text", "check"]);
 const VISUAL_KEYS = new Set(["expect", "expect_visual", "expect_screenshot", "visual", "looks_like", "see", "screenshot", "expect_image"]);
 
 // Words that make a `do` step a verification. Verification must be expect_text.
@@ -213,8 +217,16 @@ export function validateSpec(doc) {
           else if (/^#|^```|^@/.test(s.name.trim())) errors.push(`${sw}.name: must not start with #, @ or \`\`\``);
           const hasDo = s.do !== undefined;
           const hasExpect = s.expect_text !== undefined;
-          if (hasDo === hasExpect) return errors.push(`${sw}: needs exactly one of "do" or "expect_text"`);
-          if (hasDo) {
+          const hasCheck = s.check !== undefined;
+          if (Number(hasDo) + Number(hasExpect) + Number(hasCheck) !== 1) return errors.push(`${sw}: needs exactly one of "do", "expect_text" or "check"`);
+          if (hasCheck) {
+            const c = s.check;
+            if (!isText(c) || !oneLine(c)) return errors.push(`${sw}.check: required single-line text`);
+            if (c.length > 400) errors.push(`${sw}.check: longer than 400 characters`);
+            if (/https?:\/\//i.test(c)) errors.push(`${sw}.check: must not contain an absolute URL`);
+            if (/\{\{|@import|^#|```/.test(c.trim())) errors.push(`${sw}.check: must not contain {{variables}}, @import, headings or code fences`);
+            steps.push({ name: s.name?.trim?.() ?? null, kind: "check", text: c.trim() });
+          } else if (hasDo) {
             const d = s.do;
             if (!isText(d) || !oneLine(d)) return errors.push(`${sw}.do: required single-line text`);
             if (d.length > 500) errors.push(`${sw}.do: longer than 500 characters`);
@@ -233,8 +245,8 @@ export function validateSpec(doc) {
             steps.push({ name: s.name?.trim?.() ?? null, kind: "expect_text", text: e });
           }
         });
-        if (!steps.some((s) => s.kind === "expect_text")) {
-          errors.push(`${label}: needs at least one expect_text step (an exact visible-text check)`);
+        if (!steps.some((s) => s.kind === "expect_text" || s.kind === "check")) {
+          errors.push(`${label}: needs at least one expect_text step (an exact visible-text check) or check step (a claim Kane judges)`);
         }
       }
       tests.push({ id: t.id, title: isText(t.title) ? t.title.trim() : null, claims: tClaims, startPath, mode, maxSteps, steps });

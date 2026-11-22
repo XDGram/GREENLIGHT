@@ -118,6 +118,7 @@ export async function runCertification({ store, job, config, deps }) {
 
   // Credits, before Kane starts.
   const catalog = catalogFromSpec(derived.spec);
+  const judged = derived.spec.tests.some((t) => t.steps.some((st) => st.kind === "check"));
   const plan = { tests: catalog.tests.filter((t) => !selected || selected.has(t.file)).map((t) => ({ file: t.file, author: true, steps: t.steps.length })) };
   const estimate = estimateRun(plan, config.rates ? { rates: config.rates } : {});
   const before = await deps.readBalance();
@@ -154,7 +155,7 @@ export async function runCertification({ store, job, config, deps }) {
     startUrl: url,
     validator: deps.validator,
     evaluation,
-    approval: { method: approval.method, certifiable: !guest },
+    approval: { method: approval.method, certifiable: !guest && !judged },
     credits,
     runKind: "certification",
     now: deps.now,
@@ -171,7 +172,10 @@ export async function runCertification({ store, job, config, deps }) {
     startedAt,
     endedAt,
     now: deps.now(),
-    certifiable: !guest,
+    // Claims Kane judges by itself (`check` steps, from the one-page check) are a verdict,
+    // not a certification: only exact visible-text checks can certify.
+    certifiable: !guest && !judged,
+    notCertifiableReason: guest ? "guest_verification" : "kane_judged_claims",
     testsRun: selected ? rendered.map((r) => r.file) : null,
   });
   // Evidence is archived and hash-verified BEFORE the record exists; then the

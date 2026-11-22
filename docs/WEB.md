@@ -19,6 +19,26 @@ The product for three kinds of people:
   `/approve` to a running server (`GREENLIGHT_DEV_API`, default `http://127.0.0.1:8787`).
 - `npm run typecheck:web` type-checks it.
 
+## The one-page check (the main screen)
+
+`/app` is one page, for visitors (no sign-up), Google users and administrators alike:
+
+1. Paste the GitHub repository, the live URL and, optionally, the README or notes.
+2. **Check my app** (`POST /app/api/checks/claims`, free, no Kane): each bullet point of the
+   notes (or of the repository's README when nothing was pasted) becomes a claim. The page shows
+   the claims, how many one run can hold under the per-run credit ceiling, and the cost.
+3. **Run** (`POST /app/api/checks` with `confirm: true` and `confirmSpend` >= the cost shown):
+   creates the project, writes one Kane test per claim (a single `check` step: Kane uses the live
+   app and judges the claim), records the person's signed approval of exactly those tests and
+   queues the Kane run. That one click is the approval and the spend confirmation.
+4. `/app/check/:projectId` shows progress, then the verdict (Passed / Failed / Could not verify),
+   each claim marked, and for each failure Kane's own note and a suggested fix.
+
+No AI is involved; claims come from the text. Visitor runs keep every guest limit (one run per
+visitor, daily runs and credits, per-run ceiling, admin pause, atomic reservation). Runs made of
+Kane-judged claims are verdicts, never certifications (`notCertifiedBecause: kane_judged_claims`);
+only exact visible-text tests can certify.
+
 ## The journey (guests first)
 
 Visitors use Greenlight without an account: **Test your app, no account needed** gives the browser a
