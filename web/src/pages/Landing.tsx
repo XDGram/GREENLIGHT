@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { motion, useInView, useReducedMotion, useScroll, useTransform } from "framer-motion";
+import { motion, useInView, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
 import { guestApi } from "../api";
 import { Logo } from "../components/Chrome";
 import { useRouter } from "../router";
@@ -21,12 +21,84 @@ function Reveal({ children, delay = 0, className }: { children: ReactNode; delay
   );
 }
 
-function Pop({ children, delay, className }: { children: ReactNode; delay: number; className?: string }) {
+/** A small icon tile set between the words of the headline. */
+function Tile({ kind, delay }: { kind: "doc" | "browser" | "check"; delay: number }) {
   const still = useReducedMotion();
+  const icon =
+    kind === "doc" ? (
+      <path d="M7 3.5h7.5L19 8v12.5H7z M14.5 3.5V8H19 M10 12h6 M10 15.5h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
+    ) : kind === "browser" ? (
+      <>
+        <rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M3.5 9h17" stroke="currentColor" strokeWidth="1.8" />
+        <path d="M11 11.5l5.5 2.6-2.3.6-1 2.4z" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+      </>
+    ) : (
+      <path d="M6 12.5l4 4 8-9" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    );
   return (
-    <motion.span className={className} initial={still ? false : { opacity: 0, scale: 0.6, rotate: -6 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 260, damping: 18, delay }}>
-      {children}
+    <motion.span className={`tile ${kind}`} aria-hidden="true" initial={still ? false : { opacity: 0, scale: 0.4, rotate: -12 }} animate={{ opacity: 1, scale: 1, rotate: kind === "browser" ? 4 : kind === "check" ? -4 : 0 }} transition={{ type: "spring", stiffness: 260, damping: 16, delay }}>
+      <svg viewBox="0 0 24 24">{icon}</svg>
     </motion.span>
+  );
+}
+
+const ink = { fill: "none", stroke: "#111", strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+/** Hand-drawn doodles around the hero. They bob gently and drift apart as you scroll. */
+function Doodles({ progress }: { progress: MotionValue<number> }) {
+  const still = useReducedMotion();
+  const left = useTransform(progress, [0, 1], still ? [0, 0] : [0, -120]);
+  const right = useTransform(progress, [0, 1], still ? [0, 0] : [0, -170]);
+  return (
+    <div className="doodles" aria-hidden="true">
+      <motion.div className="dd d-bubble" style={{ y: left }}>
+        <svg viewBox="0 0 120 100">
+          <path d="M20 18 C 40 6, 96 6, 108 26 C 118 44, 104 66, 74 70 L 52 72 L 34 90 L 38 70 C 16 66, 6 48, 12 32 C 14 26, 16 22, 20 18 Z" {...ink} />
+          <path d="M34 32 h46 M34 44 h52 M34 56 h34" {...ink} />
+        </svg>
+      </motion.div>
+      <motion.div className="dd d-bug" style={{ y: left }}>
+        <svg viewBox="0 0 110 110">
+          <ellipse cx="55" cy="60" rx="20" ry="27" {...ink} />
+          <path d="M55 34 v52 M40 46 C 30 40, 26 36, 22 30 M70 46 C 80 40, 84 36, 88 30 M35 62 h-16 M75 62 h16 M40 78 C 32 84, 28 88, 24 94 M70 78 C 78 84, 82 88, 86 94" {...ink} />
+          <circle cx="55" cy="30" r="8" {...ink} />
+          <path d="M50 22 L 44 12 M60 22 L 66 12" {...ink} />
+          <path d="M14 14 L 96 104" stroke="var(--pink)" strokeWidth="4" strokeLinecap="round" fill="none" />
+        </svg>
+      </motion.div>
+      <motion.div className="dd d-yes" style={{ y: right }}>
+        <svg viewBox="0 0 150 110">
+          <path d="M30 22 C 60 4, 128 10, 138 42 C 146 70, 112 90, 74 88 C 56 88, 40 84, 30 76 L 12 96 L 18 70 C 6 58, 6 36, 30 22 Z" {...ink} />
+          <text x="40" y="62" fontFamily="Caveat, cursive" fontWeight="600" fontSize="34" fill="#111" transform="rotate(-8 75 55)">
+            Passed!
+          </text>
+        </svg>
+      </motion.div>
+      <motion.div className="dd d-cursor" style={{ y: right }}>
+        <svg viewBox="0 0 100 100">
+          <path d="M30 24 L 72 52 L 52 56 L 62 78 L 54 82 L 44 60 L 30 74 Z" {...ink} fill="#fff" />
+          <path d="M18 14 L 24 20 M30 8 L 32 16 M8 28 L 16 30" {...ink} />
+        </svg>
+      </motion.div>
+      <motion.div className="dd d-box" style={{ y: left }}>
+        <svg viewBox="0 0 90 90">
+          <path d="M18 20 C 34 16, 56 17, 70 20 C 72 36, 72 56, 69 70 C 52 73, 34 72, 20 69 C 17 52, 16 36, 18 20 Z" {...ink} />
+          <path d="M28 44 L 42 58 L 80 10" stroke="var(--blue)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+        </svg>
+      </motion.div>
+      <motion.div className="dd d-stars" style={{ y: right }}>
+        <svg viewBox="0 0 120 90">
+          <path d="M20 46 l 6 -14 l 6 14 l 14 2 l -11 9 l 4 14 l -13 -8 l -13 8 l 4 -14 l -11 -9 z" {...ink} />
+          <path d="M66 30 l 5 -11 l 5 11 l 11 2 l -9 7 l 3 11 l -10 -6 l -10 6 l 3 -11 l -9 -7 z" {...ink} />
+          <path d="M92 60 l 4 -9 l 4 9 l 9 1 l -7 6 l 3 9 l -9 -5 l -8 5 l 2 -9 l -7 -6 z" {...ink} />
+        </svg>
+      </motion.div>
+      <span className="dash dash-1" />
+      <span className="dash dash-2" />
+      <span className="dash dash-3" />
+      <span className="dash dash-4" />
+    </div>
   );
 }
 
@@ -213,6 +285,8 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
     await guestApi.start();
     setStarted(true);
   };
+  const heroRef = useRef<HTMLElement>(null);
+  const { scrollYProgress: heroP } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
   useEffect(() => {
     document.title = "Greenlight · Does your app do what its README says?";
@@ -249,42 +323,39 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
       </header>
 
       <main id="main">
-        <section className="hero" aria-labelledby="hero-h">
-          <span className="speck s1" aria-hidden="true" />
-          <span className="speck s2" aria-hidden="true" />
-          <span className="speck s3" aria-hidden="true" />
-          <span className="speck s4" aria-hidden="true" />
+        <section className="hero" aria-labelledby="hero-h" ref={heroRef}>
+          <Doodles progress={heroP} />
           <motion.a className="announce" href="#check" onClick={(e) => (e.preventDefault(), go("check"))} initial={still ? false : { opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease }}>
             <b>Free</b> One run per visitor, no sign-up <span aria-hidden="true">→</span>
           </motion.a>
           <motion.h1 id="hero-h" initial={still ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.05 }}>
-            Your README
-            <Pop className="chip file" delay={0.5}>
-              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-                <path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+            Your
+            <Tile kind="doc" delay={0.45} />
+            README makes{" "}
+            <span className="scribble">
+              promises.
+              <svg viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true">
+                <motion.path d="M4 16 C 60 6, 110 22, 160 12 S 250 6, 296 14 M 30 21 C 100 14, 190 22, 270 18" fill="none" stroke="var(--pink)" strokeWidth="4" strokeLinecap="round" initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease, delay: 0.9 }} />
               </svg>
-              4 claims
-            </Pop>
-            makes promises.
+            </span>
             <br />
-            Kane checks
-            <Pop className="chip pass" delay={0.8}>
-              <span className="uv-check on" aria-hidden="true" />
-              Passed
-            </Pop>
-            them.
+            Kane
+            <Tile kind="browser" delay={0.7} />
+            checks them
+            <Tile kind="check" delay={0.95} />
           </motion.h1>
           <motion.p initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease, delay: 0.25 }}>
             Paste a GitHub repo and its live URL. Kane tests every claim in the README on your deployed app, in a real browser, and tells you what passed, what failed and how to fix it.
           </motion.p>
           <motion.div className="hero-cta" initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease, delay: 0.35 }}>
-            <button type="button" className="uv-button accent" onClick={() => go("check")}>
+            <button type="button" className="uv-button" onClick={() => go("check")}>
               Check my app <span className="uv-tail">─ it’s free</span>
             </button>
             <button type="button" className="ghost-btn" onClick={() => go("how")}>
-              See how it works
+              See how it works <span aria-hidden="true">→</span>
             </button>
           </motion.div>
+          <span className="hero-note">No sign-up required</span>
         </section>
 
         <section className="showcase" aria-label="An example result">
