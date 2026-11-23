@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { ClaimsStrip, Dashes, Steps } from "./components/Hero";
-import { Logo, TrafficLight } from "./components/Chrome";
+import { Facts, Flow, Pillars, Streaks } from "./components/Hero";
+import { Logo } from "./components/Chrome";
 import { Sidebar, TopBar } from "./components/Shell";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckForm, CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
@@ -231,67 +231,74 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
   const toForm = () => document.getElementById("check")?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
     <div className="page landing">
-      <Dashes />
-      <header className="topnav">
-        <a href="/app" className="brand">
-          <Logo />
-          <span className="brand-name">Greenlight</span>
-        </a>
-        <nav className="links" aria-label="Main">
-          <a href="#how">How it works</a>
-          <a href="#check">Check</a>
+      <header className="stage">
+        <Streaks />
+        <nav className="pillnav" aria-label="Main">
+          <a href="/app" className="brand">
+            <Logo />
+            <span className="brand-name">Greenlight</span>
+          </a>
+          <span className="links">
+            <a href="#how">How it works</a>
+            <a href="#why">Why it works</a>
+            <a href="#check">Check</a>
+          </span>
+          <span className="right">
+            {googleUrl ? <a href={googleUrl}>Sign in</a> : null}
+            <button type="button" className="btn sm" onClick={toForm}>
+              Check my app <span aria-hidden="true">→</span>
+            </button>
+          </span>
         </nav>
-        <div className="right">
-          {googleUrl ? <a href={googleUrl}>Sign in</a> : null}
-          <button type="button" className="btn" onClick={toForm}>
-            Check my app
-          </button>
+        <div className="hero">
+          <span className="tag">
+            <span className="dot" aria-hidden="true" /> Tested by Kane in a real browser
+          </span>
+          <h1>
+            <span className="l1">Your README makes promises.</span>
+            <span className="grad">Get the green light.</span>
+          </h1>
+          <p>Paste your GitHub repo and live URL. Kane checks every claim in your README on the live app and tells you what passed and what to fix.</p>
+          <div className="hero-cta">
+            <button type="button" className="btn" onClick={toForm}>
+              Check my app for free
+            </button>
+            <a className="btn glass" href="#how">
+              How it works
+            </a>
+          </div>
+          <span className="hero-note">No sign-up · the cost is shown before you run</span>
         </div>
       </header>
 
       <main id="main">
-        <section className="hero2">
-          <h1>
-            Your README makes promises.
+        <section id="how" className="sheet" aria-labelledby="how-h">
+          <h2 id="how-h" className="headline center">
+            README <span className="toggle" aria-hidden="true" /> <span className="go-text">verified claims,</span>
             <br />
-            Get the <em className="go">green light</em>.
-          </h1>
-          <p>
-            Paste your <b>GitHub repo</b> and <b>live URL</b>. <b>Kane</b> tests every claim in your <b>README</b> in a real browser, and tells you what passed and what to fix.
-          </p>
-          <button type="button" className="btn" onClick={toForm}>
-            Check my app for free
-          </button>
-          <span className="note">No sign-up · the cost is shown before you run</span>
-          <div className="example" aria-label="An example verdict">
-            <TrafficLight lit="green" />
-            <div className="example-body">
-              <span className="example-tag">Example verdict</span>
-              <b className="example-word">Passed</b>
-              <ul>
-                <li><span className="dot" aria-hidden="true" />Visitors can add a product to the cart</li>
-                <li><span className="dot" aria-hidden="true" />The cart shows the total</li>
-                <li><span className="dot" aria-hidden="true" />Checkout works on mobile</li>
-              </ul>
-              <span className="example-foot">3 of 3 claims passed · tested by Kane in a real browser</span>
-            </div>
-          </div>
-        </section>
-
-        <ClaimsStrip />
-
-        <section id="how" className="land-section" aria-labelledby="how-h">
-          <h2 id="how-h" className="duo">
-            Paste it in a minute.
-            <span>Get a verdict from a real browser.</span>
+            on your live app
           </h2>
-          <Steps />
+          <p className="lede center">One check, start to finish: paste, approve, read the verdict.</p>
+          <Flow />
         </section>
 
-        <section id="check" className="land-section" aria-labelledby="check-h">
-          <h2 id="check-h" className="duo center">
+        <section className="band" aria-label="Greenlight in numbers">
+          <Facts />
+        </section>
+
+        <section id="why" className="dark-sheet" aria-labelledby="why-h">
+          <span className="dark-glow" aria-hidden="true" />
+          <h2 id="why-h" className="headline">
+            Built to tell the truth
+            <span className="muted-line">about what your app does today</span>
+          </h2>
+          <Pillars />
+        </section>
+
+        <section id="check" className="sheet" aria-labelledby="check-h">
+          <h2 id="check-h" className="headline center">
             Paste. Run.
-            <span>Read the verdict.</span>
+            <span className="muted-line">Get the green light.</span>
           </h2>
           <div className="check-wrap">
             {guestMode ? (
@@ -313,10 +320,13 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
       </main>
 
       <footer className="land-foot">
-        <span className="brand-name">Greenlight</span>
+        <span className="brand">
+          <Logo size={18} />
+          <span className="brand-name">Greenlight</span>
+        </span>
         <span>Ship on a green light.</span>
-        <span>No sign-up · this browser remembers your checks</span>
         <span className="sp" />
+        <span>No sign-up · this browser remembers your checks</span>
         {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
         <a href={ADMIN_LOGIN}>Administrator sign-in</a>
       </footer>

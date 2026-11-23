@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, checkApi, type ClaimsResult } from "../api";
 import { FormError, ResultMark } from "../components/Bits";
 import { TrafficLight } from "../components/Chrome";
+import { Streaks } from "../components/Hero";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
 import { Link, useRouter } from "../router";
@@ -206,9 +207,9 @@ export function CheckPage({ session }: { session: Session }) {
   const { navigate } = useRouter();
   return (
     <>
-      <h1 className="duo">
+      <h1 className="headline">
         Paste. Run.
-        <span>Read the verdict.</span>
+        <span className="muted-line">Get the green light.</span>
       </h1>
       <CheckForm session={session} onStarted={(id) => navigate(`/app/check/${id}`)} />
     </>
@@ -312,7 +313,8 @@ function Verdict({ run }: { run: RunDetail }) {
   return (
     <>
       <section className={`verdict ${status === "passed" ? "pass" : status === "failed" ? "fail" : "unknown"}`} aria-labelledby="verdict">
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <Streaks tone={status === "passed" ? "go" : status === "failed" ? "stop" : "wait"} />
+        <div className="verdict-body">
           <span className="eyebrow" style={{ color: "inherit" }}>
             Verdict · tested by Kane
           </span>

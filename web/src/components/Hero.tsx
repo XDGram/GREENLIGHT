@@ -1,128 +1,128 @@
-// Landing-page pieces in the "paper" style: a faint field of dashes behind the hero, a slow strip
-// of example claims, and three step cards with thin line drawings. Motion stops when the viewer
-// prefers reduced motion (handled in theme.css).
+import { Logo, TrafficLight } from "./Chrome";
 
-/** Scattered short dashes, drawn once as an inline SVG pattern (no data: URIs under the CSP). */
-export function Dashes() {
-  const marks: { x: number; y: number; r: number }[] = [];
-  let s = 11;
-  for (let i = 0; i < 46; i += 1) {
-    s = (s * 9301 + 49297) % 233280;
-    const x = (s / 233280) * 300;
-    s = (s * 9301 + 49297) % 233280;
-    const y = (s / 233280) * 300;
-    s = (s * 9301 + 49297) % 233280;
-    marks.push({ x, y, r: [-35, 0, 35, 70, 90][Math.floor((s / 233280) * 5)]! });
-  }
+// Landing-page pieces: green light streaks for dark panels, a flow diagram of one check, honest
+// fact cards and glowing feature cells. All motion stops when the viewer prefers reduced motion
+// (handled in theme.css). Everything is CSS and inline SVG: the CSP allows no data: URIs.
+
+/** Vertical streaks of green light, brightest at the edges, like light through glass. */
+export function Streaks({ tone = "go" }: { tone?: "go" | "stop" | "wait" }) {
   return (
-    <svg className="dashes" aria-hidden="true" focusable="false">
-      <defs>
-        <pattern id="gl-dashes" width="300" height="300" patternUnits="userSpaceOnUse">
-          {marks.map((m, i) => (
-            <line key={i} x1={m.x - 3} y1={m.y} x2={m.x + 3} y2={m.y} stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" transform={`rotate(${m.r} ${m.x} ${m.y})`} />
-          ))}
-        </pattern>
-      </defs>
-      <rect width="100%" height="100%" fill="url(#gl-dashes)" />
-    </svg>
+    <span className={`streaks ${tone}`} aria-hidden="true">
+      <span className="streaks-glow" />
+    </span>
   );
 }
 
-const EXAMPLES = [
-  "Users can sign up with email",
-  "The dashboard shows your tasks",
-  "Search returns matching results",
-  "You can export a report as CSV",
-  "Dark mode is remembered",
-  "Checkout works on mobile",
-  "Password reset sends an email",
-  "Invite a teammate by link",
-];
+const line = { fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
-export function ClaimsStrip() {
-  const row = [...EXAMPLES, ...EXAMPLES];
+/** One check, drawn as a flow: repo and URL in, Kane in the middle, verdict and fixes out. */
+export function Flow() {
   return (
-    <section className="claims-strip" aria-label="Examples of claims Kane can check">
-      <p>Claims like these, checked on the live app</p>
-      <div className="rail">
-        <div className="track">
-          {row.map((t, i) => (
-            <span key={i} aria-hidden={i >= EXAMPLES.length ? "true" : undefined}>
-              {t}
-            </span>
-          ))}
+    <div className="flow" role="img" aria-label="Your repository, live URL and README go to Kane, which tests the live app and returns a verdict with suggested fixes.">
+      <div className="flow-node top">GitHub repo + live URL</div>
+      <span className="flow-arrow down" aria-hidden="true" />
+      <div className="flow-row">
+        <div className="flow-card">
+          <div className="mini">
+            <span className="mini-head">README.md</span>
+            <span className="mini-line">- Users can sign up with email</span>
+            <span className="mini-line">- The dashboard shows tasks</span>
+            <span className="mini-line">- Export a report as CSV</span>
+          </div>
+          <b>Your README</b>
+          <span>Each bullet becomes a claim</span>
+        </div>
+        <span className="flow-link" aria-hidden="true" />
+        <div className="flow-core">
+          <span className="core-glow" aria-hidden="true" />
+          <Logo size={40} />
+          <b>Kane tests the live app</b>
+          <span>Real browser · one claim at a time</span>
+        </div>
+        <span className="flow-link" aria-hidden="true" />
+        <div className="flow-card">
+          <div className="mini verdict-mini">
+            <TrafficLight lit="green" />
+            <div>
+              <span className="mini-head">Verdict</span>
+              <span className="mini-pass">Passed</span>
+              <span className="mini-line">3 of 3 claims</span>
+            </div>
+          </div>
+          <b>Your verdict</b>
+          <span className="go-text">Passed · Failed · Could not verify</span>
         </div>
       </div>
-    </section>
+      <span className="flow-arrow down" aria-hidden="true" />
+      <div className="flow-node bottom">A suggested fix for anything that fails</div>
+    </div>
   );
 }
 
-const line = { fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-
-function ArtPaste() {
-  return (
-    <svg viewBox="0 0 220 150" aria-hidden="true">
-      <rect x="20" y="16" width="150" height="104" rx="8" {...line} />
-      <path d="M20 34h150" {...line} />
-      <circle cx="31" cy="25" r="2" {...line} />
-      <circle cx="39" cy="25" r="2" {...line} />
-      <path d="M36 52h46M36 66h96M36 78h80M36 90h88M36 102h60" {...line} opacity="0.55" />
-      <path d="M30 66l-4 0M30 78h-4M30 90h-4M30 102h-4" {...line} />
-      <rect x="128" y="76" width="74" height="58" rx="7" {...line} fill="var(--panel-2)" />
-      <path d="M150 76v-6a5 5 0 0 1 5-5h20a5 5 0 0 1 5 5v6" {...line} />
-      <path d="M142 96h46M142 108h34M142 120h40" {...line} />
-    </svg>
-  );
-}
-
-function ArtBrowser() {
-  return (
-    <svg viewBox="0 0 220 150" aria-hidden="true">
-      <rect x="16" y="14" width="188" height="122" rx="8" {...line} />
-      <path d="M16 32h188" {...line} />
-      <rect x="54" y="20" width="112" height="7" rx="3.5" {...line} opacity="0.55" />
-      <rect x="34" y="46" width="70" height="10" rx="3" {...line} />
-      <rect x="34" y="64" width="70" height="10" rx="3" {...line} />
-      <rect x="34" y="84" width="40" height="14" rx="4" {...line} />
-      <path d="M124 48h56M124 60h44M124 72h50" {...line} opacity="0.55" />
-      <path d="M112 50l2.6 2.6 5-5.6M112 62l2.6 2.6 5-5.6" stroke="var(--go)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M70 96l0 22 6-6 5 10 4-2-5-10 8 0z" {...line} fill="var(--panel-2)" />
-    </svg>
-  );
-}
-
-function ArtNote() {
-  return (
-    <svg viewBox="0 0 220 150" aria-hidden="true">
-      <path d="M58 12h80l24 24v104H58z" {...line} />
-      <path d="M138 12v24h24" {...line} />
-      <path d="M72 34h44" {...line} />
-      <path d="M72 58l3 3 6-7" stroke="var(--go)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M88 58h56" {...line} opacity="0.55" />
-      <path d="M72 78l3 3 6-7" stroke="var(--go)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M88 78h46" {...line} opacity="0.55" />
-      <path d="M73 95l7 7M80 95l-7 7" stroke="var(--stop)" fill="none" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M88 98h52" {...line} opacity="0.55" />
-      <path d="M88 112h40M88 122h48" {...line} opacity="0.35" />
-    </svg>
-  );
-}
-
-export function Steps() {
+export function Facts() {
   const items = [
-    { art: <ArtPaste />, title: "1. Paste your repo", text: "Your GitHub link, the live URL and the README.", foot: "Each bullet point becomes a claim you can edit" },
-    { art: <ArtBrowser />, title: "2. Kane tests the live app", text: "A real browser uses it the way a visitor would.", foot: "One claim at a time · cost shown before you run" },
-    { art: <ArtNote />, title: "3. Read the verdict", text: "Passed or failed, claim by claim, with a fix.", foot: "Passed · Failed · Could not verify" },
+    { big: "0", unit: "", text: "Sign-ups needed. Your browser remembers your checks." },
+    { big: "1", unit: "free run", text: "For every visitor, up to two claims." },
+    { big: "~37", unit: "credits", text: "Per claim, and the exact cost is shown before you run." },
+    { big: "3", unit: "outcomes", text: "Passed, Failed or Could not verify. Never a guess." },
   ];
   return (
-    <div className="steps">
-      {items.map((s) => (
-        <article key={s.title} className="step">
-          <h3>{s.title}</h3>
-          <p>{s.text}</p>
-          <div className="art">{s.art}</div>
-          <div className="foot">{s.foot}</div>
-        </article>
+    <div className="facts">
+      {items.map((f) => (
+        <div key={f.text} className="fact">
+          <div className="fact-big">
+            {f.big}
+            {f.unit ? <small>{f.unit}</small> : null}
+          </div>
+          <p>{f.text}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const ICONS = {
+  browser: (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <rect x="4" y="6" width="24" height="20" rx="4" {...line} />
+      <path d="M4 12h24" {...line} />
+      <path d="M12 19l3 3 6-6" {...line} />
+    </svg>
+  ),
+  approve: (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 4l10 4v7c0 6.5-4.3 11-10 13-5.7-2-10-6.5-10-13V8z" {...line} />
+      <path d="M11.5 16l3 3 6-6.5" {...line} />
+    </svg>
+  ),
+  claims: (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M8 9l2 2 4-4M8 17l2 2 4-4M8 25l2 2 4-4" {...line} />
+      <path d="M18 9h8M18 17h8M18 25h8" {...line} />
+    </svg>
+  ),
+  fix: (
+    <svg viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M19.5 5.5a6 6 0 0 0-7.6 7.6L5 20l7 7 6.9-6.9a6 6 0 0 0 7.6-7.6L22.5 16.5l-4-1-1-4z" {...line} />
+    </svg>
+  ),
+};
+
+export function Pillars() {
+  const items: { icon: keyof typeof ICONS; title: string; text: string }[] = [
+    { icon: "browser", title: "A real browser", text: "Kane uses your deployed app the way a visitor would. No mocks." },
+    { icon: "approve", title: "You approve first", text: "Clicking Run approves exactly these claims and this cost. Nothing else." },
+    { icon: "claims", title: "Claim by claim", text: "Each claim gets its own result and what Kane saw on the page." },
+    { icon: "fix", title: "Fixes, not just failures", text: "Every failed claim comes with a suggested fix to try before you check again." },
+  ];
+  return (
+    <div className="pillars">
+      {items.map((p) => (
+        <div key={p.title} className="pillar">
+          <span className="pillar-icon">{ICONS[p.icon]}</span>
+          <h3>{p.title}</h3>
+          <p>{p.text}</p>
+        </div>
       ))}
     </div>
   );

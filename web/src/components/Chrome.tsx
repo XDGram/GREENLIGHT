@@ -5,7 +5,7 @@ export function Logo({ size = 22 }: { size?: number }) {
   // A traffic light on green: red and amber dark, the bottom lamp lit.
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
-      <rect x="5" y="0" width="12" height="22" rx="6" fill="var(--ink)" />
+      <rect x="5.5" y="0.5" width="11" height="21" rx="5.5" fill="#0c0f0d" stroke="rgba(255,255,255,0.22)" />
       <circle cx="11" cy="5.2" r="2.5" fill="#4a4a45" />
       <circle cx="11" cy="11" r="2.5" fill="#4a4a45" />
       <circle cx="11" cy="16.8" r="2.7" fill="var(--go)" />
