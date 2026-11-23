@@ -148,6 +148,8 @@ export interface ClaimsResult {
   costs: number[];
   ceiling: number;
   guestRuns: Session["guestRuns"] | null;
+  /** The server's total Kane credit budget (null when there is no cap). */
+  budget: { cap: number; left: number } | null;
 }
 export const checkApi = {
   claims: (body: { repository: string; url: string; notes: string }) => post<ClaimsResult>("/app/api/checks/claims", body),

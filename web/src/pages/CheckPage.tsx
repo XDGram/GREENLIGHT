@@ -31,7 +31,9 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
   const cost = chosen.length ? found?.costs[chosen.length - 1] ?? null : null;
   const guestRuns = found?.guestRuns ?? session?.guestRuns ?? null;
   const overBudget = Boolean(guestRuns && cost != null && guestRuns.creditsLeftToday < cost);
-  const noRunsLeft = Boolean(guestRuns && (guestRuns.paused || !guestRuns.enabled || guestRuns.leftForYou < 1 || guestRuns.leftToday < 1 || overBudget));
+  const budget = found?.budget ?? null;
+  const overCap = Boolean(budget && cost != null && cost > budget.left);
+  const noRunsLeft = overCap || Boolean(guestRuns && (guestRuns.paused || !guestRuns.enabled || guestRuns.leftForYou < 1 || guestRuns.leftToday < 1 || overBudget));
 
   const findClaims = async () => {
     setBusy("claims");
@@ -172,7 +174,16 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
                 "Tick at least one claim to test."
               )}
             </p>
-            {runsNote ? <p className="small mono" style={{ margin: 0 }}>{runsNote}</p> : null}
+            {runsNote && !overCap ? <p className="small mono" style={{ margin: 0 }}>{runsNote}</p> : null}
+            {budget ? (
+              <p className="small mono" style={{ margin: 0 }}>
+                {overCap
+                  ? budget.left >= (found?.costs[0] ?? Infinity)
+                    ? `Only ${budget.left} of the server's ${budget.cap} Kane credits are left: test fewer claims.`
+                    : `The server's ${budget.cap}-credit Kane budget is used up. No more runs can start.`
+                  : `Server budget · ${budget.left} of ${budget.cap} Kane credits left`}
+              </p>
+            ) : null}
             <div>
               <button type="button" className="btn green" onClick={run} disabled={busy !== null || !chosen.length || cost == null || noRunsLeft}>
                 {busy === "run" ? <span className="spinner" aria-hidden="true" /> : <I.Play size={14} aria-hidden="true" />}

@@ -227,10 +227,29 @@ export class SupabaseStore {
 
   // ---- guest accounts (anonymous, never certify) and the Fix Centre
   async guestAccount(slug) {
-    return this.db.rpc("greenlight_guest_account", { p_slug: slug });
+    try {
+      return await this.db.rpc("greenlight_guest_account", { p_slug: slug });
+    } catch (err) {
+      if (!err?.missingFunction) throw err;
+    }
+    // Before the journey migration: the same account and owner user through the base functions.
+    if (!/^v-[0-9a-f]{24}$/.test(slug)) throw new GreenlightError("internal_error", "Bad guest account.");
+    await this.db.rpc("greenlight_ensure_account", { p_slug: slug });
+    try {
+      await this.db.rpc("greenlight_create_user", { p_account: slug, p_name: "owner", p_role: "owner" });
+    } catch (err) {
+      if (err?.code !== "conflict") throw err;
+    }
+    return { account: slug, user: "owner" };
   }
+  /** Atomic per-visitor/daily reservation; {reservation: null} when the database predates it. */
   async reserveGuestRun(account, { credits, perAccount, perDay, dailyCredits, maxPerRun }) {
-    return this.db.rpc("greenlight_reserve_guest_run", { p_account: account, p_credits: credits, p_per_account: perAccount, p_per_day: perDay, p_daily_credits: dailyCredits, p_max_per_run: maxPerRun });
+    try {
+      return await this.db.rpc("greenlight_reserve_guest_run", { p_account: account, p_credits: credits, p_per_account: perAccount, p_per_day: perDay, p_daily_credits: dailyCredits, p_max_per_run: maxPerRun });
+    } catch (err) {
+      if (err?.missingFunction) return { reservation: null, unavailable: true };
+      throw err;
+    }
   }
   async attachGuestRun(reservation, jobId) {
     return this.db.rpc("greenlight_attach_guest_run", { p_reservation: reservation, p_job_id: jobId });

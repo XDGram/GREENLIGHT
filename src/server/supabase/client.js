@@ -93,6 +93,12 @@ export function createSupabaseClient({ url, serviceRoleKey, fetchImpl = (...a) =
         if (body?.code === "PGRST106") {
           throw new GreenlightError("server_not_configured", `Supabase does not expose the ${schema} schema: add it under Project Settings -> API -> Exposed schemas (see docs/SUPABASE.md).`);
         }
+        if (body?.code === "PGRST202") {
+          // The function does not exist in this database yet (a migration that is not applied).
+          const err = new GreenlightError("server_not_configured", `The database has no ${fn} function yet.`);
+          err.missingFunction = fn;
+          throw err;
+        }
         const code = DB_ERRORS[body?.code] ?? "internal_error";
         const message = scrub(String(body?.message ?? `HTTP ${res.status}`).replace(/^greenlight:\s*/, ""));
         throw new GreenlightError(code, code === "internal_error" ? `Database error in ${fn}: ${message}` : `${message.charAt(0).toUpperCase()}${message.slice(1)}.`);

@@ -236,6 +236,7 @@ Every command accepts `--json` and then writes exactly one document to stdout:
 | `rate_limited` | 429 | 4 | Slow down and retry later. |
 | `payload_too_large` | 413 | 2 | Send a smaller request. |
 | `job_limit_reached` | 429 | 4 | Wait for running verifications to finish. |
+| `credit_cap_reached` | 429 | 4 | The server's total Kane credit cap is reached; no more runs can start until the operator raises it. |
 | `guest_limit_reached` | 429 | 4 | The demo's limit is reached; explore the sample project, or try again tomorrow. |
 | `ai_unavailable` | 503 | 4 | AI test generation is not configured on this server; write the tests with the form instead. |
 | `ai_failed` | 502 | 3 | The AI could not write tests for this description; shorten or clarify it, or use the form. |

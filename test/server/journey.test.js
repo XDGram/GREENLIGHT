@@ -539,3 +539,42 @@ test("the one-page check: README claims, one Run click approves and starts Kane,
   const again = await g.go("POST", "/app/api/checks", { ...base, claims: claims.slice(0, 1), confirm: true, confirmSpend: 57 });
   assert.deepEqual([again.status, again.body.error.code], [429, "guest_limit_reached"]);
 });
+
+test("without the journey migration, visitor runs still work, one per visitor, and the total credit cap stops everyone", async () => {
+  const h = await setup({ ai: false, env: { GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "1", GREENLIGHT_TOTAL_CREDIT_CAP: "200" } });
+  // The production database before migration 6: none of its functions exist.
+  for (const fn of ["greenlight_guest_account", "greenlight_reserve_guest_run", "greenlight_attach_guest_run", "greenlight_release_guest_run", "greenlight_guest_run_usage"]) {
+    await h.fake.sql(`drop function greenlight_api.${fn}`);
+  }
+  const base = { repository: "https://github.com/acme/shop", url: "https://shop.example.com/", notes: "- Visitors can add products to the cart\n- The cart shows a total" };
+  const claims = ["Visitors can add products to the cart", "The cart shows a total"];
+  const visitor = async (ip) => {
+    const g = browser(h, ip);
+    assert.equal((await g.go("POST", "/app/api/guest/start", {})).status, 201);
+    return g;
+  };
+
+  const a = await visitor("203.0.113.81");
+  const found = await a.go("POST", "/app/api/checks/claims", base);
+  assert.equal(found.status, 200, found.text);
+  assert.deepEqual(found.body.budget, { cap: 200, left: 200 });
+  const first = await a.go("POST", "/app/api/checks", { ...base, claims, confirm: true, confirmSpend: 94 });
+  assert.equal(first.status, 202, first.text);
+  await h.ctx.jobs.idle();
+  assert.equal((await a.go("GET", `/app/api/jobs/${first.body.job.id}`)).body.job.status, "succeeded");
+  const again = await a.go("POST", "/app/api/checks", { ...base, claims: claims.slice(0, 1), confirm: true, confirmSpend: 57 });
+  assert.deepEqual([again.status, again.body.error.code], [429, "guest_limit_reached"], "one run per visitor, counted from their jobs");
+
+  const b = await visitor("203.0.113.82");
+  assert.equal((await b.go("POST", "/app/api/checks/claims", base)).body.budget.left, 106, "the larger of estimate and actual spend counts");
+  const second = await b.go("POST", "/app/api/checks", { ...base, claims, confirm: true, confirmSpend: 94 });
+  assert.equal(second.status, 202, second.text);
+  await h.ctx.jobs.idle();
+
+  const c = await visitor("203.0.113.83");
+  const capped = await c.go("POST", "/app/api/checks", { ...base, claims: claims.slice(0, 1), confirm: true, confirmSpend: 57 });
+  assert.deepEqual([capped.status, capped.body.error.code], [429, "credit_cap_reached"]);
+  assert.match(capped.body.error.message, /only 12 of this server's 200-credit Kane budget is left/);
+  assert.equal((await c.go("GET", "/app/api/projects")).body.projects.length, 0, "a capped run stores nothing");
+  assert.equal(h.state.kaneCalls.length, 2, "Kane ran exactly twice");
+});

@@ -258,6 +258,9 @@ export function loadConfig(env = process.env) {
     maxConcurrentJobs: num(env.GREENLIGHT_MAX_CONCURRENT_JOBS, 1, { min: 1 }),
     maxQueuedJobs: num(env.GREENLIGHT_MAX_QUEUED_JOBS, 5),
     maxCreditsPerRun: num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150),
+    // Hard ceiling on all Kane credits this server may ever commit (every run, every account);
+    // 0 turns it off.
+    totalCreditCap: num(env.GREENLIGHT_TOTAL_CREDIT_CAP, 400),
     reserve: num(env.GREENLIGHT_CREDIT_RESERVE, 500),
     rateLimitPerMinute: num(env.GREENLIGHT_RATE_LIMIT_PER_MINUTE, 60, { min: 1 }),
     kaneTimeoutMs,

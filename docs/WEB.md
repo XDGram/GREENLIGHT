@@ -34,6 +34,16 @@ The product for three kinds of people:
 4. `/app/check/:projectId` shows progress, then the verdict (Passed / Failed / Could not verify),
    each claim marked, and for each failure Kane's own note and a suggested fix.
 
+**Total credit cap.** `GREENLIGHT_TOTAL_CREDIT_CAP` (default **400**; 0 turns it off) is a hard
+ceiling on every Kane credit the server commits, for all accounts together: the larger of the
+recorded actual spend and the recorded estimates over all runs, plus the confirmed ceiling of every
+queued or running job. A run that would cross it is refused before anything is stored; if the
+total can't be read, runs are refused (fails closed). It reads existing tables only.
+
+**Without migration 6.** Visitor runs work on the platform migration (5) alone: visitor accounts
+are created with the base account functions, and the one-run-per-visitor limit is counted from the
+visitor's own jobs. The per-day limits and atomic reservations need migration 6.
+
 No AI is involved; claims come from the text. Visitor runs keep every guest limit (one run per
 visitor, daily runs and credits, per-run ceiling, admin pause, atomic reservation). Runs made of
 Kane-judged claims are verdicts, never certifications (`notCertifiedBecause: kane_judged_claims`);

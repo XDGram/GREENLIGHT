@@ -447,7 +447,12 @@ async function guestRunState(store, config, s) {
   try {
     usage = await store.guestRunUsage(s.account);
   } catch {
-    // usage table not migrated yet
+    // Database without the usage table: count this visitor's runs from their jobs.
+    try {
+      usage = { usedByYou: await guestJobsUsed(store, s.account), usedToday: 0, creditsToday: 0 };
+    } catch {
+      // unknown: the run itself is checked again when it is submitted
+    }
   }
   return {
     enabled: guestRunsEnabled(config),
@@ -495,6 +500,45 @@ async function approveInApp({ config, store, s, project, v, now }) {
   record.recordSha256 = selfHash(record);
   await store.putApproval(project.id, v.version, record);
   return record;
+}
+
+/**
+ * Kane credits already committed on this server: the larger of the recorded actual spend and the
+ * recorded estimates over all finished runs, plus the confirmed ceiling of every queued or
+ * running job. Reads existing tables only.
+ */
+export async function committedCredits(store) {
+  const r = (await store.adminOverview()) ?? {};
+  const o = r.overview ?? r;
+  const done = Math.max(Number(o.creditsSpent ?? 0), Number(o.creditsEstimated ?? 0));
+  const open = await store.listJobs({ statuses: ["queued", "running"] });
+  const pending = (open ?? []).reduce((n, j) => n + (Number.isFinite(j.request?.confirmSpend) ? j.request.confirmSpend : 0), 0);
+  return Math.ceil(done + pending);
+}
+
+/** Refuse a run that would take this server past its total credit cap (fails closed). */
+async function checkTotalCap(store, config, credits) {
+  const cap = config.totalCreditCap ?? 0;
+  if (!cap) return null;
+  if (typeof store.adminOverview !== "function") return null; // local development store
+  let used;
+  try {
+    used = await committedCredits(store);
+  } catch {
+    throw new GreenlightError("credit_cap_reached", "Kane runs are paused: the server could not confirm its credit cap right now.");
+  }
+  if (used + credits > cap) {
+    throw new GreenlightError("credit_cap_reached", `This run needs about ${Math.ceil(credits)} credits, but only ${Math.max(0, cap - used)} of this server's ${cap}-credit Kane budget is left.`, { cap, used, left: Math.max(0, cap - used) });
+  }
+  return { cap, used, left: cap - used };
+}
+
+/** Jobs a visitor has started that count as a real run (not those refused before Kane started). */
+const PRE_KANE = new Set(["deployment_not_ready", "url_not_allowed", "credit_check_refused", "balance_unavailable", "confirmation_required", "approval_not_certifiable", "credit_cap_reached"]);
+async function guestJobsUsed(store, account) {
+  const projects = await store.listProjects(account);
+  const jobs = await projectJobs(store, projects.map((p) => p.id));
+  return jobs.filter((j) => !(j.status === "failed" && !j.recordId && PRE_KANE.has(j.error?.code ?? ""))).length;
 }
 
 /**
@@ -552,13 +596,19 @@ async function submitVerification({ config, store, s, project, body, jobs, fetch
       throw new GreenlightError("confirmation_required", `This run is estimated at ${est} credits; confirm that amount to start it.`, { estimate: est });
     }
     request.confirmSpend = Math.min(Math.ceil(est), config.guest.maxCreditsPerRun);
+    await checkTotalCap(store, config, request.confirmSpend);
     reservation = (
       await store.reserveGuestRun(project.account, { credits: Math.ceil(est), perAccount: config.guest.realRunsPerGuest, perDay: config.guest.realRunsPerDay, dailyCredits: config.guest.dailyCredits, maxPerRun: config.guest.maxCreditsPerRun })
     ).reservation;
+    if (reservation === null && (await guestJobsUsed(store, project.account)) >= config.guest.realRunsPerGuest) {
+      // Database without reservations: the per-visitor limit is counted from the visitor's jobs.
+      throw new GreenlightError("guest_limit_reached", "You have used your free Kane run on this browser.");
+    }
   } else {
     if (autoCommit) Object.assign(request, await serverCommit({ store, project, config, fetchImpl, checkHost, now }));
     // Everything that can be checked before spending (the job checks it all again).
     await prepareCertification({ store, project, versionNo: body.version, request, config });
+    await checkTotalCap(store, config, Number.isFinite(request.confirmSpend) ? request.confirmSpend : config.maxCreditsPerRun);
   }
   let job;
   try {
@@ -790,7 +840,13 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         if (notes) source = "readme";
       }
       const lim = checkLimits(config, s);
-      return sendJson(res, 200, { claims: claimsFromText(notes ?? ""), source, maxClaims: lim.maxClaims, costs: lim.costs, ceiling: lim.ceiling, guestRuns: s.role === "guest" ? await guestRunState(store, config, s) : null });
+      let budget = null;
+      try {
+        budget = config.totalCreditCap ? { cap: config.totalCreditCap, left: Math.max(0, config.totalCreditCap - (await committedCredits(store))) } : null;
+      } catch {
+        budget = config.totalCreditCap ? { cap: config.totalCreditCap, left: 0 } : null;
+      }
+      return sendJson(res, 200, { claims: claimsFromText(notes ?? ""), source, maxClaims: lim.maxClaims, costs: lim.costs, ceiling: lim.ceiling, guestRuns: s.role === "guest" ? await guestRunState(store, config, s) : null, budget });
     }
 
     if (path === "/app/api/checks" && isPost) {
@@ -816,6 +872,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         if (st.leftToday < 1 || st.creditsLeftToday < cost) throw new GreenlightError("guest_limit_reached", "Today's free Kane runs are used up. Try again tomorrow, or sign in.");
         if ((await store.listProjects(s.account)).length >= (config.guest?.projectsPerGuest ?? 5)) throw new GreenlightError("guest_limit_reached", `Visitors can keep up to ${config.guest?.projectsPerGuest ?? 5} apps.`);
       }
+      await checkTotalCap(store, config, cost); // before anything is stored
       const repo = await repoWithBranch(body.repository, { fetchImpl, now, config });
       const name = (repo.check?.repo?.fullName ?? `${repo.owner}/${repo.repo}`).slice(0, 120);
       let specText;

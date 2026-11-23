@@ -52,6 +52,7 @@ export const ERRORS = Object.freeze({
   rate_limited: E(EXIT.BLOCKED, 429, "Slow down and retry later."),
   payload_too_large: E(EXIT.USAGE, 413, "Send a smaller request."),
   job_limit_reached: E(EXIT.BLOCKED, 429, "Wait for running verifications to finish."),
+  credit_cap_reached: E(EXIT.BLOCKED, 429, "The server's total Kane credit cap is reached; no more runs can start until the operator raises it."),
   guest_limit_reached: E(EXIT.BLOCKED, 429, "The demo's limit is reached; explore the sample project, or try again tomorrow."),
   ai_unavailable: E(EXIT.BLOCKED, 503, "AI test generation is not configured on this server; write the tests with the form instead."),
   ai_failed: E(EXIT.COULDNT_VERIFY, 502, "The AI could not write tests for this description; shorten or clarify it, or use the form."),
