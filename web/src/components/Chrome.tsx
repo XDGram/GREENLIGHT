@@ -2,12 +2,25 @@ import { useId } from "react";
 import { initials } from "../format";
 
 export function Logo({ size = 22 }: { size?: number }) {
-  // A "go" light: green tile, white check.
+  // A traffic light on green: red and amber dark, the bottom lamp lit.
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
-      <rect width="22" height="22" rx="6" fill="var(--green)" />
-      <path d="M5.5 11.5l3.6 3.6 7.4-8" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <rect x="5" y="0" width="12" height="22" rx="6" fill="var(--ink)" />
+      <circle cx="11" cy="5.2" r="2.5" fill="#4a4a45" />
+      <circle cx="11" cy="11" r="2.5" fill="#4a4a45" />
+      <circle cx="11" cy="16.8" r="2.7" fill="var(--go)" />
     </svg>
+  );
+}
+
+/** A traffic light with one lamp lit: green for passed, red for failed, amber for could not verify. */
+export function TrafficLight({ lit, label }: { lit: "green" | "amber" | "red" | null; label?: string }) {
+  return (
+    <span className="tlight" role={label ? "img" : undefined} aria-label={label} aria-hidden={label ? undefined : "true"}>
+      <span className={`lamp red ${lit === "red" ? "on" : ""}`} />
+      <span className={`lamp amber ${lit === "amber" ? "on" : ""}`} />
+      <span className={`lamp green ${lit === "green" ? "on" : ""}`} />
+    </span>
   );
 }
 

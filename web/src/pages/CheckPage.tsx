@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, checkApi, type ClaimsResult } from "../api";
 import { FormError, ResultMark } from "../components/Bits";
+import { TrafficLight } from "../components/Chrome";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
 import { Link, useRouter } from "../router";
@@ -310,7 +311,7 @@ function Verdict({ run }: { run: RunDetail }) {
   const passed = run.claims.filter((c) => c.status === "passed").length;
   return (
     <>
-      <section className={`verdict ${status === "passed" ? "pass" : ""}`} aria-labelledby="verdict">
+      <section className={`verdict ${status === "passed" ? "pass" : status === "failed" ? "fail" : "unknown"}`} aria-labelledby="verdict">
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <span className="eyebrow" style={{ color: "inherit" }}>
             Verdict · tested by Kane
@@ -325,9 +326,7 @@ function Verdict({ run }: { run: RunDetail }) {
             {run.record.endedAt ? ` · ${new Date(run.record.endedAt).toLocaleString()}` : ""}
           </p>
         </div>
-        <span className="verdict-mark">
-          [{passed}/{run.claims.length}]
-        </span>
+        <TrafficLight lit={status === "passed" ? "green" : status === "failed" ? "red" : "amber"} label={`${v.title}: ${passed} of ${run.claims.length} claims passed`} />
       </section>
       <section className="step-card" aria-labelledby="claims-h">
         <div className="step-card-head">

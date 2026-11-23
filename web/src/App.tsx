@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
 import { ClaimsStrip, Dashes, Steps } from "./components/Hero";
-import { Logo } from "./components/Chrome";
+import { Logo, TrafficLight } from "./components/Chrome";
 import { Sidebar, TopBar } from "./components/Shell";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckForm, CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
@@ -254,7 +254,7 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
           <h1>
             Your README makes promises.
             <br />
-            Kane checks them.
+            Get the <em className="go">green light</em>.
           </h1>
           <p>
             Paste your <b>GitHub repo</b> and <b>live URL</b>. <b>Kane</b> tests every claim in your <b>README</b> in a real browser, and tells you what passed and what to fix.
@@ -263,6 +263,19 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
             Check my app for free
           </button>
           <span className="note">No sign-up · the cost is shown before you run</span>
+          <div className="example" aria-label="An example verdict">
+            <TrafficLight lit="green" />
+            <div className="example-body">
+              <span className="example-tag">Example verdict</span>
+              <b className="example-word">Passed</b>
+              <ul>
+                <li><span className="dot" aria-hidden="true" />Visitors can add a product to the cart</li>
+                <li><span className="dot" aria-hidden="true" />The cart shows the total</li>
+                <li><span className="dot" aria-hidden="true" />Checkout works on mobile</li>
+              </ul>
+              <span className="example-foot">3 of 3 claims passed · tested by Kane in a real browser</span>
+            </div>
+          </div>
         </section>
 
         <ClaimsStrip />
@@ -301,6 +314,7 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
 
       <footer className="land-foot">
         <span className="brand-name">Greenlight</span>
+        <span>Ship on a green light.</span>
         <span>No sign-up · this browser remembers your checks</span>
         <span className="sp" />
         {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}

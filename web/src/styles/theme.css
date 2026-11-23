@@ -1,4 +1,4 @@
-/* Greenlight "paper" theme, loaded after app.css.
+/* Greenlight "paper + signal" theme, loaded after app.css.
    A warm off-white page, serif headlines, quiet grey cards without heavy borders, near-black ink
    and dark rounded buttons. Green appears only where it means something (passed, live) and is
    never the only signal: words and marks say it too. */
@@ -24,6 +24,16 @@
   --green-ink: #13703b;    /* 6.3:1 on white */
   --green-soft: #e9f5ee;
   --green-deep: #0e4f2a;
+
+  /* the three lamps of a traffic light; lamps are always paired with words */
+  --go: #22b35e;
+  --go-glow: rgba(34, 179, 94, 0.45);
+  --wait: #e3a21a;
+  --wait-ink: #8a5a00;     /* 5.6:1 on white */
+  --stop: #d9483b;
+  --stop-ink: #b0372c;     /* 5.5:1 on white */
+  --stop-soft: #fbecea;
+  --wait-soft: #fbf3df;
 
   --serif: "Newsreader", "Iowan Old Style", Georgia, "Times New Roman", serif;
 
@@ -233,4 +243,94 @@ h1, h2, .title, .serif { font-family: var(--serif); font-weight: 400; letter-spa
   .step-card, .card { padding: 20px; }
   .claim-row { grid-template-columns: 1fr; }
   .verdict { grid-template-columns: 1fr; padding: 22px; }
+}
+
+/* ================================================================ green light layer */
+::selection { background: #cdebd8; }
+:focus-visible { outline-color: var(--green-ink); }
+
+/* primary actions are the green light */
+.btn { background: var(--green-ink); border-color: var(--green-ink); color: #fff; }
+.btn:hover { background: var(--green-deep); border-color: var(--green-deep); }
+.btn.green { background: var(--green-ink); border-color: var(--green-ink); color: #fff; }
+.btn.green:hover { background: var(--green-deep); border-color: var(--green-deep); }
+.btn.ghost { background: transparent; color: var(--ink); border-color: var(--line-strong); }
+.btn.ghost:hover { background: var(--panel-3); border-color: var(--line-strong); }
+.check-chip:has(input:checked) { background: var(--green-ink); border-color: var(--green-ink); color: #fff; }
+.field input:focus, .field textarea:focus, .field select:focus { outline-color: var(--green-ink); border-color: var(--green-ink); }
+.nav-item[aria-current="page"] { color: var(--green-ink); }
+.nav-item[aria-current="page"]::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--go); box-shadow: 0 0 6px var(--go-glow); margin-right: 7px; }
+
+/* the logo glows a little */
+.brand svg circle:last-child { filter: drop-shadow(0 0 2px var(--go-glow)); }
+
+/* faint green field behind the hero */
+.dashes { color: #c9e2d1; }
+.landing::before {
+  content: ""; position: absolute; z-index: 0; pointer-events: none;
+  left: 50%; top: 40px; width: min(1100px, 140vw); height: 680px; transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(34, 179, 94, 0.13), rgba(34, 179, 94, 0.04) 55%, transparent 100%);
+}
+.hero2 h1 .go { font-style: italic; color: var(--green-ink); }
+.hero2 .note::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--go); box-shadow: 0 0 6px var(--go-glow); margin-right: 8px; vertical-align: 1px; }
+
+/* traffic light */
+.tlight {
+  display: inline-flex; flex-direction: column; align-items: center; gap: 7px; flex: none;
+  padding: 9px 8px; border-radius: 999px; background: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 10px 24px rgba(22, 22, 20, 0.16);
+}
+.lamp { width: 20px; height: 20px; border-radius: 50%; background: #3b3b37; box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.5); transition: background 0.4s, box-shadow 0.4s; }
+.lamp.red.on { background: var(--stop); box-shadow: 0 0 14px rgba(217, 72, 59, 0.6); }
+.lamp.amber.on { background: var(--wait); box-shadow: 0 0 14px rgba(227, 162, 26, 0.6); }
+.lamp.green.on { background: var(--go); box-shadow: 0 0 16px var(--go-glow), 0 0 4px var(--go); }
+@media (prefers-reduced-motion: no-preference) {
+  .example .lamp.green.on { animation: glow 2.8s ease-in-out infinite; }
+}
+@keyframes glow { 50% { box-shadow: 0 0 26px rgba(34, 179, 94, 0.7), 0 0 6px var(--go); } }
+
+/* the example verdict under the hero */
+.example {
+  margin-top: 36px; display: flex; gap: 22px; align-items: center; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px 26px;
+  box-shadow: 0 24px 60px rgba(22, 22, 20, 0.08), 0 2px 6px rgba(22, 22, 20, 0.04);
+  width: min(100%, 470px); box-sizing: border-box;
+}
+.example-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.example-tag { font-size: 12px; color: var(--muted); }
+.example-word { font-family: var(--serif); font-weight: 400; font-size: 34px; line-height: 1; color: var(--green-ink); }
+.example ul { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.example li { display: flex; align-items: center; gap: 9px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--go); flex: none; box-shadow: 0 0 5px var(--go-glow); }
+.example-foot { font-size: 12px; color: var(--faint); }
+
+/* example claims strip: each claim gets a small green lamp */
+.claims-strip .track span { padding-left: 16px; background: radial-gradient(circle at 4px 50%, var(--go) 3.5px, transparent 4.5px) no-repeat; }
+
+/* verdict: the light says it, the word says it too */
+.verdict { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+.verdict.pass { background: var(--green-soft); }
+.verdict.fail { background: var(--stop-soft); }
+.verdict.fail .verdict-word { color: var(--stop-ink); }
+.verdict.unknown { background: var(--wait-soft); }
+.verdict.unknown .verdict-word { color: var(--wait-ink); }
+.verdict .tlight { justify-self: end; padding: 12px 10px; gap: 9px; }
+.verdict .lamp { width: 30px; height: 30px; }
+
+.result-mark.pass { background: var(--go); border-color: var(--go); color: #fff; }
+.result-mark.fail { background: var(--stop); border-color: var(--stop); color: #fff; }
+.result-mark.unknown { border: 1.5px dashed var(--wait); background: transparent; }
+.claim-status.passed { color: var(--green-ink); }
+.claim-status.failed { color: var(--stop-ink); }
+.claim-status:not(.passed):not(.failed) { color: var(--wait-ink); }
+
+.land-foot .brand-name { color: var(--green-ink); }
+
+@media (max-width: 640px) {
+  .example { padding: 18px; gap: 16px; margin-top: 28px; }
+  .example-word { font-size: 28px; }
+  .verdict { grid-template-columns: minmax(0, 1fr) auto; }
+  .verdict .lamp { width: 22px; height: 22px; }
+  .lamp { width: 16px; height: 16px; }
+  .tlight { gap: 6px; padding: 8px 7px; }
 }

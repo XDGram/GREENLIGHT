@@ -85,7 +85,7 @@ function ArtBrowser() {
       <rect x="34" y="64" width="70" height="10" rx="3" {...line} />
       <rect x="34" y="84" width="40" height="14" rx="4" {...line} />
       <path d="M124 48h56M124 60h44M124 72h50" {...line} opacity="0.55" />
-      <path d="M112 50l2.6 2.6 5-5.6M112 62l2.6 2.6 5-5.6" stroke="var(--green)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M112 50l2.6 2.6 5-5.6M112 62l2.6 2.6 5-5.6" stroke="var(--go)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M70 96l0 22 6-6 5 10 4-2-5-10 8 0z" {...line} fill="var(--panel-2)" />
     </svg>
   );
@@ -97,11 +97,11 @@ function ArtNote() {
       <path d="M58 12h80l24 24v104H58z" {...line} />
       <path d="M138 12v24h24" {...line} />
       <path d="M72 34h44" {...line} />
-      <path d="M72 58l3 3 6-7" stroke="var(--green)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M72 58l3 3 6-7" stroke="var(--go)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M88 58h56" {...line} opacity="0.55" />
-      <path d="M72 78l3 3 6-7" stroke="var(--green)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M72 78l3 3 6-7" stroke="var(--go)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M88 78h46" {...line} opacity="0.55" />
-      <path d="M73 95l7 7M80 95l-7 7" {...line} />
+      <path d="M73 95l7 7M80 95l-7 7" stroke="var(--stop)" fill="none" strokeWidth="1.6" strokeLinecap="round" />
       <path d="M88 98h52" {...line} opacity="0.55" />
       <path d="M88 112h40M88 122h48" {...line} opacity="0.35" />
     </svg>
