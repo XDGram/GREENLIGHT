@@ -6,7 +6,7 @@
 // prompt. Output is constrained by a JSON schema, then checked by the normal spec rules before a
 // guest can save it.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { loadAnthropic } from "./anthropic-sdk.js";
 import { GreenlightError } from "../cli/errors.js";
 import { requirePublicHost } from "../deploy/host.js";
 
@@ -132,6 +132,7 @@ export async function readStartPage(url, { fetchImpl = globalThis.fetch, checkHo
 export async function draftTests({ name, url, requirements, config, client, fetchImpl, checkHost, maxTests = 3, log = () => {} }) {
   const apiKey = config.ai?.apiKey ?? config.guest?.anthropicApiKey;
   if (!client && !apiKey) throw new GreenlightError("ai_unavailable", "AI test writing is not configured on this server.");
+  const Anthropic = await loadAnthropic();
   const anthropic = client ?? new Anthropic({ apiKey, timeout: 45_000, maxRetries: 0 });
   const page = await readStartPage(url, { ...(fetchImpl ? { fetchImpl } : {}), ...(checkHost ? { checkHost } : {}) });
   const user = [

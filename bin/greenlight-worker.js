@@ -54,7 +54,9 @@ if (args[0] === "--fail") {
   } else {
     const job = await store.getJob(jobId).catch(() => null);
     if (job && (job.status === "queued" || job.status === "running")) {
-      await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error: errorBody("sandbox_setup_failed", why) });
+      // A worker that crashed after the job started may have reached Kane: say so, never "did not run".
+      const error = reason === "worker_crashed" && job.status === "running" ? errorBody("worker_crashed", "The job's worker stopped during the run; nothing from it is trusted. Run the check again.") : errorBody("sandbox_setup_failed", why);
+      await store.putJob({ ...job, status: "failed", finishedAt: new Date().toISOString(), error });
     }
   }
   log({ event: "worker_setup_failed", jobId, reason });

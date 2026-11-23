@@ -153,8 +153,9 @@ test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap writ
   assert.match(BOOTSTRAP, /@testmuai\/kane-cli@0\.10\.6/);
   assert.match(BOOTSTRAP, /plugin install remote-execution/);
   assert.match(BOOTSTRAP, /login --username "\$GREENLIGHT_KANE_USERNAME" --access-key "\$GREENLIGHT_KANE_ACCESS_KEY"/);
-  assert.ok(BOOTSTRAP.indexOf("unset GREENLIGHT_KANE_USERNAME LOGIN") < BOOTSTRAP.indexOf('exec node bin/greenlight-worker.js "$JOB"'));
-  assert.match(BOOTSTRAP, /exec node bin\/greenlight-worker.js "\$JOB"\n`?$/);
+  assert.ok(BOOTSTRAP.indexOf("unset GREENLIGHT_KANE_USERNAME LOGIN") < BOOTSTRAP.indexOf('node bin/greenlight-worker.js "$JOB" ||'));
+  // A crashing worker still settles the job (it must never sit on "queued" until the sandbox expires).
+  assert.match(BOOTSTRAP, /node bin\/greenlight-worker.js "\$JOB" \|\| fail worker_crashed\n`?$/);
   assert.doesNotMatch(BOOTSTRAP, /poweroff|VERCEL_/, "no self power-off, no Vercel credential in the sandbox");
   assert.equal(cmd.env.GREENLIGHT_SANDBOX_FINISHED_URL, "https://greenlight.example.com/v1/sandbox/finished");
   assert.ok(!Object.keys(cmd.env).some((k) => k.startsWith("VERCEL")), "no Vercel credential is forwarded");
@@ -372,4 +373,22 @@ test("local execution has no sandbox report endpoint", async () => {
   const res = await fetch(`http://127.0.0.1:${server.address().port}/v1/sandbox/finished`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobId: `job_${"1".repeat(32)}`, signature: "0".repeat(64) }) });
   assert.equal(res.status, 404);
   server.close();
+});
+
+test("files shipped to the sandbox import no npm package at load time (the sandbox has no node_modules)", async () => {
+  // Regression: guest-ai.js imported @anthropic-ai/sdk at the top, so the worker crashed on start
+  // in the sandbox and every job stayed "queued". Packages may only be loaded with import().
+  const files = await sandboxFiles();
+  const offenders = [];
+  for (const f of files.filter((x) => x.path.endsWith(".js"))) {
+    const src = f.content.toString("utf8");
+    for (const m of src.matchAll(/^\s*import\s[^;]*?from\s+["']([^"']+)["']/gm)) {
+      const spec = m[1];
+      if (!spec.startsWith(".") && !spec.startsWith("node:")) offenders.push(`${f.path.replace(SANDBOX_APP_DIR + "/", "")}: ${spec}`);
+    }
+    for (const m of src.matchAll(/^\s*import\s+["']([^"']+)["']/gm)) {
+      if (!m[1].startsWith(".") && !m[1].startsWith("node:")) offenders.push(`${f.path}: ${m[1]}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
 });

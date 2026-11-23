@@ -53,7 +53,9 @@ LOGIN=(login --username "$GREENLIGHT_KANE_USERNAME" --access-key "$GREENLIGHT_KA
 "$GREENLIGHT_KANE_BIN" "\${LOGIN[@]}" </dev/null >/dev/null 2>&1 || fail kane_login
 unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY LOGIN
 trap - ERR
-exec node bin/greenlight-worker.js "$JOB"
+# If the worker itself crashes (it settles the job on every normal path), record the job as failed
+# so it never sits on "queued" or "running" until the sandbox expires.
+node bin/greenlight-worker.js "$JOB" || fail worker_crashed
 `;
 
 async function listJs(dir) {

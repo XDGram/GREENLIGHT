@@ -3,12 +3,14 @@
 // always go in the user turn as data, inside tags, never in the system prompt. Errors become stable
 // Greenlight errors; the operator log gets the error type and status only.
 
-import Anthropic from "@anthropic-ai/sdk";
+import { loadAnthropic, loadedAnthropic } from "./anthropic-sdk.js";
 import { GreenlightError } from "../cli/errors.js";
 
 export const aiConfigured = (config, client) => Boolean(client) || Boolean(config.ai?.apiKey);
 
 export function mapAnthropicError(err, log = () => {}) {
+  const Anthropic = loadedAnthropic();
+  if (!Anthropic) return null;
   log({ event: "ai_error", type: err?.constructor?.name ?? "Error", status: err?.status ?? null, requestId: err?.requestID ?? null });
   if (err instanceof Anthropic.RateLimitError) return new GreenlightError("ai_failed", "The AI is busy right now; try again in a minute.");
   if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return new GreenlightError("ai_unavailable", "AI is not available on this server right now.");
@@ -26,6 +28,7 @@ export function mapAnthropicError(err, log = () => {}) {
  */
 export async function askClaude({ config, client, system, messages, schema, maxTokens = 4000, effort = "low", log = () => {}, timeoutMs = 45_000 }) {
   if (!aiConfigured(config, client)) throw new GreenlightError("ai_unavailable", "AI is not configured on this server.");
+  const Anthropic = await loadAnthropic();
   const anthropic = client ?? new Anthropic({ apiKey: config.ai.apiKey, timeout: timeoutMs, maxRetries: 0 });
   let response;
   try {

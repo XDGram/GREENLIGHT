@@ -534,11 +534,13 @@ async function checkTotalCap(store, config, credits) {
 }
 
 /** Jobs a visitor has started that count as a real run (not those refused before Kane started). */
-const PRE_KANE = new Set(["deployment_not_ready", "url_not_allowed", "credit_check_refused", "balance_unavailable", "confirmation_required", "approval_not_certifiable", "credit_cap_reached"]);
+const PRE_KANE = new Set(["deployment_not_ready", "url_not_allowed", "credit_check_refused", "balance_unavailable", "confirmation_required", "approval_not_certifiable", "credit_cap_reached", "sandbox_setup_failed"]);
+/** A job that failed before Kane started: refused up front, a sandbox that never got Kane going, or one interrupted before it started. */
+const failedBeforeKane = (j) => j.status === "failed" && !j.recordId && (PRE_KANE.has(j.error?.code ?? "") || (j.error?.code === "interrupted" && !j.startedAt));
 async function guestJobsUsed(store, account) {
   const projects = await store.listProjects(account);
   const jobs = await projectJobs(store, projects.map((p) => p.id));
-  return jobs.filter((j) => !(j.status === "failed" && !j.recordId && PRE_KANE.has(j.error?.code ?? ""))).length;
+  return jobs.filter((j) => !failedBeforeKane(j)).length;
 }
 
 /**
