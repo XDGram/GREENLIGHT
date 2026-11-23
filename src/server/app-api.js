@@ -503,14 +503,18 @@ async function approveInApp({ config, store, s, project, v, now }) {
 }
 
 /**
- * Kane credits already committed on this server: the larger of the recorded actual spend and the
- * recorded estimates over all finished runs, plus the confirmed ceiling of every queued or
- * running job. Reads existing tables only.
+ * Kane credits already committed on this server. A finished run counts the larger of its recorded
+ * estimate and actual spend, unless Kane never started it (no execution id: nothing was spent, so
+ * only its recorded actual spend counts). Plus the confirmed ceiling of every queued or running job.
+ * Reads existing tables only.
  */
 export async function committedCredits(store) {
-  const r = (await store.adminOverview()) ?? {};
-  const o = r.overview ?? r;
-  const done = Math.max(Number(o.creditsSpent ?? 0), Number(o.creditsEstimated ?? 0));
+  const records = await store.adminList("records", 1000);
+  const done = (records ?? []).reduce((n, r) => {
+    const actual = Number(r.credits?.actualSpend ?? 0) || 0;
+    const estimate = Number(r.credits?.estimate ?? 0) || 0;
+    return n + (r.evidenceStatus === "no_execution_id" ? actual : Math.max(actual, estimate));
+  }, 0);
   const open = await store.listJobs({ statuses: ["queued", "running"] });
   const pending = (open ?? []).reduce((n, j) => n + (Number.isFinite(j.request?.confirmSpend) ? j.request.confirmSpend : 0), 0);
   return Math.ceil(done + pending);
@@ -520,7 +524,7 @@ export async function committedCredits(store) {
 async function checkTotalCap(store, config, credits) {
   const cap = config.totalCreditCap ?? 0;
   if (!cap) return null;
-  if (typeof store.adminOverview !== "function") return null; // local development store
+  if (typeof store.adminList !== "function") return null; // local development store
   let used;
   try {
     used = await committedCredits(store);

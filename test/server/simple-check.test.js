@@ -46,3 +46,16 @@ test("one Kane test per claim, each a single check step", () => {
   assert.deepEqual(spec.tests.map((t) => [t.id, t.claims, t.steps.map((s) => s.kind)]), [["claim-1", ["CLM-001"], ["check"]], ["claim-2", ["CLM-002"], ["check"]]]);
   assert.match(rendered[1].content, /## Claim\nUse the app as a normal visitor would .*verify it: The cart should show a total/);
 });
+
+test("the credit cap counts runs Kane executed at their estimate, and runs Kane never started at what they spent", async () => {
+  const { committedCredits } = await import("../../src/server/app-api.js");
+  const store = {
+    adminList: async () => [
+      { credits: { estimate: 94, actualSpend: 0 }, evidenceStatus: "stored" },
+      { credits: { estimate: 94, actualSpend: 120 }, evidenceStatus: "stored" },
+      { credits: { estimate: 94, actualSpend: 0 }, evidenceStatus: "no_execution_id" },
+    ],
+    listJobs: async () => [{ request: { confirmSpend: 57 } }],
+  };
+  assert.equal(await committedCredits(store), 94 + 120 + 0 + 57);
+});
