@@ -402,3 +402,10 @@ test("Kane runs without the server's secrets in its environment", async () => {
   const env = kaneEnv({ PATH: "/bin", HOME: "/home/x", SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "k", GREENLIGHT_APPROVAL_SIGNING_KEY: "s", GREENLIGHT_KANE_ACCESS_KEY: "a", GREENLIGHT_KANE_USERNAME: "u", ANTHROPIC_API_KEY: "ai", VERCEL_OIDC_TOKEN: "o" });
   assert.deepEqual(env, { PATH: "/bin", HOME: "/home/x", SUPABASE_URL: "https://x.supabase.co" });
 });
+
+test("the run manifest keeps Kane's own error messages, without secrets or URL queries", async () => {
+  const { kaneErrorSummary } = await import("../../src/evidence/collect.js");
+  const out = kaneErrorSummary({ stream: { errors: [{ type: "error", code: "remote_dispatch_failed", message: "grid refused https://api.example.com/run?token=abc for LT_abcdefghijklmnop" }] } });
+  assert.deepEqual(out, [{ code: "remote_dispatch_failed", message: "grid refused https://api.example.com/run for [redacted]" }]);
+  assert.deepEqual(kaneErrorSummary({ stream: { errors: [] } }), []);
+});

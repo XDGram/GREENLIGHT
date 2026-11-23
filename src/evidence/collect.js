@@ -176,6 +176,8 @@ export async function collectEvidence({
       endedAt: runResult.endedAt ?? null,
       streamComplete: runResult.completeness?.complete ?? false,
       streamIncompleteReasons: runResult.completeness?.reasons ?? [],
+      // Why Kane stopped, when it reported errors (e.g. it failed before any test started).
+      errors: kaneErrorSummary(runResult),
     },
     outputs: {
       stdout: { file: STDOUT_FILE, sha256: sha256Bytes(stdoutBytes), bytes: stdoutBytes.length },
@@ -326,4 +328,20 @@ export async function verifyRunRecord(runDir) {
     await checkFile("evidence", manifest.evidence.file, manifest.evidence.sha256, manifest.evidence.bytes);
   }
   return { ok: problems.length === 0, problems, manifest };
+}
+
+/** Kane's own error events, short and with secrets and URL queries removed: at most 5, 300 chars each. */
+export function kaneErrorSummary(runResult) {
+  const events = Array.isArray(runResult?.stream?.errors) ? runResult.stream.errors : [];
+  const clean = (v) =>
+    String(v ?? "")
+      .replace(/(https?:\/\/[^\s?#"']+)[?#][^\s"']*/g, "$1")
+      .replace(/\b(LT_[A-Za-z0-9]{8,}|eyJ[A-Za-z0-9_-]{10,}[.][A-Za-z0-9._-]+|sb_secret_[A-Za-z0-9_]+)/g, "[redacted]")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 300);
+  return events.slice(0, 5).map((e) => ({
+    code: clean(e?.code ?? e?.error_code ?? e?.kind ?? "") || null,
+    message: clean(e?.message ?? e?.error ?? e?.detail ?? e?.reason ?? JSON.stringify(e)) || null,
+  }));
 }
