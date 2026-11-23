@@ -21,7 +21,8 @@ const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** Settings the worker needs, copied from the API's environment (secrets marked). */
 const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID", "GREENLIGHT_GUEST_MODE", "GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN", "GREENLIGHT_GUEST_SAMPLE_PROJECT"];
-const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME", "GREENLIGHT_KANE_ACCESS_KEY"];
+// GREENLIGHT_APPROVAL_SIGNING_KEY: the worker re-verifies the signed approval before spending.
+const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME", "GREENLIGHT_KANE_ACCESS_KEY", "GREENLIGHT_APPROVAL_SIGNING_KEY"];
 
 /** Sandbox lifetime (validated in loadConfig to fit the job and the plan's limit). */
 export const sandboxTimeoutMs = (config) => config.sandboxTimeoutMs;

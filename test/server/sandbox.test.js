@@ -131,7 +131,8 @@ test("a remote certification runs the unchanged pipeline and stores the pack Kan
 test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap written, secrets only in the detached command's env", async () => {
   const config = loadConfig(SANDBOX_ENV);
   const fake = fakeSandbox();
-  const env = { ...SANDBOX_ENV, GREENLIGHT_KANE_TIMEOUT_MINUTES: "20", GREENLIGHT_PUBLIC_BASE_URL: "https://gl.example.com", UNRELATED_SECRET: "nope" };
+  const SIGNING = `approval-signing-key-${"s".repeat(32)}`;
+  const env = { ...SANDBOX_ENV, GREENLIGHT_KANE_TIMEOUT_MINUTES: "20", GREENLIGHT_PUBLIC_BASE_URL: "https://gl.example.com", GREENLIGHT_APPROVAL_SIGNING_KEY: SIGNING, UNRELATED_SECRET: "nope" };
   const r = await createSandboxDispatcher({ config, env, Sandbox: fake.Sandbox }).dispatch({ id: `job_${"a".repeat(32)}` });
   assert.deepEqual(r, { sandboxId: "sbx_test", cmdId: "cmd_test" });
   const [[, created], [, files], [, cmd]] = fake.calls;
@@ -148,6 +149,9 @@ test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap writ
   assert.deepEqual([cmd.env.GREENLIGHT_KANE_USERNAME, cmd.env.GREENLIGHT_KANE_ACCESS_KEY, cmd.env.GREENLIGHT_KANE_REMOTE], ["kane-user", "kane-access-key-secret", "hyper"]);
   assert.equal(cmd.env.GREENLIGHT_KANE_TIMEOUT_MINUTES, "20");
   assert.equal(cmd.env.UNRELATED_SECRET, undefined, "only the listed settings are forwarded");
+  // Regression: without the signing key the worker rejected every signed approval (signature_invalid).
+  assert.equal(cmd.env.GREENLIGHT_APPROVAL_SIGNING_KEY, SIGNING);
+  assert.ok(!JSON.stringify(created).includes(SIGNING) && !files.some((f) => f.content.toString().includes(SIGNING)), "the signing key is only in the command's environment");
   assert.equal(cmd.env.GREENLIGHT_EXECUTION, undefined, "the worker runs the job itself");
   // The bootstrap: pinned Kane, the remote plugin, login, credentials dropped before the job runs.
   assert.match(BOOTSTRAP, /@testmuai\/kane-cli@0\.10\.6/);
@@ -391,4 +395,10 @@ test("files shipped to the sandbox import no npm package at load time (the sandb
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+test("Kane runs without the server's secrets in its environment", async () => {
+  const { kaneEnv } = await import("../../src/kane/runner.js");
+  const env = kaneEnv({ PATH: "/bin", HOME: "/home/x", SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "k", GREENLIGHT_APPROVAL_SIGNING_KEY: "s", GREENLIGHT_KANE_ACCESS_KEY: "a", GREENLIGHT_KANE_USERNAME: "u", ANTHROPIC_API_KEY: "ai", VERCEL_OIDC_TOKEN: "o" });
+  assert.deepEqual(env, { PATH: "/bin", HOME: "/home/x", SUPABASE_URL: "https://x.supabase.co" });
 });

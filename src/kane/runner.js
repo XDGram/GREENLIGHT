@@ -110,11 +110,21 @@ function normaliseCommand(command) {
  * @param {AbortSignal} [opts.abortSignal]  Aborting stops Kane like a timeout (SIGINT, then SIGKILL).
  * @returns {Promise<KaneRunResult>}
  */
+/** Server secrets Kane (a third-party CLI) never needs; they are removed from its environment. */
+const SERVER_SECRETS = /^(SUPABASE_SERVICE_ROLE_KEY|GREENLIGHT_APPROVAL_SIGNING_KEY|GREENLIGHT_KANE_USERNAME|GREENLIGHT_KANE_ACCESS_KEY|ANTHROPIC_API_KEY|GREENLIGHT_GOOGLE_CLIENT_SECRET|GREENLIGHT_VERCEL_APP_CLIENT_SECRET|GREENLIGHT_GITHUB_TOKEN|VERCEL_TOKEN|VERCEL_OIDC_TOKEN)$/;
+
+/** The environment Kane runs with: this process's, minus server secrets. Exported for tests. */
+export function kaneEnv(env = process.env) {
+  const out = {};
+  for (const [k, v] of Object.entries(env)) if (!SERVER_SECRETS.test(k)) out[k] = v;
+  return out;
+}
+
 export function runKane({
   command,
   args,
   cwd = process.cwd(),
-  env = process.env,
+  env = kaneEnv(),
   timeoutMs = DEFAULT_TIMEOUT_MS,
   killGraceMs = DEFAULT_KILL_GRACE_MS,
   expectedVersion = KANE_CLI_VERSION,
