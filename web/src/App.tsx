@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { FlowStrip, PixelHero, TypedBracket, ValueCells } from "./components/Hero";
+import { ClaimsStrip, Dashes, Steps } from "./components/Hero";
+import { Logo } from "./components/Chrome";
 import { Sidebar, TopBar } from "./components/Shell";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckForm, CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
@@ -229,60 +230,57 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
   };
   const toForm = () => document.getElementById("check")?.scrollIntoView({ behavior: "smooth", block: "start" });
   return (
-    <div className="page">
-      <div className="frame">
-        <PixelHero
-          nav={
-            <nav className="nav" aria-label="Main" style={{ marginLeft: 0 }}>
-              <a className="nav-item" aria-current="page" href="#check">
-                Check
-              </a>
-              <a className="nav-item" href="#how">
-                How it works
-              </a>
-              {googleUrl ? (
-                <a className="nav-item" href={googleUrl}>
-                  Sign in
-                </a>
-              ) : null}
-            </nav>
-          }
-          right={
-            <a className="nav-item" href={ADMIN_LOGIN}>
-              ↗ Admin
-            </a>
-          }
-        />
-        <main className="main" id="main">
-          <section className="headline">
-            <h1>
-              Does your app do what its <TypedBracket words={["README", "claims", "demo"]} /> says?
-            </h1>
-            <div className="headline-side">
-              <div className="trust">
-                <span className="sq" aria-hidden="true" /> Tested by <b>Kane</b> · real browser · live app
-              </div>
-              <p style={{ margin: 0 }}>Paste your GitHub repository, live URL and README. Kane checks every claim on your live app and returns a verdict, with a suggested fix for anything that fails.</p>
-              <div className="cta-row">
-                <button type="button" className="btn" onClick={toForm}>
-                  Get started
-                </button>
-                <a className="btn ghost" href="#how">
-                  ▷ How it works
-                </a>
-              </div>
-            </div>
-          </section>
+    <div className="page landing">
+      <Dashes />
+      <header className="topnav">
+        <a href="/app" className="brand">
+          <Logo />
+          <span className="brand-name">Greenlight</span>
+        </a>
+        <nav className="links" aria-label="Main">
+          <a href="#how">How it works</a>
+          <a href="#check">Check</a>
+        </nav>
+        <div className="right">
+          {googleUrl ? <a href={googleUrl}>Sign in</a> : null}
+          <button type="button" className="btn" onClick={toForm}>
+            Check my app
+          </button>
+        </div>
+      </header>
 
-          <FlowStrip />
+      <main id="main">
+        <section className="hero2">
+          <h1>
+            Your README makes promises.
+            <br />
+            Kane checks them.
+          </h1>
+          <p>
+            Paste your <b>GitHub repo</b> and <b>live URL</b>. <b>Kane</b> tests every claim in your <b>README</b> in a real browser, and tells you what passed and what to fix.
+          </p>
+          <button type="button" className="btn" onClick={toForm}>
+            Check my app for free
+          </button>
+          <span className="note">No sign-up · the cost is shown before you run</span>
+        </section>
 
-          <div id="check" style={{ scrollMarginTop: 16, display: "flex", flexDirection: "column", gap: "var(--gap)", paddingTop: 24 }}>
-            <div className="sec-label">
-              <span>[N.01/02]</span> <b>&gt; Check</b>
-            </div>
-            <h2 className="slash-title">
-              <i>/</i> Paste. Run. Verdict. <i>/</i>
-            </h2>
+        <ClaimsStrip />
+
+        <section id="how" className="land-section" aria-labelledby="how-h">
+          <h2 id="how-h" className="duo">
+            Paste it in a minute.
+            <span>Get a verdict from a real browser.</span>
+          </h2>
+          <Steps />
+        </section>
+
+        <section id="check" className="land-section" aria-labelledby="check-h">
+          <h2 id="check-h" className="duo center">
+            Paste. Run.
+            <span>Read the verdict.</span>
+          </h2>
+          <div className="check-wrap">
             {guestMode ? (
               <CheckForm
                 session={null}
@@ -293,34 +291,21 @@ function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null
                 }}
               />
             ) : (
-              <p className="small">Visitor access is not enabled on this server.</p>
+              <p className="small" style={{ textAlign: "center" }}>
+                Visitor access is not enabled on this server.
+              </p>
             )}
           </div>
+        </section>
+      </main>
 
-          <div id="how" style={{ scrollMarginTop: 16, display: "flex", flexDirection: "column", gap: "var(--gap)", paddingTop: 32 }}>
-            <div className="sec-label">
-              <span>[N.02/02]</span> <b>&gt; How it works</b>
-            </div>
-            <h2 className="slash-title">
-              <i>/</i> Less guessing.
-              <br />
-              Proof from a real browser. <i>/</i>
-            </h2>
-            <ValueCells />
-          </div>
-
-          <p className="small mono" style={{ margin: "12px 0 0" }}>
-            No sign-up · this browser remembers your checks
-            {googleUrl ? (
-              <>
-                {" "}
-                · <a href={googleUrl}>Sign in with Google</a>
-              </>
-            ) : null}{" "}
-            · <a href={ADMIN_LOGIN}>Administrator sign-in</a>
-          </p>
-        </main>
-      </div>
+      <footer className="land-foot">
+        <span className="brand-name">Greenlight</span>
+        <span>No sign-up · this browser remembers your checks</span>
+        <span className="sp" />
+        {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
+        <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+      </footer>
     </div>
   );
 }

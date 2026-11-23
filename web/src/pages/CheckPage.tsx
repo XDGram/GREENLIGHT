@@ -102,7 +102,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
       <section className="step-card" aria-labelledby="c1">
         <div className="step-card-head">
           <h2 id="c1">Your app</h2>
-          <span className="num-tag">001</span>
+          <span className="num-tag">Step 1</span>
         </div>
         <div className="form-grid">
           <label className="field">
@@ -133,7 +133,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
         <section className="step-card" aria-labelledby="c2">
           <div className="step-card-head">
             <h2 id="c2">What Kane will test</h2>
-            <span className="num-tag">002</span>
+            <span className="num-tag">Step 2</span>
           </div>
           <p className="small" style={{ margin: 0 }}>
             {claims.length === 0
@@ -205,11 +205,9 @@ export function CheckPage({ session }: { session: Session }) {
   const { navigate } = useRouter();
   return (
     <>
-      <div className="sec-label">
-        <span>[N.01/03]</span> <b>&gt; Check</b>
-      </div>
-      <h1 className="slash-title">
-        <i>/</i> Paste. Run. Verdict. <i>/</i>
+      <h1 className="duo">
+        Paste. Run.
+        <span>Read the verdict.</span>
       </h1>
       <CheckForm session={session} onStarted={(id) => navigate(`/app/check/${id}`)} />
     </>
@@ -334,7 +332,7 @@ function Verdict({ run }: { run: RunDetail }) {
       <section className="step-card" aria-labelledby="claims-h">
         <div className="step-card-head">
           <h2 id="claims-h">Claims</h2>
-          <span className="num-tag">003</span>
+          <span className="num-tag">Result</span>
         </div>
         <ul className="claim-list">
           {run.claims.map((c) => {

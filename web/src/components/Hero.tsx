@@ -1,169 +1,128 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Logo } from "./Chrome";
+// Landing-page pieces in the "paper" style: a faint field of dashes behind the hero, a slow strip
+// of example claims, and three step cards with thin line drawings. Motion stops when the viewer
+// prefers reduced motion (handled in theme.css).
 
-// Landing-page pieces in the "terminal grid" style: a dark band of green pixels, a ticker, a
-// typed bracket word, a dotted flow strip and numbered value cells. All decorative motion stops
-// when the viewer prefers reduced motion.
-
-const COLS = 24;
-const ROWS = 6;
-
-const reduced = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-
-/** A deterministic sweep of lit cells, brighter toward a diagonal, like a signal turning green. */
-function cells(seed: number) {
-  const out: number[] = [];
-  let x = seed;
-  for (let r = 0; r < ROWS; r += 1) {
-    for (let c = 0; c < COLS; c += 1) {
-      x = (x * 9301 + 49297) % 233280;
-      const rnd = x / 233280;
-      const band = 1 - Math.min(1, Math.abs(c / COLS - (0.25 + r / ROWS / 1.6)) * 3.2);
-      const v = rnd * 0.55 + band * 0.75 - 0.42;
-      out.push(v > 0.55 ? 3 : v > 0.32 ? 2 : v > 0.14 ? 1 : 0);
-    }
+/** Scattered short dashes, drawn once as an inline SVG pattern (no data: URIs under the CSP). */
+export function Dashes() {
+  const marks: { x: number; y: number; r: number }[] = [];
+  let s = 11;
+  for (let i = 0; i < 46; i += 1) {
+    s = (s * 9301 + 49297) % 233280;
+    const x = (s / 233280) * 300;
+    s = (s * 9301 + 49297) % 233280;
+    const y = (s / 233280) * 300;
+    s = (s * 9301 + 49297) % 233280;
+    marks.push({ x, y, r: [-35, 0, 35, 70, 90][Math.floor((s / 233280) * 5)]! });
   }
-  return out;
-}
-const SHADE = ["transparent", "#0f2a1b", "#0f6b38", "var(--green)"];
-
-export function PixelHero({ nav, right }: { nav?: ReactNode; right?: ReactNode }) {
-  const [seed, setSeed] = useState(7);
-  useEffect(() => {
-    if (reduced()) return;
-    const t = setInterval(() => setSeed((s) => (s % 9) + 1), 2600);
-    return () => clearInterval(t);
-  }, []);
-  const lit = useMemo(() => cells(seed), [seed]);
   return (
-    <header className="hero">
-      <div className="hero-grid" style={{ ["--cols" as string]: COLS, ["--rows" as string]: ROWS } as React.CSSProperties} aria-hidden="true">
-        {lit.map((v, i) => (
-          <span key={i} style={{ background: SHADE[v] }} />
-        ))}
-      </div>
-      <div className="hero-inner">
-        <div className="hero-top">
-          {nav}
-          <span style={{ marginLeft: "auto" }}>{right}</span>
+    <svg className="dashes" aria-hidden="true" focusable="false">
+      <defs>
+        <pattern id="gl-dashes" width="300" height="300" patternUnits="userSpaceOnUse">
+          {marks.map((m, i) => (
+            <line key={i} x1={m.x - 3} y1={m.y} x2={m.x + 3} y2={m.y} stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" transform={`rotate(${m.r} ${m.x} ${m.y})`} />
+          ))}
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill="url(#gl-dashes)" />
+    </svg>
+  );
+}
+
+const EXAMPLES = [
+  "Users can sign up with email",
+  "The dashboard shows your tasks",
+  "Search returns matching results",
+  "You can export a report as CSV",
+  "Dark mode is remembered",
+  "Checkout works on mobile",
+  "Password reset sends an email",
+  "Invite a teammate by link",
+];
+
+export function ClaimsStrip() {
+  const row = [...EXAMPLES, ...EXAMPLES];
+  return (
+    <section className="claims-strip" aria-label="Examples of claims Kane can check">
+      <p>Claims like these, checked on the live app</p>
+      <div className="rail">
+        <div className="track">
+          {row.map((t, i) => (
+            <span key={i} aria-hidden={i >= EXAMPLES.length ? "true" : undefined}>
+              {t}
+            </span>
+          ))}
         </div>
-        <div className="hero-brand">
-          <Logo size={26} />
-          <span className="brand-name">Greenlight</span>
-          <span className="brand-tag">V1.0 · KANE</span>
-          <span className="hero-scroll">Scroll to check +</span>
-        </div>
       </div>
-      <Ticker items={["Introducing: README claims tested by Kane", "Real browser · live app", "Verdict per claim", "Suggested fixes for every failure"]} />
-    </header>
+    </section>
   );
 }
 
-export function Ticker({ items }: { items: string[] }) {
-  const row = [...items, ...items, ...items];
+const line = { fill: "none", stroke: "currentColor", strokeWidth: 1.3, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+
+function ArtPaste() {
   return (
-    <div className="ticker" aria-hidden="true">
-      <div className="ticker-track">
-        {[...row, ...row].map((t, i) => (
-          <span key={i}>{t}</span>
-        ))}
-      </div>
-    </div>
+    <svg viewBox="0 0 220 150" aria-hidden="true">
+      <rect x="20" y="16" width="150" height="104" rx="8" {...line} />
+      <path d="M20 34h150" {...line} />
+      <circle cx="31" cy="25" r="2" {...line} />
+      <circle cx="39" cy="25" r="2" {...line} />
+      <path d="M36 52h46M36 66h96M36 78h80M36 90h88M36 102h60" {...line} opacity="0.55" />
+      <path d="M30 66l-4 0M30 78h-4M30 90h-4M30 102h-4" {...line} />
+      <rect x="128" y="76" width="74" height="58" rx="7" {...line} fill="var(--panel-2)" />
+      <path d="M150 76v-6a5 5 0 0 1 5-5h20a5 5 0 0 1 5 5v6" {...line} />
+      <path d="M142 96h46M142 108h34M142 120h40" {...line} />
+    </svg>
   );
 }
 
-/** A word typed into brackets with a blinking block cursor: [ README█ ] */
-export function TypedBracket({ words }: { words: string[] }) {
-  const [text, setText] = useState(words[0] ?? "");
-  useEffect(() => {
-    if (reduced()) return;
-    let w = 0;
-    let n = words[0]!.length;
-    let deleting = false;
-    let hold = 20;
-    const t = setInterval(() => {
-      if (hold > 0) {
-        hold -= 1;
-        return;
-      }
-      const word = words[w]!;
-      if (!deleting) {
-        if (n < word.length) n += 1;
-        else {
-          deleting = true;
-          hold = 20;
-          return;
-        }
-      } else if (n > 0) n -= 1;
-      else {
-        deleting = false;
-        w = (w + 1) % words.length;
-        hold = 3;
-        return;
-      }
-      setText(words[w]!.slice(0, n));
-    }, 90);
-    return () => clearInterval(t);
-  }, [words]);
+function ArtBrowser() {
   return (
-    <span className="bracket">
-      [ {text}
-      <span className="cursor" aria-hidden="true" /> ]
-    </span>
+    <svg viewBox="0 0 220 150" aria-hidden="true">
+      <rect x="16" y="14" width="188" height="122" rx="8" {...line} />
+      <path d="M16 32h188" {...line} />
+      <rect x="54" y="20" width="112" height="7" rx="3.5" {...line} opacity="0.55" />
+      <rect x="34" y="46" width="70" height="10" rx="3" {...line} />
+      <rect x="34" y="64" width="70" height="10" rx="3" {...line} />
+      <rect x="34" y="84" width="40" height="14" rx="4" {...line} />
+      <path d="M124 48h56M124 60h44M124 72h50" {...line} opacity="0.55" />
+      <path d="M112 50l2.6 2.6 5-5.6M112 62l2.6 2.6 5-5.6" stroke="var(--green)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M70 96l0 22 6-6 5 10 4-2-5-10 8 0z" {...line} fill="var(--panel-2)" />
+    </svg>
   );
 }
 
-export function FlowStrip() {
+function ArtNote() {
   return (
-    <div className="strip" aria-label="Paste, Kane tests, verdict">
-      <span className="edge" aria-hidden="true">
-        ···
-      </span>
-      <span aria-hidden="true">&gt;</span>
-      <span className="flow">
-        Paste <em>→</em> Kane tests <em>→</em> Verdict <em>→</em> Fix
-      </span>
-      <span aria-hidden="true">&lt;</span>
-      <span className="edge" aria-hidden="true">
-        ···
-      </span>
-    </div>
+    <svg viewBox="0 0 220 150" aria-hidden="true">
+      <path d="M58 12h80l24 24v104H58z" {...line} />
+      <path d="M138 12v24h24" {...line} />
+      <path d="M72 34h44" {...line} />
+      <path d="M72 58l3 3 6-7" stroke="var(--green)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M88 58h56" {...line} opacity="0.55" />
+      <path d="M72 78l3 3 6-7" stroke="var(--green)" fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M88 78h46" {...line} opacity="0.55" />
+      <path d="M73 95l7 7M80 95l-7 7" {...line} />
+      <path d="M88 98h52" {...line} opacity="0.55" />
+      <path d="M88 112h40M88 122h48" {...line} opacity="0.35" />
+    </svg>
   );
 }
 
-const ICONS: Record<string, string[]> = {
-  paste: ["00111100", "01000010", "01111110", "01000010", "01000010", "01000010", "01111110", "00000000"],
-  browser: ["11111111", "10000001", "11111111", "10000001", "10011001", "10000001", "11111111", "00000000"],
-  verdict: ["00000000", "00000011", "00000110", "11001100", "01111000", "00110000", "00000000", "00000000"],
-};
-
-function PixelIcon({ name }: { name: keyof typeof ICONS }) {
-  return (
-    <span className="pixel-icon" aria-hidden="true">
-      {ICONS[name]!.join("").split("").map((b, i) => (
-        <span key={i} className={b === "1" ? "on" : ""} />
-      ))}
-    </span>
-  );
-}
-
-export function ValueCells() {
-  const items: { n: string; icon: keyof typeof ICONS; title: string; text: string; on?: boolean }[] = [
-    { n: "001", icon: "paste", title: "Paste your README", text: "Each bullet point becomes a claim. Edit them, drop some, add your own." },
-    { n: "002", icon: "browser", title: "Kane tests the live app", text: "A real browser uses your deployed app the way a visitor would, one claim at a time.", on: true },
-    { n: "003", icon: "verdict", title: "Verdict and fixes", text: "Passed or failed for each claim, what Kane saw, and what to fix before you check again." },
+export function Steps() {
+  const items = [
+    { art: <ArtPaste />, title: "1. Paste your repo", text: "Your GitHub link, the live URL and the README.", foot: "Each bullet point becomes a claim you can edit" },
+    { art: <ArtBrowser />, title: "2. Kane tests the live app", text: "A real browser uses it the way a visitor would.", foot: "One claim at a time · cost shown before you run" },
+    { art: <ArtNote />, title: "3. Read the verdict", text: "Passed or failed, claim by claim, with a fix.", foot: "Passed · Failed · Could not verify" },
   ];
   return (
-    <div className="cells">
-      {items.map((c) => (
-        <div key={c.n} className={`cell ${c.on ? "on" : ""}`}>
-          <div className="cell-head">
-            <PixelIcon name={c.icon} />
-            <span className="num-tag">{c.n}</span>
-          </div>
-          <h3 style={{ marginTop: "auto" }}>{c.title}</h3>
-          <p>{c.text}</p>
-        </div>
+    <div className="steps">
+      {items.map((s) => (
+        <article key={s.title} className="step">
+          <h3>{s.title}</h3>
+          <p>{s.text}</p>
+          <div className="art">{s.art}</div>
+          <div className="foot">{s.foot}</div>
+        </article>
       ))}
     </div>
   );

@@ -2,11 +2,11 @@ import { useId } from "react";
 import { initials } from "../format";
 
 export function Logo({ size = 22 }: { size?: number }) {
-  // A square "go" light: green tile, black check.
+  // A "go" light: green tile, white check.
   return (
     <svg width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
-      <rect width="22" height="22" fill="var(--green)" />
-      <path d="M5.5 11.5l3.6 3.6 7.4-8" stroke="var(--ink)" strokeWidth="2.4" strokeLinecap="square" />
+      <rect width="22" height="22" rx="6" fill="var(--green)" />
+      <path d="M5.5 11.5l3.6 3.6 7.4-8" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
