@@ -144,9 +144,12 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
           <ul className="list" style={{ gap: 8 }}>
             {claims.map((c, i) => (
               <li key={i} className="claim-row">
-                <label className="check-chip">
+                <label className="uv-switch">
                   <input type="checkbox" checked={c.on} onChange={() => toggle(i)} aria-label={`Test claim ${i + 1}`} />
-                  {c.on ? "Test" : "Skip"}
+                  <span className="switch-track" aria-hidden="true">
+                    <span className="switch-inner" />
+                    <span className="switch-knob" />
+                  </span>
                 </label>
                 <label className="field">
                   <span className="sr-only">Claim {i + 1}</span>
@@ -291,7 +294,12 @@ function Progress({ job }: { job: Job }) {
   return (
     <section className="card" aria-live="polite">
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span className="spinner" aria-hidden="true" />
+        <span className="dash-loader" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
         <h2 className="card-title" style={{ margin: 0 }}>
           {job.status === "queued" ? "Waiting for Kane to start..." : "Kane is testing your app in a real browser..."}
         </h2>

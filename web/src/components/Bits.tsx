@@ -142,9 +142,7 @@ export function CodeBlock({ title, code }: { title: string; code: string }) {
 export function ResultMark({ status }: { status: string | null | undefined }) {
   const kind = status === "passed" || status === "found" ? "pass" : status === "failed" || status === "app_failure" || status === "missing" ? "fail" : "unknown";
   return (
-    <span className={`result-mark ${kind}`} aria-hidden="true">
-      {kind === "pass" ? <I.Check size={12} strokeWidth={2.6} /> : kind === "fail" ? <I.X size={12} strokeWidth={2.6} /> : null}
-    </span>
+    kind === "unknown" ? <span className="result-mark unknown" aria-hidden="true" /> : <span className={`uv-check on ${kind === "fail" ? "fail" : ""}`} aria-hidden="true" />
   );
 }
 

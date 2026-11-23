@@ -1,0 +1,76 @@
+/* Elements adapted from Uiverse.io (https://uiverse.io), MIT License, Copyright (c) 2023 Uiverse.io.
+   Each block names its original author. Changes: our colours and fonts, focus styles, keyboard
+   access (inputs are visually hidden, not display:none), and reduced-motion handling. */
+
+/* ---------------------------------------------------------------- primary button
+   From Uiverse.io by McHaXYT (Buttons/McHaXYT_fresh-turkey-35): dark button with a muted tail. */
+.uv-button {
+  display: inline-flex; align-items: center; gap: 0.45em;
+  padding: 15px 22px; border: none; outline: none; border-radius: 10px;
+  background-color: var(--ink); color: #f4f1ec;
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none;
+  transition: transform 0.25s ease-out, box-shadow 0.25s ease-out, background-color 0.2s;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 6px 16px rgba(29, 27, 25, 0.18);
+}
+.uv-button:hover { transform: translateY(-3px); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.12) inset, 0 12px 24px rgba(29, 27, 25, 0.22); }
+.uv-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.uv-button .uv-tail { color: #a8a29a; font-weight: 500; }
+.uv-button.accent { background-color: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(226, 88, 43, 0.28); }
+.uv-button.accent .uv-tail { color: rgba(255, 255, 255, 0.72); }
+
+/* ---------------------------------------------------------------- Test / Skip switch
+   From Uiverse.io by vikramsinghnegi (Toggle-switches/vikramsinghnegi_green-monkey-99). */
+.uv-switch { position: relative; display: inline-block; width: 84px; flex: none; user-select: none; cursor: pointer; }
+.uv-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.uv-switch .switch-track { display: block; position: relative; overflow: hidden; border: 2px solid var(--line-strong); border-radius: 20px; transition: border-color 0.3s; }
+.uv-switch .switch-inner { display: block; width: 200%; margin-left: -100%; transition: margin 0.3s ease-in; }
+.uv-switch .switch-inner::before, .uv-switch .switch-inner::after {
+  float: left; width: 50%; height: 34px; line-height: 34px; box-sizing: border-box;
+  font-family: var(--font); font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em;
+}
+.uv-switch .switch-inner::before { content: "Test"; padding-left: 12px; background-color: var(--ink); color: #fff; }
+.uv-switch .switch-inner::after { content: "Skip"; padding-right: 12px; background-color: var(--panel-2); color: var(--muted); text-align: right; }
+.uv-switch .switch-knob {
+  position: absolute; top: 0; bottom: 0; right: 50px; width: 20px; margin: 7px;
+  background: #fff; border: 2px solid var(--ink); border-radius: 20px; box-sizing: border-box;
+  transition: right 0.3s ease-in;
+}
+.uv-switch input:checked + .switch-track { border-color: var(--ink); }
+.uv-switch input:checked + .switch-track .switch-inner { margin-left: 0; }
+.uv-switch input:checked + .switch-track .switch-knob { right: 0; }
+.uv-switch input:focus-visible + .switch-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------------------------------------------------------------- running loader
+   From Uiverse.io by Praashoo7 (loaders/Praashoo7_gentle-grasshopper-65): growing dashes. */
+.dash-loader { display: inline-flex; align-items: center; justify-content: center; gap: 0.18em; width: 5em; flex: none; }
+.dash-loader i { width: 23px; height: 3px; border-radius: 5px; background-color: var(--accent); animation: uv-dash 1s infinite; }
+.dash-loader i:nth-child(1) { animation-delay: 0.2s; }
+.dash-loader i:nth-child(2) { animation-delay: 0.4s; }
+.dash-loader i:nth-child(3) { animation-delay: 0.6s; }
+@keyframes uv-dash { 0% { width: 0.2em; } 25% { width: 0.7em; } 50% { width: 1.5em; } 100% { width: 0.2em; } }
+
+/* ---------------------------------------------------------------- passed check
+   From Uiverse.io by elijahgummer (Checkboxes/elijahgummer_friendly-wombat-2), as a result mark:
+   a glossy tile that wipes in when the claim passes. */
+.uv-check { position: relative; display: inline-block; width: 22px; height: 22px; border-radius: 7px; overflow: hidden; flex: none; border: 2px solid #bfe3cf; box-sizing: content-box; }
+.uv-check::before {
+  content: ""; position: absolute; inset: 0; border-radius: 6px; background-color: var(--pass-dot);
+  box-shadow: inset 0 -2.5px 3px #62e0a1, inset 0 3px 3px rgba(0, 0, 0, 0.25);
+  transform: translateY(-110%); transition: transform 0.6s ease-in-out;
+}
+.uv-check::after {
+  content: ""; position: absolute; left: 8px; top: 3px; width: 5px; height: 10px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg) scale(0); transition: transform 0.3s 0.35s;
+}
+.uv-check.on::before { transform: none; }
+.uv-check.on::after { transform: rotate(45deg) scale(1); }
+.uv-check.fail { border-color: #f6c9bd; }
+.uv-check.fail::before { background-color: var(--fail-dot); box-shadow: inset 0 -2.5px 3px #ff8a70, inset 0 3px 3px rgba(0, 0, 0, 0.25); }
+.uv-check.fail::after { left: 5px; top: 10px; width: 12px; height: 0; border-width: 2px 0 0 0; transform: scale(0); }
+.uv-check.fail.on::after { transform: scale(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-loader i { animation: none; width: 0.9em; }
+  .uv-button, .uv-button:hover { transform: none; }
+  .uv-check::before, .uv-check::after, .uv-switch .switch-inner, .uv-switch .switch-knob { transition: none; }
+}

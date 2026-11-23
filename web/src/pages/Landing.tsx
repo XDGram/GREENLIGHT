@@ -1,133 +1,205 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { motion, useReducedMotion, useScroll, useSpring, useTransform, type MotionValue } from "framer-motion";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { motion, useInView, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { guestApi } from "../api";
 import { Logo } from "../components/Chrome";
 import { useRouter } from "../router";
 import { CheckForm } from "./CheckPage";
 
-// The public landing page: a split black/white hero with a live 3D object, then one section per
-// step of a check, each with a floating product card. A rail on the left tracks where you are.
-// Motion is tied to scroll and switches off for viewers who prefer reduced motion.
+// The public landing page. Warm paper, serif headlines and the product itself as the picture:
+// the hero frame is a Greenlight result whose claims tick as it scrolls into view. Elements such
+// as the buttons, switches, loader and check marks are adapted from Uiverse.io (see uiverse.css).
 
-const Blob3D = lazy(() => import("../components/Blob3D"));
 const ADMIN_LOGIN = "/approve/login?next=%2Fapp";
-
-const SECTIONS = [
-  { id: "top", label: "Your README" },
-  { id: "how", label: "How it works" },
-  { id: "approve", label: "You approve" },
-  { id: "verdict", label: "The verdict" },
-  { id: "fix", label: "Fix it" },
-  { id: "check", label: "Run a check" },
-] as const;
-
 const ease = [0.22, 1, 0.36, 1] as const;
 
-function Reveal({ children, delay = 0, y = 28, className }: { children: ReactNode; delay?: number; y?: number; className?: string }) {
+function Reveal({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
   const still = useReducedMotion();
   return (
-    <motion.div
-      className={className}
-      initial={still ? false : { opacity: 0, y }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-12% 0px" }}
-      transition={{ duration: 0.9, ease, delay }}
-    >
+    <motion.div className={className} initial={still ? false : { opacity: 0, y: 26 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-10% 0px" }} transition={{ duration: 0.8, ease, delay }}>
       {children}
     </motion.div>
   );
 }
 
-/** A card that drifts against the scroll inside its section. */
-function Float({ children, className, speed = 60, delay = 0 }: { children: ReactNode; className?: string; speed?: number; delay?: number }) {
+function Pop({ children, delay, className }: { children: ReactNode; delay: number; className?: string }) {
+  const still = useReducedMotion();
+  return (
+    <motion.span className={className} initial={still ? false : { opacity: 0, scale: 0.6, rotate: -6 }} animate={{ opacity: 1, scale: 1, rotate: 0 }} transition={{ type: "spring", stiffness: 260, damping: 18, delay }}>
+      {children}
+    </motion.span>
+  );
+}
+
+const CLAIMS = [
+  { text: "Visitors can add a product to the cart", ok: true },
+  { text: "The cart shows the total", ok: true },
+  { text: "Users can reset their password", ok: false },
+];
+
+/** The hero picture: a Greenlight result in a browser window. Claims tick as you scroll. */
+function ProductFrame() {
   const ref = useRef<HTMLDivElement>(null);
   const still = useReducedMotion();
-  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
-  const y = useTransform(scrollYProgress, [0, 1], still ? [0, 0] : [speed, -speed]);
-  return (
-    <motion.div ref={ref} className={className} style={{ y }} initial={still ? false : { opacity: 0, scale: 0.94 }} whileInView={{ opacity: 1, scale: 1 }} viewport={{ once: true, margin: "-10% 0px" }} transition={{ duration: 0.9, ease, delay }}>
-      {children}
-    </motion.div>
-  );
-}
-
-function Words({ text, delay = 0 }: { text: string; delay?: number }) {
-  const still = useReducedMotion();
-  return (
-    <>
-      {text.split(" ").map((w, i) => (
-        <span key={i}>
-          <span className="word-mask">
-            <motion.span className="word" initial={still ? false : { y: "110%" }} animate={{ y: "0%" }} transition={{ duration: 1, ease, delay: delay + i * 0.06 }}>
-              {w}
-            </motion.span>
-          </span>{" "}
-        </span>
-      ))}
-    </>
-  );
-}
-
-function useActiveSection() {
-  const [active, setActive] = useState<string>("top");
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "center center"] });
+  const rotateX = useTransform(scrollYProgress, [0, 1], still ? [0, 0] : [18, 0]);
+  const scale = useTransform(scrollYProgress, [0, 1], still ? [1, 1] : [0.9, 1]);
+  const [ticked, setTicked] = useState(still ? CLAIMS.length : 0);
   useEffect(() => {
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const e of entries) if (e.isIntersecting) setActive(e.target.id);
-      },
-      { rootMargin: "-45% 0px -50% 0px" },
-    );
-    for (const s of SECTIONS) {
-      const el = document.getElementById(s.id);
-      if (el) io.observe(el);
-    }
-    return () => io.disconnect();
-  }, []);
-  return active;
-}
+    if (still) return;
+    return scrollYProgress.on("change", (v) => setTicked(v > 0.92 ? 3 : v > 0.78 ? 2 : v > 0.62 ? 1 : 0));
+  }, [scrollYProgress, still]);
+  const passed = CLAIMS.slice(0, ticked).filter((c) => c.ok).length;
+  const done = ticked >= CLAIMS.length;
 
-function Rail({ progress, dark }: { progress: MotionValue<number>; dark: boolean }) {
-  const active = useActiveSection();
-  const scaleY = useSpring(progress, { stiffness: 120, damping: 30 });
   return (
-    <nav className={`rail ${dark ? "dark" : ""}`} aria-label="Sections">
-      <span className="rail-line" aria-hidden="true">
-        <motion.span className="rail-fill" style={{ scaleY }} />
-      </span>
-      {SECTIONS.map((s) => (
-        <a key={s.id} href={`#${s.id}`} className={active === s.id ? "on" : ""} aria-current={active === s.id ? "true" : undefined}>
-          <i aria-hidden="true" />
-          {s.label}
-        </a>
-      ))}
-    </nav>
+    <div className="frame-stage" ref={ref}>
+      <motion.div className="window" style={{ rotateX, scale }} role="img" aria-label="Example Greenlight result: two claims passed, one failed, with what Kane saw and a suggested fix.">
+        <div className="window-bar">
+          <span className="lights" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+          <span className="window-url">greenlight · check · acme/shop</span>
+        </div>
+        <div className="window-body">
+          <div className="res-main">
+            <div className="res-head">
+              <span className="res-k">Verdict · tested by Kane on shop.example.com</span>
+              <span className={`res-word ${done ? "fail" : ""}`}>{done ? "Failed" : "Testing"}</span>
+              <span className="res-sub">
+                {done ? (
+                  <>
+                    {passed} of {CLAIMS.length} claims passed · 94 credits
+                  </>
+                ) : (
+                  <span className="res-run">
+                    <span className="dash-loader" aria-hidden="true">
+                      <i />
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                    Kane is using the live app
+                  </span>
+                )}
+              </span>
+            </div>
+            <ul className="res-claims">
+              {CLAIMS.map((c, i) => {
+                const on = i < ticked;
+                return (
+                  <li key={c.text} className={on ? (c.ok ? "p" : "f") : ""}>
+                    <span className={`uv-check ${on ? "on" : ""} ${!c.ok ? "fail" : ""}`} aria-hidden="true" />
+                    <span className="res-text">{c.text}</span>
+                    <span className="res-tag">{on ? (c.ok ? "Passed" : "Failed") : "Queued"}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+          <div className={`res-side ${done ? "on" : ""}`}>
+            <span className="res-k">What Kane saw</span>
+            <p>“Forgot password?” opens /reset-password, which returns a 404 page.</p>
+            <span className="res-k">Suggested fix</span>
+            <pre className="res-diff">
+              <span className="del">- Users can reset their password</span>
+              {"\n"}
+              <span className="add">+ add app/reset-password/page.tsx</span>
+            </pre>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 }
 
-const Check = ({ size = 14 }: { size?: number }) => (
-  <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true">
-    <path d="M3.5 8.5l3 3 6-7" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-const Arrow = ({ size = 14, down = false }: { size?: number; down?: boolean }) => (
-  <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true" style={down ? { transform: "rotate(90deg)" } : undefined}>
-    <path d="M4 12L12 4M6 4h6v6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-function StepChart() {
+/** Step 3 card: the loader, then the verdict, once the card is on screen. */
+function MiniRun() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-20% 0px" });
+  const still = useReducedMotion();
+  const [phase, setPhase] = useState(still ? 3 : 0);
+  useEffect(() => {
+    if (!inView || still) return;
+    const ts = [setTimeout(() => setPhase(1), 1600), setTimeout(() => setPhase(2), 2100), setTimeout(() => setPhase(3), 2600)];
+    return () => ts.forEach(clearTimeout);
+  }, [inView, still]);
   return (
-    <svg viewBox="0 0 200 70" className="chart" aria-hidden="true">
-      <defs>
-        <linearGradient id="gl-fade" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor="#0a0a0a" stopOpacity="0.35" />
-          <stop offset="1" stopColor="#0a0a0a" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d="M0 52 C20 50 28 40 44 42 S70 56 86 46 108 22 122 30 146 50 160 26 184 10 200 18 V70 H0z" fill="url(#gl-fade)" />
-      <path d="M0 52 C20 50 28 40 44 42 S70 56 86 46 108 22 122 30 146 50 160 26 184 10 200 18" fill="none" stroke="#0a0a0a" strokeWidth="1.6" />
-      <circle cx="122" cy="30" r="4" fill="#0a0a0a" stroke="#fff" strokeWidth="2" />
-    </svg>
+    <div className="mini" ref={ref}>
+      {phase === 0 ? (
+        <div className="mini-run">
+          <span className="dash-loader" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <span>Kane is testing…</span>
+        </div>
+      ) : (
+        <ul className="mini-list">
+          {["Add to cart works", "Cart shows the total", "Password reset works"].map((t, i) => (
+            <li key={t}>
+              <span className={`uv-check ${phase > i ? "on" : ""} ${i === 2 ? "fail" : ""}`} aria-hidden="true" />
+              {t}
+              <b className={i === 2 ? "f" : "p"}>{phase > i ? (i === 2 ? "Failed" : "Passed") : ""}</b>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function MiniApprove() {
+  const [on, setOn] = useState([true, true, false]);
+  const n = on.filter(Boolean).length;
+  const labels = ["Add to cart works", "Cart shows the total", "Order email arrives"];
+  return (
+    <div className="mini">
+      <ul className="mini-list">
+        {labels.map((t, i) => (
+          <li key={t}>
+            <label className="uv-switch small">
+              <input type="checkbox" checked={on[i]} onChange={() => setOn((o) => o.map((x, j) => (j === i ? !x : x)))} aria-label={`Test “${t}”`} />
+              <span className="switch-track" aria-hidden="true">
+                <span className="switch-inner" />
+                <span className="switch-knob" />
+              </span>
+            </label>
+            {t}
+          </li>
+        ))}
+      </ul>
+      <div className="mini-cost">
+        <span>
+          {n} claim{n === 1 ? "" : "s"}
+        </span>
+        <b>{n ? 20 + n * 37 : 0} credits</b>
+      </div>
+    </div>
+  );
+}
+
+function MiniPaste() {
+  return (
+    <div className="mini">
+      <div className="mini-field">
+        <span>GitHub repository</span>
+        <b>github.com/acme/shop</b>
+      </div>
+      <div className="mini-field">
+        <span>Live app URL</span>
+        <b>shop.example.com</b>
+      </div>
+      <div className="mini-field area">
+        <span>README.md</span>
+        <code>- Visitors can add a product to the cart</code>
+        <code>- The cart shows the total</code>
+        <code>- Users can reset their password</code>
+      </div>
+    </div>
   );
 }
 
@@ -142,274 +214,142 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
     setStarted(true);
   };
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
-
-  const { scrollYProgress } = useScroll();
-  const heroRef = useRef<HTMLElement>(null);
-  const { scrollYProgress: heroP } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
-  const objY = useTransform(heroP, [0, 1], still ? [0, 0] : [0, 140]);
-  const objScale = useTransform(heroP, [0, 1], still ? [1, 1] : [1, 0.82]);
-  const cardsY = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -90]);
-  const [railDark, setRailDark] = useState(true);
-  useEffect(() => heroP.on("change", (v) => setRailDark(v < 0.82)), [heroP]);
-
   useEffect(() => {
     document.title = "Greenlight · Does your app do what its README says?";
   }, []);
 
   return (
     <div className="land">
-      <Rail progress={scrollYProgress} dark={railDark} />
-
-      <header className="hero" id="top" ref={heroRef}>
-        <div className="hero-dark">
-          <nav className="hero-nav" aria-label="Main">
-            <a href="#how" onClick={(e) => (e.preventDefault(), go("how"))}>
-              How it works
+      <header className="nav">
+        <a href="/app" className="brand">
+          <Logo size={26} />
+          <span className="brand-name">Greenlight</span>
+        </a>
+        <nav className="nav-links" aria-label="Main">
+          <a href="#how" onClick={(e) => (e.preventDefault(), go("how"))}>
+            How it works
+          </a>
+          <a href="#honest" onClick={(e) => (e.preventDefault(), go("honest"))}>
+            Verdicts
+          </a>
+          <a href="#check" onClick={(e) => (e.preventDefault(), go("check"))}>
+            Check an app
+          </a>
+        </nav>
+        <span className="nav-right">
+          {googleUrl ? (
+            <a className="pill-link" href={googleUrl}>
+              Sign in
             </a>
-            <a href="#verdict" onClick={(e) => (e.preventDefault(), go("verdict"))}>
-              Results
-            </a>
-            <a href="#fix" onClick={(e) => (e.preventDefault(), go("fix"))}>
-              Fixes
-            </a>
-            <a href="#check" onClick={(e) => (e.preventDefault(), go("check"))}>
-              Check an app
-            </a>
-          </nav>
-          <div className="hero-title">
-            <motion.span className="hero-kicker" initial={still ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1, delay: 0.2 }}>
-              Real browser tests by Kane
-            </motion.span>
-            <h1>
-              <Words text="Ship what your" />
-              <br />
-              <Words text="README promises" delay={0.18} />
-            </h1>
-            <motion.p initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.55 }}>
-              Paste a GitHub repo and its live URL. Kane tests every claim in the README on the deployed app and tells you what passed, what failed and how to fix it.
-            </motion.p>
-          </div>
-          <button type="button" className="scroll-cue" onClick={() => go("how")} aria-label="Scroll to how it works">
-            <span />
+          ) : null}
+          <button type="button" className="uv-button small" onClick={() => go("check")}>
+            Check my app
           </button>
-        </div>
-
-        <div className="hero-light">
-          <div className="hero-top">
-            <a href="/app" className="brand" aria-label="Greenlight home">
-              <Logo size={34} />
-            </a>
-            <span className="hero-actions">
-              {googleUrl ? (
-                <a className="pill ghost" href={googleUrl}>
-                  Sign in
-                </a>
-              ) : null}
-              <button type="button" className="pill" onClick={() => go("check")}>
-                Check my app
-              </button>
-            </span>
-          </div>
-
-          <motion.div className="hero-object" style={{ y: objY, scale: objScale }}>
-            <Suspense fallback={<div className="gl black" />}>
-              <Blob3D shape="ring" finish="black" spin={heroP} />
-            </Suspense>
-          </motion.div>
-
-          <motion.div className="hero-cards" style={{ y: cardsY }}>
-            <motion.div className="fc fc-total" initial={still ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.5 }}>
-              <span className="fc-big">3 / 3</span>
-              <span className="fc-k">Claims passed</span>
-              <span className="fc-btn" aria-hidden="true">
-                <Arrow />
-              </span>
-            </motion.div>
-            <motion.div className="fc fc-toast" initial={still ? false : { opacity: 0, x: -24 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.9, ease, delay: 0.8 }}>
-              <span className="avatar-k" aria-hidden="true">
-                K
-              </span>
-              <span>
-                Kane clicked “Add to cart”
-                <small>00:04 · shop.example.com</small>
-              </span>
-            </motion.div>
-            <motion.div className="fc fc-chart" initial={still ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.65 }}>
-              <span className="fc-mid">94 credits</span>
-              <span className="fc-k">Approved before the run</span>
-              <StepChart />
-            </motion.div>
-            <motion.div className="fc fc-dark" initial={still ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.95 }}>
-              <span className="fc-mid">Passed</span>
-              <span className="fc-tick" aria-hidden="true">
-                <Check size={16} />
-              </span>
-              <span className="fc-k">The cart shows the total</span>
-            </motion.div>
-          </motion.div>
-        </div>
+        </span>
       </header>
 
       <main id="main">
-        <section className="sec" id="how" aria-labelledby="how-h">
-          <Reveal className="sec-text">
-            <h2 id="how-h">
-              Paste a repo.
-              <br />
-              Get the truth.
-            </h2>
-            <p>Every bullet point in your README becomes a claim. Kane opens your live app in a real browser and uses it the way a visitor would, one claim at a time. No mocks, no screenshots of a demo.</p>
-            <button type="button" className="pill ghost sm" onClick={() => go("check")}>
-              Try it free <Arrow size={12} />
+        <section className="hero" aria-labelledby="hero-h">
+          <span className="speck s1" aria-hidden="true" />
+          <span className="speck s2" aria-hidden="true" />
+          <span className="speck s3" aria-hidden="true" />
+          <span className="speck s4" aria-hidden="true" />
+          <motion.a className="announce" href="#check" onClick={(e) => (e.preventDefault(), go("check"))} initial={still ? false : { opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease }}>
+            <b>Free</b> One run per visitor, no sign-up <span aria-hidden="true">→</span>
+          </motion.a>
+          <motion.h1 id="hero-h" initial={still ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.05 }}>
+            Your README
+            <Pop className="chip file" delay={0.5}>
+              <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+                <path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+              </svg>
+              4 claims
+            </Pop>
+            makes promises.
+            <br />
+            Kane checks
+            <Pop className="chip pass" delay={0.8}>
+              <span className="uv-check on" aria-hidden="true" />
+              Passed
+            </Pop>
+            them.
+          </motion.h1>
+          <motion.p initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease, delay: 0.25 }}>
+            Paste a GitHub repo and its live URL. Kane tests every claim in the README on your deployed app, in a real browser, and tells you what passed, what failed and how to fix it.
+          </motion.p>
+          <motion.div className="hero-cta" initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease, delay: 0.35 }}>
+            <button type="button" className="uv-button accent" onClick={() => go("check")}>
+              Check my app <span className="uv-tail">─ it’s free</span>
             </button>
+            <button type="button" className="ghost-btn" onClick={() => go("how")}>
+              See how it works
+            </button>
+          </motion.div>
+        </section>
+
+        <section className="showcase" aria-label="An example result">
+          <ProductFrame />
+        </section>
+
+        <section id="how" className="sec" aria-labelledby="how-h">
+          <Reveal className="sec-head">
+            <span className="eyebrow-tag">How it works</span>
+            <h2 id="how-h">Three steps to an honest answer</h2>
           </Reveal>
-          <div className="sec-art art-how">
-            <Float className="panel-grey" speed={30}>
-              <span className="panel-big">3</span>
-              <span className="panel-k">Possible verdicts</span>
-              <div className="plates" aria-hidden="true">
-                {[0, 1, 2, 3, 4, 5].map((i) => (
-                  <span key={i} style={{ ["--i" as string]: i }} />
-                ))}
-              </div>
-            </Float>
-            <Float className="chip-kane" speed={70} delay={0.1}>
-              <span className="avatar-k" aria-hidden="true">
-                K
-              </span>
-              <span>
-                Kane
-                <small>Real browser · live app</small>
-              </span>
-            </Float>
-            <Float className="panel-black small-black" speed={90} delay={0.2}>
-              <span className="pb-title">Your claims</span>
-              <span className="pb-k">Found in README.md</span>
-              <span className="dots" aria-hidden="true">
-                <i className="p" />
-                <i className="p" />
-                <i className="f" />
-                <b>+3</b>
-              </span>
-            </Float>
+          <div className="how-grid">
+            <Reveal className="how-card">
+              <MiniPaste />
+              <h3>
+                <span>1</span> Paste your repo
+              </h3>
+              <p>Your GitHub link, the live URL and, if you like, your README. Every bullet point becomes a claim.</p>
+            </Reveal>
+            <Reveal className="how-card" delay={0.1}>
+              <MiniApprove />
+              <h3>
+                <span>2</span> Approve the cost
+              </h3>
+              <p>Switch claims on or off and see the exact credit cost. Clicking Run approves exactly that, nothing more.</p>
+            </Reveal>
+            <Reveal className="how-card" delay={0.2}>
+              <MiniRun />
+              <h3>
+                <span>3</span> Read the verdict
+              </h3>
+              <p>Kane uses your live app in a real browser. Each claim passes or fails, with what it saw and a fix.</p>
+            </Reveal>
           </div>
         </section>
 
-        <section className="sec" id="approve" aria-labelledby="approve-h">
-          <Reveal className="sec-text">
-            <h2 id="approve-h">
-              You approve
-              <br />
-              exactly what runs
-            </h2>
-            <p>Before anything happens you see each claim and the exact credit cost. Clicking Run approves those tests and that cost, nothing more. Visitors get one free run, up to two claims.</p>
+        <section id="honest" className="sec" aria-labelledby="honest-h">
+          <Reveal className="sec-head">
+            <span className="eyebrow-tag">Verdicts</span>
+            <h2 id="honest-h">Three answers. Never a guess.</h2>
           </Reveal>
-          <div className="sec-art art-approve">
-            <Float className="panel-black tall" speed={50}>
-              <span className="pb-title lg">
-                Cost before
-                <br />
-                you run
-              </span>
-              <span className="pb-stat">
-                94<small>credits</small>
-              </span>
-              <span className="pb-k">2 claims · about 37 each, plus 20 per run</span>
-              <span className="pb-stat">
-                1<small>free run</small>
-              </span>
-              <span className="pb-k">For every visitor, no account</span>
-              <span className="pb-row">
-                <span className="ring-ic" aria-hidden="true">
-                  <Check size={12} />
-                </span>
-                You approved exactly these tests.
-              </span>
-            </Float>
+          <div className="verdicts">
+            <Reveal className="vcard p">
+              <span className="uv-check on" aria-hidden="true" />
+              <h3>Passed</h3>
+              <p>Kane did what the claim says on your live app, and it worked.</p>
+            </Reveal>
+            <Reveal className="vcard f" delay={0.08}>
+              <span className="uv-check on fail" aria-hidden="true" />
+              <h3>Failed</h3>
+              <p>It didn’t work. You get what Kane saw on the page and a suggested fix.</p>
+            </Reveal>
+            <Reveal className="vcard u" delay={0.16}>
+              <span className="result-mark unknown" aria-hidden="true" />
+              <h3>Could not verify</h3>
+              <p>Kane can’t check it from a browser, like an email arriving. It says so instead of guessing.</p>
+            </Reveal>
           </div>
         </section>
 
-        <section className="sec flip" id="verdict" aria-labelledby="verdict-h">
-          <div className="sec-art art-verdict">
-            <div className="silver" aria-hidden="true">
-              <Suspense fallback={<div className="gl silver" />}>
-                <Blob3D shape="blob" finish="silver" />
-              </Suspense>
-            </div>
-            <Float className="panel-grey verdict-card" speed={30}>
-              <span className="pb-title dark lg">
-                Your
-                <br />
-                verdict
-              </span>
-              <ul className="vlist">
-                <li className="p">
-                  <i /> Add a product to the cart <b>Passed</b>
-                </li>
-                <li className="p">
-                  <i /> The cart shows the total <b>Passed</b>
-                </li>
-                <li className="f">
-                  <i /> Reset your password <b>Failed</b>
-                </li>
-                <li className="u">
-                  <i /> Order email arrives <b>Could not verify</b>
-                </li>
-              </ul>
-            </Float>
-            <Float className="report" speed={80} delay={0.15}>
-              <span className="report-side">GREENLIGHT REPORT</span>
-              <span className="report-top">acme/shop</span>
-              <span className="report-mark">
-                <Logo size={22} />
-              </span>
-              <span className="report-foot">
-                <b>2</b> passed · <b>1</b> failed · <b>1</b> unverified
-              </span>
-            </Float>
-          </div>
-          <Reveal className="sec-text">
-            <h2 id="verdict-h">
-              Your README,
-              <br />
-              annotated
-            </h2>
-            <p>Each claim comes back Passed, Failed or Could not verify, with what Kane saw on the page. When Kane can’t check something, like an email arriving, it says so instead of guessing.</p>
-          </Reveal>
-        </section>
-
-        <section className="sec" id="fix" aria-labelledby="fix-h">
-          <Reveal className="sec-text">
-            <h2 id="fix-h">
-              Fix what failed,
-              <br />
-              then check again
-            </h2>
-            <p>Every failed claim comes with a suggested fix: change the app, or change the README so it stops promising what the app doesn’t do. Then run the check again.</p>
-          </Reveal>
-          <div className="sec-art art-fix">
-            <Float className="panel-black fix-card" speed={50}>
-              <span className="pb-title lg">Suggested fix</span>
-              <span className="pb-k">Users can reset their password</span>
-              <pre className="diff">
-                <span className="del">- /reset-password returns 404</span>
-                {"\n"}
-                <span className="add">+ add app/reset-password/page.tsx</span>
-              </pre>
-              <span className="prism" aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
-            </Float>
-          </div>
-        </section>
-
-        <section className="sec-check" id="check" aria-labelledby="check-h">
-          <Reveal className="check-head">
-            <span className="kicker">Run a check</span>
+        <section id="check" className="sec check" aria-labelledby="check-h">
+          <Reveal className="sec-head center">
+            <span className="eyebrow-tag">Check an app</span>
             <h2 id="check-h">Does your app do what its README says?</h2>
-            <p>One free run, up to two claims. No account needed. You see the cost before anything runs.</p>
+            <p>One free run, up to two claims. You see the cost before anything runs.</p>
           </Reveal>
           <Reveal className="check-wrap" delay={0.1}>
             {guestMode ? (
@@ -431,15 +371,17 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
       </main>
 
       <footer className="foot">
-        <div className="foot-big" aria-hidden="true">
-          Greenlight
-        </div>
-        <div className="foot-row">
-          <span>Tested in a real browser by Kane.</span>
-          <span className="sp" />
-          {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
-          <a href={ADMIN_LOGIN}>Administrator sign-in</a>
-        </div>
+        <span className="brand">
+          <Logo size={20} />
+          <span className="brand-name">Greenlight</span>
+        </span>
+        <span>Real browser tests by Kane.</span>
+        <span className="sp" />
+        {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
+        <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+        <a href="https://uiverse.io" rel="noopener">
+          Some UI elements from Uiverse.io
+        </a>
       </footer>
     </div>
   );

@@ -5,9 +5,9 @@ export function Logo({ size = 22 }: { size?: number }) {
   // A switch turned on: the moment an app gets the green light.
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="12" fill="var(--logo-bg)" />
-      <rect x="5" y="8.5" width="14" height="7" rx="3.5" fill="var(--logo-fg)" />
-      <circle cx="15.5" cy="12" r="2.1" fill="var(--logo-bg)" />
+      <rect width="24" height="24" rx="7" fill="var(--logo-bg)" />
+      <rect x="4.5" y="8" width="15" height="8" rx="4" fill="var(--logo-fg)" />
+      <circle cx="15.5" cy="12" r="2.4" fill="var(--logo-bg)" />
     </svg>
   );
 }
