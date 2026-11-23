@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { AnnotatedReadme, RunDemo, StepsList } from "./components/Hero";
-import { Logo } from "./components/Chrome";
 import { Sidebar, TopBar } from "./components/Shell";
 import { AccountPage } from "./pages/AccountPage";
-import { CheckForm, CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
+import { CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
+import { Landing } from "./pages/Landing";
 import { AdminListPage, AdminPage } from "./pages/AdminPage";
 import { FixCentrePage, FixPage } from "./pages/FixCentrePage";
 import { IntegrationsPage } from "./pages/IntegrationsPage";
@@ -23,7 +22,6 @@ import { useData } from "./useData";
 
 type Mode = { kind: "loading" } | { kind: "app"; session: Session } | { kind: "landing"; googleUrl: string | null; guestMode: boolean; sample: boolean } | { kind: "fatal"; error: Error };
 
-const ADMIN_LOGIN = "/approve/login?next=%2Fapp";
 
 export function App() {
   const [mode, setMode] = useState<Mode>({ kind: "loading" });
@@ -216,122 +214,5 @@ function NotAllowed() {
         </p>
       </section>
     </>
-  );
-}
-
-function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void> }) {
-  const { navigate } = useRouter();
-  const [started, setStarted] = useState(false);
-  // The first call starts a visitor session (a cookie on this browser): no sign-up.
-  const start = async () => {
-    if (started) return;
-    await guestApi.start();
-    setStarted(true);
-  };
-  const toForm = () => document.getElementById("check")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  return (
-    <div className="page landing">
-      <header className="topnav">
-        <a href="/app" className="brand">
-          <Logo />
-          <span className="brand-name">Greenlight</span>
-        </a>
-        <nav className="links" aria-label="Main">
-          <a href="#how">How it works</a>
-          <a href="#readme">Results</a>
-          <a href="#check">Check an app</a>
-        </nav>
-        <span className="right">
-          {googleUrl ? <a href={googleUrl}>Sign in</a> : null}
-          <button type="button" className="btn sm" onClick={toForm}>
-            Check my app
-          </button>
-        </span>
-      </header>
-
-      <main id="main">
-        <section className="hero">
-          <div className="hero-copy">
-            <span className="kicker">
-              <span className="pulse" aria-hidden="true" /> Real browser tests by Kane
-            </span>
-            <h1>
-              Your README makes promises. <em>Kane checks them.</em>
-            </h1>
-            <p>
-              Paste a GitHub repo and its live URL. Every claim in the README is tested on the deployed app, and you get a verdict per claim with a fix for anything that fails.
-            </p>
-            <div className="hero-cta">
-              <button type="button" className="btn lg" onClick={toForm}>
-                Check my app, free
-              </button>
-              <a className="btn ghost lg" href="#how">
-                See how it works
-              </a>
-            </div>
-            <span className="hero-note">No sign-up · you see the cost before anything runs</span>
-          </div>
-          <RunDemo />
-        </section>
-
-        <section id="how" className="sec" aria-labelledby="how-h">
-          <div className="sec-head">
-            <span className="kicker">How it works</span>
-            <h2 id="how-h">
-              Three steps, <em>one honest answer.</em>
-            </h2>
-          </div>
-          <StepsList />
-        </section>
-
-        <section id="readme" className="sec" aria-labelledby="readme-h">
-          <div className="sec-head">
-            <span className="kicker">What you get back</span>
-            <h2 id="readme-h">
-              Your README, <em>annotated.</em>
-            </h2>
-            <p className="sec-lede">Every claim is marked Passed, Failed or Could not verify. Failures come with what Kane saw and a suggested fix. Nothing is guessed.</p>
-          </div>
-          <AnnotatedReadme />
-        </section>
-
-        <section id="check" className="sec" aria-labelledby="check-h">
-          <div className="sec-head center">
-            <span className="kicker">Check an app</span>
-            <h2 id="check-h">
-              Paste it. <em>Run it.</em>
-            </h2>
-            <p className="sec-lede">One free run per visitor, up to two claims. No account needed.</p>
-          </div>
-          <div className="check-wrap">
-            {guestMode ? (
-              <CheckForm
-                session={null}
-                beforeFirstCall={start}
-                onStarted={async (id) => {
-                  navigate(`/app/check/${id}`);
-                  await onEntered();
-                }}
-              />
-            ) : (
-              <p className="small" style={{ textAlign: "center" }}>
-                Visitor access is not enabled on this server.
-              </p>
-            )}
-          </div>
-        </section>
-      </main>
-
-      <footer className="land-foot">
-        <span className="brand">
-          <Logo size={18} />
-          <span className="brand-name">Greenlight</span>
-        </span>
-        <span className="dim">Tested in a real browser by Kane.</span>
-        <span className="sp" />
-        {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
-        <a href={ADMIN_LOGIN}>Administrator sign-in</a>
-      </footer>
-    </div>
   );
 }

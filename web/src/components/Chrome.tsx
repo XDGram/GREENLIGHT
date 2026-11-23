@@ -2,11 +2,12 @@ import { useId } from "react";
 import { initials } from "../format";
 
 export function Logo({ size = 22 }: { size?: number }) {
-  // A signal: a ring with a lit centre.
+  // A switch turned on: the moment an app gets the green light.
   return (
-    <svg width={size} height={size} viewBox="0 0 22 22" fill="none" aria-hidden="true">
-      <rect x="0.75" y="0.75" width="20.5" height="20.5" rx="6.5" fill="var(--logo-bg)" stroke="var(--logo-line)" strokeWidth="1.5" />
-      <circle cx="11" cy="11" r="4" fill="var(--logo-dot)" />
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="12" fill="var(--logo-bg)" />
+      <rect x="5" y="8.5" width="14" height="7" rx="3.5" fill="var(--logo-fg)" />
+      <circle cx="15.5" cy="12" r="2.1" fill="var(--logo-bg)" />
     </svg>
   );
 }
