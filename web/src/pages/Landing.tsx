@@ -6,6 +6,7 @@ import { Cloud, CloudBank, Stars } from "../components/Sky";
 import { Link, useRouter } from "../router";
 import type { Session } from "../types";
 import { CheckForm } from "./CheckPage";
+import "../styles/flow.css";
 
 // The public landing page, in three skies: a bright day sky with the Greenlight app window rising
 // out of the clouds (its claims move Queued -> Testing -> Verdict as you scroll), frosted glass
@@ -207,6 +208,28 @@ function MiniRun() {
   );
 }
 
+function MiniAgent() {
+  const steps: [string, string][] = [
+    ["›", "Read Kane's verdict"],
+    ["✎", "Fix the newsletter form"],
+    ["↑", "Push, wait for the deploy"],
+    ["⟳", "Ask Kane to check again"],
+  ];
+  return (
+    <div className="g-mini g-agent">
+      {steps.map(([icon, t], i) => (
+        <span key={t} className="g-line">
+          <span className="g-ic" aria-hidden="true">
+            {icon}
+          </span>
+          {t}
+          {i === steps.length - 1 ? <b className="p">Passed</b> : null}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function MiniApprove() {
   const [on, setOn] = useState([true, true, false]);
   const n = on.filter(Boolean).length;
@@ -393,24 +416,76 @@ export function Landing({ googleUrl, guestMode, onEntered, session = null }: { g
           <Reveal className="sec-head">
             <span className="tag dark">How it works</span>
             <h2 id="how-h">
-              Three steps to an <span className="soft">honest</span> answer
+              Four steps to a <span className="soft">green light</span>
             </h2>
           </Reveal>
-          <div className="gcards">
-            <Reveal>
-              <GlassStep n={1} of={3} label="Paste" title={<>Your repo, the live URL, your README</>} text="Every bullet point in your README becomes a claim. Edit them, drop some, add your own." cta="Start a check" time="1 min" next="Approve the cost" go={() => go("check")} />
-            </Reveal>
-            <Reveal delay={0.08}>
-              <GlassStep n={2} of={3} label="Approve" title={<>Pick the claims, see the cost</>} text="Switch claims on or off. Clicking Run approves exactly these tests and this cost, nothing more." cta="Try the switches" time="94 credits" next="Kane runs the tests" go={() => go("check")}>
-                <MiniApprove />
-              </GlassStep>
-            </Reveal>
-            <Reveal delay={0.16}>
-              <GlassStep variant="plain" n={3} of={3} label="Verdict" title={<>Passed or failed, claim by claim</>} text="Kane uses your live app in a real browser. Each failure comes with what it saw and a fix." cta="Get a verdict" time="a few minutes" next="Fix it and check again" go={() => go("check")}>
-                <MiniRun />
-              </GlassStep>
-            </Reveal>
+          <div className="gcards four">
+            <div className="gflow-step">
+              <Reveal>
+                <GlassStep n={1} of={4} label="Paste" title={<>Your repo, the live URL, your README</>} text="Every bullet point in your README becomes a claim. Edit them, drop some, add your own." cta="Start a check" time="1 min" next="Approve the cost" go={() => go("check")} />
+              </Reveal>
+              <span className="gconn" aria-hidden="true" />
+            </div>
+            <div className="gflow-step">
+              <Reveal delay={0.08}>
+                <GlassStep n={2} of={4} label="Approve" title={<>Pick the claims, see the cost</>} text="Switch claims on or off. Clicking Run approves exactly these tests and this cost, nothing more." cta="Try the switches" time="94 credits" next="Kane runs the tests" go={() => go("check")}>
+                  <MiniApprove />
+                </GlassStep>
+              </Reveal>
+              <span className="gconn" aria-hidden="true" />
+            </div>
+            <div className="gflow-step">
+              <Reveal delay={0.16}>
+                <GlassStep n={3} of={4} label="Verdict" title={<>Passed or failed, claim by claim</>} text="Kane CLI uses your live app in a real browser. Each failure comes with what it saw and a fix." cta="Get a verdict" time="a few minutes" next="Claude Code fixes what failed" go={() => go("check")}>
+                  <MiniRun />
+                </GlassStep>
+              </Reveal>
+              <span className="gconn" aria-hidden="true" />
+            </div>
+            <div className="gflow-step">
+              <Reveal delay={0.24}>
+                <GlassStep n={4} of={4} label="Fix with Claude Code" title={<>Claude Code fixes it, Kane confirms</>} text="Paste one message into Claude Code. It reads Kane's verdict, fixes your code, pushes, and asks Kane to check again until every claim passes." cta="See the loop" time="1 paste" next="Kane checks again" go={() => go("loop")}>
+                  <MiniAgent />
+                </GlassStep>
+              </Reveal>
+            </div>
           </div>
+
+          <Reveal className="gflow" >
+            <div id="loop" className="gflow-head">
+              <span className="tag dark">The loop</span>
+              <h3>How Greenlight talks to Kane and Claude Code</h3>
+              <p>Every hand-off is a real call between real tools. Nothing is simulated and no claim changes after you approve it.</p>
+            </div>
+            <ol className="gflow-nodes">
+              <li>
+                <span className="gn">1</span>
+                <b>Greenlight</b>
+                <span>Turns each approved claim into a Kane test file and starts a run in a cloud sandbox.</span>
+              </li>
+              <li>
+                <span className="gn">2</span>
+                <b>Kane CLI</b>
+                <span>Opens your live app in a real Chrome, uses it like a visitor and returns pass or fail with what it saw.</span>
+              </li>
+              <li>
+                <span className="gn">3</span>
+                <b>Greenlight API</b>
+                <span>Stores the verdict, Kane's notes and the evidence. Your result page shows them live.</span>
+              </li>
+              <li>
+                <span className="gn">4</span>
+                <b>Claude Code</b>
+                <span>The model reads the verdict over the API with a scoped token, finds the bug in your code, fixes it and pushes.</span>
+              </li>
+              <li className="last">
+                <span className="gn">5</span>
+                <b>Kane checks again</b>
+                <span>Once the new deploy is live, Claude Code asks Greenlight to re-run your claims. It repeats until they pass.</span>
+              </li>
+            </ol>
+            <p className="gflow-note">The token can only read this check and re-run the claims you approved. It can't change claims, approve tests or spend beyond the limits.</p>
+          </Reveal>
 
           <div className="verdict-row" id="verdicts">
             <Reveal className="vglass p">
