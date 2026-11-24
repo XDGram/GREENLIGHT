@@ -1,9 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { api, ApiError, checkApi, type ClaimsResult } from "../api";
 import { FormError, ResultMark } from "../components/Bits";
-import { TrafficLight } from "../components/Chrome";
 import * as I from "../components/Icons";
-import { TopBar } from "../components/Shell";
 import { Link, useRouter } from "../router";
 import type { Job, ProjectDetail, RunDetail, Session } from "../types";
 
@@ -209,20 +207,55 @@ export function CheckPage({ session }: { session: Session }) {
   const { navigate } = useRouter();
   return (
     <>
-      <h1 className="headline">
-        Paste it. <em>Run it.</em>
-      </h1>
-      <CheckForm session={session} onStarted={(id) => navigate(`/app/check/${id}`)} />
+      <PageHead kicker="New check" title="Check an app" text="Paste a repository and its live URL. You see every claim and the exact cost before anything runs." />
+      <div className="frost-wrap">
+        <CheckForm session={session} onStarted={(id) => navigate(`/app/check/${id}`)} />
+      </div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------- building blocks
+
+function PageHead({ kicker, title, text, children }: { kicker: string; title: string; text?: ReactNode; children?: ReactNode }) {
+  return (
+    <header className="page-head">
+      <div>
+        <span className="page-kicker">{kicker}</span>
+        <h1 className="page-title">{title}</h1>
+        {text ? <p className="page-text">{text}</p> : null}
+      </div>
+      {children ? <div className="page-actions">{children}</div> : null}
+    </header>
+  );
+}
+
+/** A progress ring: `value` of `total`, or spinning when `busy`. */
+function Ring({ value = 0, total = 1, busy = false, tone = "ink" }: { value?: number; total?: number; busy?: boolean; tone?: string }) {
+  const pct = total ? Math.round((value / total) * 100) : 0;
+  return <span className={`pring ${busy ? "busy" : ""} ${tone}`} style={{ ["--p" as string]: `${busy ? 28 : pct}%` }} aria-hidden="true" />;
+}
+
+/**
+ * The card used across the app: a frosted outer card with a header strip, a white inner card
+ * for the content, and an optional "Coming next" footer.
+ */
+function Panel({ top, next, children, className = "", label }: { top?: ReactNode; next?: ReactNode; children: ReactNode; className?: string; label?: string }) {
+  return (
+    <section className={`pcard ${className}`} aria-label={label}>
+      {top ? <div className="pcard-top">{top}</div> : null}
+      <div className="pcard-in">{children}</div>
+      {next ? <div className="pcard-next">{next}</div> : null}
+    </section>
   );
 }
 
 // ---------------------------------------------------------------- result
 
-const VERDICT: Record<string, { title: string; text: string }> = {
-  passed: { title: "Passed", text: "Kane confirmed every claim on your live app." },
-  failed: { title: "Failed", text: "Kane found claims that are not true on your live app. Suggested fixes are below." },
-  couldnt_verify: { title: "Could not verify", text: "Kane could not finish the test, so these claims are neither confirmed nor disproved." },
+const VERDICT: Record<string, { title: string; text: string; tone: string }> = {
+  passed: { title: "Passed", text: "Kane confirmed every claim on your live app.", tone: "pass" },
+  failed: { title: "Failed", text: "Kane found claims that are not true on your live app. What it saw and a fix are below each one.", tone: "fail" },
+  couldnt_verify: { title: "Could not verify", text: "Kane could not finish the test, so these claims are neither confirmed nor disproved.", tone: "wait" },
 };
 
 export function CheckResultPage({ id }: { id: string }) {
@@ -256,22 +289,189 @@ export function CheckResultPage({ id }: { id: string }) {
 
   const job = detail ? latest(detail.jobs) : null;
   const title = detail?.project.name ?? "Result";
+  const host = detail ? hostOf(detail.project.url) : "";
 
   return (
     <>
-      <TopBar title={title} eyebrow={detail ? <a href={detail.project.url}>{detail.project.url}</a> : "Greenlight"}>
+      <PageHead kicker="Check" title={title} text={detail ? <a href={detail.project.url}>{host}</a> : null}>
         <Link href="/app" className="btn ghost">
           <I.Plus size={15} aria-hidden="true" />
           New check
         </Link>
-      </TopBar>
+      </PageHead>
       <FormError error={error} />
-      {!detail && !error ? <section className="card skeleton" style={{ height: 160 }} aria-busy="true" /> : null}
-      {detail && !job ? <section className="card">No Kane run was started for this app.</section> : null}
-      {job && !job.recordId ? <Progress job={job} /> : null}
-      {run ? <Verdict run={run} /> : null}
-      {run && detail ? <ConnectClaudeCode projectId={id} name={detail.project.name} repository={detail.details?.repository ?? null} /> : null}
+      {!detail && !error ? <section className="pcard skeleton" style={{ height: 200 }} aria-busy="true" /> : null}
+      {detail && !job ? (
+        <Panel>
+          <p style={{ margin: 0 }}>No Kane run was started for this app.</p>
+        </Panel>
+      ) : null}
+      {detail && job ? (
+        <div className="result-grid">
+          <div className="result-main">
+            {!job.recordId ? <Progress job={job} host={host} /> : null}
+            {run ? <Verdict run={run} host={host} /> : null}
+          </div>
+          <aside className="result-side">
+            {run ? <ConnectClaudeCode projectId={id} name={detail.project.name} repository={detail.details?.repository ?? null} failed={run.record.status !== "passed"} /> : null}
+            <RunDetails job={job} run={run} />
+          </aside>
+        </div>
+      ) : null}
     </>
+  );
+}
+
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).host;
+  } catch {
+    return u;
+  }
+};
+
+function latest(jobs: Job[]): Job | null {
+  return [...jobs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
+}
+
+function Progress({ job, host }: { job: Job; host: string }) {
+  if (job.status === "failed") {
+    return (
+      <Panel top={<><Ring tone="fail" /> Run stopped</>} next={<><span>Coming next</span>Start a new check</>}>
+        <span className="pcard-k">Nothing was tested</span>
+        <h2 className="pcard-title">The run did not happen</h2>
+        <p className="pcard-text">{job.error?.message ?? "Kane could not run the test."}</p>
+        <p className="small" style={{ margin: 0 }}>
+          There is no verdict. Runs that fail before Kane starts don't count against your limit.
+        </p>
+      </Panel>
+    );
+  }
+  return (
+    <Panel top={<><Ring busy /> {job.status === "queued" ? "Waiting for Kane" : "Kane is testing"} <span className="sp" /> {host}</>} next={<><span>Coming next</span>Your verdict, claim by claim</>}>
+      <span className="pcard-k">In progress</span>
+      <h2 className="pcard-title">{job.status === "queued" ? "Waiting for Kane to start" : "Kane is using your live app"}</h2>
+      <p className="pcard-text">This usually takes a few minutes. You can leave this page open; the verdict appears here when it's done.</p>
+      <div className="pcard-cta">
+        <span className="pill-dark ghosted">
+          <span className="dash-loader small" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          Testing in a real browser
+        </span>
+      </div>
+    </Panel>
+  );
+}
+
+function Verdict({ run, host }: { run: RunDetail; host: string }) {
+  const status = run.record.status === "passed" || run.record.status === "failed" ? run.record.status : "couldnt_verify";
+  const v = VERDICT[status]!;
+  const tests = run.tests ?? [];
+  const passed = run.claims.filter((c) => c.status === "passed").length;
+  const total = run.claims.length;
+  return (
+    <>
+      <Panel
+        className={`verdict-card ${v.tone}`}
+        label="Verdict"
+        top={
+          <>
+            <Ring value={passed} total={total} tone={v.tone} /> Verdict · Kane CLI <span className="sp" />
+            {passed}/{total} passed
+          </>
+        }
+        next={
+          <>
+            <span>Coming next</span>
+            {status === "passed" ? "Check another app" : "Fix it with Claude Code"}
+          </>
+        }
+      >
+        <span className="pcard-k">Tested on {host}</span>
+        <h2 className={`verdict-title ${v.tone}`}>{v.title}</h2>
+        <p className="pcard-text">{v.text}</p>
+        <div className="pcard-chips">
+          {run.record.endedAt ? <span className="chip">{new Date(run.record.endedAt).toLocaleString()}</span> : null}
+          {run.credits?.actualSpend != null ? <span className="chip">{Math.round(run.credits.actualSpend)} credits used</span> : null}
+          <span className={`chip ${v.tone}`}>
+            {passed} of {total} claims passed
+          </span>
+        </div>
+      </Panel>
+
+      <Panel
+        label="Claims"
+        top={
+          <>
+            <Ring value={passed} total={total} /> Claims <span className="sp" />
+            {total} tested
+          </>
+        }
+      >
+        <ul className="claim-cards">
+          {run.claims.map((c, i) => {
+            const t = tests.find((x) => x.claims.includes(c.id));
+            const bad = c.status !== "passed";
+            const word = c.status === "passed" ? "Passed" : c.status === "failed" ? "Failed" : "Could not verify";
+            return (
+              <li key={c.id} className={`claim-card ${c.status}`}>
+                <div className="claim-row-top">
+                  <ResultMark status={c.status} />
+                  <span className="claim-n">{String(i + 1).padStart(2, "0")}</span>
+                  <span className="claim-text">{c.text}</span>
+                  <span className={`claim-status ${c.status}`}>{word}</span>
+                </div>
+                {bad ? <Fix status={c.status} claim={c.text ?? ""} note={t?.failureMessage ?? null} reasons={t?.reasons ?? []} /> : null}
+              </li>
+            );
+          })}
+        </ul>
+      </Panel>
+    </>
+  );
+}
+
+function Fix({ status, claim, note, reasons }: { status: string; claim: string; note: string | null; reasons: string[] }) {
+  const failed = status === "failed";
+  return (
+    <div className="fix-box">
+      <div>
+        <span className="fix-k">What Kane saw</span>
+        {note ?? (reasons.length ? reasons.join(", ").replace(/_/g, " ") : "Kane did not leave a note.")}
+      </div>
+      <div>
+        <span className="fix-k">Suggested fix</span>
+        {failed
+          ? `Open the live app and do what a visitor would to check “${claim}”. Fix what Kane describes above so it works on the deployed site, deploy, then check again. Or let Claude Code do it.`
+          : "Make sure the live app loads publicly (no login wall, no errors) and that this claim can be done from the start page, then check again."}
+      </div>
+    </div>
+  );
+}
+
+function RunDetails({ job, run }: { job: Job; run: RunDetail | null }) {
+  const rows: [string, ReactNode][] = [
+    ["Status", job.status === "queued" ? "Waiting" : job.status === "running" ? "Running" : job.status === "failed" ? "Stopped" : "Finished"],
+    ["Started", job.createdAt ? new Date(job.createdAt).toLocaleString() : "—"],
+  ];
+  if (run?.execution?.kane?.version) rows.push(["Kane CLI", run.execution.kane.version]);
+  if (run?.credits?.estimate != null) rows.push(["Credits estimated", String(Math.round(run.credits.estimate))]);
+  if (run?.credits?.actualSpend != null) rows.push(["Credits used", String(Math.round(run.credits.actualSpend))]);
+  return (
+    <Panel label="Run details" top={<><Ring value={run ? 1 : 0} total={1} busy={!run && job.status !== "failed"} /> Run details</>}>
+      <dl className="kv">
+        {rows.map(([k, v]) => (
+          <div key={k}>
+            <dt>{k}</dt>
+            <dd>{v}</dd>
+          </div>
+        ))}
+      </dl>
+    </Panel>
   );
 }
 
@@ -301,7 +501,7 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
  * Close the loop: a token that can read this check and re-run its approved claims, inside one
  * message to paste into Claude Code (it fetches the /greenlight instructions and runs the loop).
  */
-function ConnectClaudeCode({ projectId, name, repository }: { projectId: string; name: string; repository: string | null }) {
+function ConnectClaudeCode({ projectId, name, repository, failed }: { projectId: string; name: string; repository: string | null; failed: boolean }) {
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Err>(null);
@@ -331,20 +531,10 @@ function ConnectClaudeCode({ projectId, name, repository }: { projectId: string;
       ].join("\n")
     : "";
   return (
-    <section className="card cc-card" aria-labelledby="cc-h">
-      <div className="cc-head">
-        <span className="cc-badge" aria-hidden="true">
-          <I.Play size={14} />
-        </span>
-        <div>
-          <h2 id="cc-h" className="card-title lg">
-            Fix it with <em>Claude Code</em>
-          </h2>
-          <p className="small" style={{ margin: "4px 0 0" }}>
-            Paste one message into Claude Code. It gets your code, reads Kane's verdict, fixes what failed, pushes and asks Kane to check again until every claim passes. This page updates as it goes.
-          </p>
-        </div>
-      </div>
+    <Panel className={failed ? "cc-card hot" : "cc-card"} label="Fix it with Claude Code" next={<><span>Coming next</span>Kane checks again</>}>
+      <span className="pcard-k">Close the loop</span>
+      <h2 className="pcard-title">Fix it with Claude Code</h2>
+      <p className="pcard-text">Paste one message into Claude Code. It gets your code, reads Kane's verdict, fixes what failed, pushes and asks Kane to check again until every claim passes. This page updates as it goes.</p>
       {token ? (
         <>
           <div className="cc-copyrow">
@@ -357,16 +547,14 @@ function ConnectClaudeCode({ projectId, name, repository }: { projectId: string;
           </p>
         </>
       ) : (
-        <div>
-          <button type="button" className="btn" onClick={connect} disabled={busy}>
-            {busy ? <span className="spinner" aria-hidden="true" /> : null}
-            Connect Claude Code
-          </button>
-        </div>
+        <button type="button" className="pill-dark wide" onClick={connect} disabled={busy}>
+          {busy ? <span className="spinner" aria-hidden="true" /> : null}
+          Connect Claude Code <span className="pill-time">1 paste</span>
+        </button>
       )}
       <FormError error={error} />
       <InstallGuide />
-    </section>
+    </Panel>
   );
 }
 
@@ -409,110 +597,6 @@ function InstallGuide() {
   );
 }
 
-function latest(jobs: Job[]): Job | null {
-  return [...jobs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
-}
-
-function Progress({ job }: { job: Job }) {
-  if (job.status === "failed") {
-    return (
-      <section className="card" role="alert">
-        <h2 className="card-title">The run did not happen</h2>
-        <p style={{ margin: 0 }}>{job.error?.message ?? "Kane could not run the test."}</p>
-        <p className="small" style={{ margin: 0 }}>
-          Nothing was tested, so there is no verdict. Runs that fail before Kane starts don't count against your limit.
-        </p>
-      </section>
-    );
-  }
-  return (
-    <section className="card" aria-live="polite">
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span className="dash-loader" aria-hidden="true">
-          <i />
-          <i />
-          <i />
-          <i />
-        </span>
-        <h2 className="card-title" style={{ margin: 0 }}>
-          {job.status === "queued" ? "Waiting for Kane to start..." : "Kane is testing your app in a real browser..."}
-        </h2>
-      </div>
-      <p className="small" style={{ margin: 0 }}>
-        This usually takes a few minutes. You can leave this page open; the verdict appears here when it's done.
-      </p>
-    </section>
-  );
-}
-
-function Verdict({ run }: { run: RunDetail }) {
-  const status = run.record.status === "passed" || run.record.status === "failed" ? run.record.status : "couldnt_verify";
-  const v = VERDICT[status]!;
-  const tests = run.tests ?? [];
-  const passed = run.claims.filter((c) => c.status === "passed").length;
-  return (
-    <>
-      <section className={`verdict ${status === "passed" ? "pass" : status === "failed" ? "fail" : "unknown"}`} aria-labelledby="verdict">
-        <div className="verdict-body">
-          <span className="eyebrow" style={{ color: "inherit" }}>
-            Verdict · tested by Kane
-          </span>
-          <h2 id="verdict" className="verdict-word">
-            {v.title}
-          </h2>
-          <p style={{ margin: 0 }}>{v.text}</p>
-          <p className="small mono" style={{ margin: 0 }}>
-            {passed}/{run.claims.length} claims passed
-            {run.credits?.actualSpend != null ? ` · ${Math.round(run.credits.actualSpend)} credits used` : ""}
-            {run.record.endedAt ? ` · ${new Date(run.record.endedAt).toLocaleString()}` : ""}
-          </p>
-        </div>
-        <TrafficLight lit={status === "passed" ? "green" : status === "failed" ? "red" : "amber"} label={`${v.title}: ${passed} of ${run.claims.length} claims passed`} />
-      </section>
-      <section className="step-card" aria-labelledby="claims-h">
-        <div className="step-card-head">
-          <h2 id="claims-h">Claims</h2>
-          <span className="num-tag">Result</span>
-        </div>
-        <ul className="claim-list">
-          {run.claims.map((c) => {
-            const t = tests.find((x) => x.claims.includes(c.id));
-            const bad = c.status !== "passed";
-            const word = c.status === "passed" ? "Passed" : c.status === "failed" ? "Failed" : "Could not verify";
-            return (
-              <li key={c.id}>
-                <ResultMark status={c.status} />
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
-                  <div>{c.text}</div>
-                  {bad ? <Fix status={c.status} claim={c.text ?? ""} note={t?.failureMessage ?? null} reasons={t?.reasons ?? []} /> : null}
-                </div>
-                <span className={`claim-status ${c.status}`}>{word}</span>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-    </>
-  );
-}
-
-function Fix({ status, claim, note, reasons }: { status: string; claim: string; note: string | null; reasons: string[] }) {
-  const failed = status === "failed";
-  return (
-    <div className="why" style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-      <div className="small">
-        <b>What Kane saw:</b> {note ?? (reasons.length ? reasons.join(", ").replace(/_/g, " ") : "Kane did not leave a note.")}
-      </div>
-      <div className="small">
-        <b>Suggested fix:</b>{" "}
-        {failed
-          ? `Open the live app and do what a visitor would to check “${claim}”. Fix what Kane describes above so it works on the deployed site, deploy, then check again.`
-          : "Make sure the live app loads publicly (no login wall, no errors) and that this claim can be done from the start page, then check again."}
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------- history
 
 export function ChecksListPage() {
@@ -526,28 +610,37 @@ export function ChecksListPage() {
   }, []);
   return (
     <>
-      <TopBar title="My checks" />
+      <PageHead kicker="History" title="My checks" text="Every app you have checked from this browser.">
+        <Link href="/app" className="btn">
+          <I.Plus size={15} aria-hidden="true" />
+          New check
+        </Link>
+      </PageHead>
       <FormError error={error} />
-      <section className="card">
-        {items === null ? (
-          <p className="small" style={{ margin: 0 }}>
-            Loading...
-          </p>
-        ) : items.length === 0 ? (
-          <p style={{ margin: 0 }}>
-            No checks yet. <Link href="/app">Check an app</Link>.
-          </p>
-        ) : (
-          <ul className="list" style={{ gap: 10 }}>
-            {items.map((p) => (
-              <li key={p.id}>
-                <Link href={`/app/check/${p.id}`}>{p.name}</Link>
-                <span className="small"> · {p.url} · {new Date(p.createdAt).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {items === null ? <section className="pcard skeleton" style={{ height: 180 }} aria-busy="true" /> : null}
+      {items && items.length === 0 ? (
+        <Panel next={<><span>Coming next</span>Your first verdict</>}>
+          <span className="pcard-k">Nothing yet</span>
+          <h2 className="pcard-title">No checks yet</h2>
+          <p className="pcard-text">Paste a repository and its live URL, and Kane will test what its README promises.</p>
+          <Link href="/app" className="pill-dark wide">
+            Check an app <span className="pill-time">free</span>
+          </Link>
+        </Panel>
+      ) : null}
+      {items && items.length ? (
+        <div className="checks-grid">
+          {items.map((p, i) => (
+            <Panel key={p.id} top={<><Ring value={1} total={1} /> Check {String(items.length - i).padStart(2, "0")} <span className="sp" /> {new Date(p.createdAt).toLocaleDateString()}</>} next={<><span>Live app</span>{hostOf(p.url)}</>}>
+              <span className="pcard-k">{new Date(p.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+              <h2 className="pcard-title">{p.name}</h2>
+              <Link href={`/app/check/${p.id}`} className="pill-dark">
+                Open result <I.ArrowUpRight size={14} aria-hidden="true" />
+              </Link>
+            </Panel>
+          ))}
+        </div>
+      ) : null}
     </>
   );
 }

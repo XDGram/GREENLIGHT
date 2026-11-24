@@ -329,9 +329,9 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
               less guessing, more proof.
             </motion.span>
             <motion.h1 id="hero-h" initial={still ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, ease, delay: 0.05 }}>
-              Your README makes <em>promises.</em>
+              Your README makes <span className="soft">promises.</span>
               <br />
-              Kane checks <em>them.</em>
+              Kane checks <span className="soft">them.</span>
             </motion.h1>
             <motion.p initial={still ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.2 }}>
               Paste a GitHub repo and its live URL. Kane tests every claim in your README on the deployed app, in a real browser, and tells you what passed and what to fix.
@@ -373,7 +373,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
           <Reveal className="sec-head">
             <span className="tag dark">How it works</span>
             <h2 id="how-h">
-              Three steps to an <em>honest</em> answer
+              Three steps to an <span className="soft">honest</span> answer
             </h2>
           </Reveal>
           <div className="gcards">
@@ -415,7 +415,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
           <Reveal className="sec-head center">
             <span className="tag dark">Check an app</span>
             <h2 id="check-h">
-              Does your app do what its README <em>says?</em>
+              Does your app do what its README <span className="soft">says?</span>
             </h2>
             <p>One free run, up to two claims. No account needed. You see the cost before anything runs.</p>
           </Reveal>
