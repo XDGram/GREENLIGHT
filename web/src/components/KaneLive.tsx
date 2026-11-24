@@ -3,7 +3,8 @@ import type { Job } from "../types";
 import { KaneCircuit } from "./KaneCircuit";
 import "../styles/kane-live.css";
 
-const STAGES = ["Queued", "Opening a browser", "Testing your claims", "Writing the verdict"];
+// Only the states the server reports: queued, running, then the verdict replaces this view.
+const STAGES = ["Queued", "Kane is running", "Verdict"];
 
 function since(iso: string | null | undefined, now: number): number {
   const t = iso ? Date.parse(iso) : NaN;
@@ -16,8 +17,9 @@ function clock(s: number): string {
 }
 
 /**
- * Live view of a Kane run: the circuit loader with "KANE CLI" on the chip, the stage the run is
- * in, a timer, and the claims in this run with the one on screen cycling.
+ * Live view of a Kane run: the circuit loader with "KANE CLI" on the chip, the run's status as the
+ * server reports it, a timer, and the claims the run covers. Kane does not report per-claim
+ * progress mid-run, so nothing here claims to know which step it is on.
  */
 export function KaneLive({ job, claims }: { job: Job; claims: { id: string; text: string }[] }) {
   const [now, setNow] = useState(() => Date.now());
@@ -29,9 +31,8 @@ export function KaneLive({ job, claims }: { job: Job; claims: { id: string; text
   const running = job.status === "running";
   const ranFor = since(job.startedAt, now);
   const waited = since(job.createdAt, now);
-  // Server status says queued or running; inside a run, the first seconds are the browser starting.
-  const stage = !running ? 0 : ranFor < 25 ? 1 : 2;
-  const focus = claims.length ? Math.floor(now / 4000) % claims.length : -1;
+  const stage = running ? 1 : 0;
+  const count = `${claims.length} ${claims.length === 1 ? "claim" : "claims"}`;
 
   return (
     <div className="kl" aria-live="polite">
@@ -48,14 +49,12 @@ export function KaneLive({ job, claims }: { job: Job; claims: { id: string; text
           <span className="kl-caret" aria-hidden="true">
             &gt;
           </span>
-          <span key={`${stage}-${focus}`} className="kl-line">
+          <span key={stage} className="kl-line">
             {!running
-              ? "kane-cli: waiting for a free browser"
-              : stage === 1
-                ? "kane-cli: starting Chromium and opening your app"
-                : focus >= 0
-                  ? `kane-cli: checking "${claims[focus].text}"`
-                  : "kane-cli: clicking through your app"}
+              ? "kane-cli: waiting to start"
+              : claims.length
+                ? `kane-cli: running in a real browser, ${count} to check`
+                : "kane-cli: running in a real browser"}
           </span>
         </div>
         <div className="kl-bar" aria-hidden="true">
@@ -75,13 +74,14 @@ export function KaneLive({ job, claims }: { job: Job; claims: { id: string; text
       {claims.length ? (
         <div className="kl-claims">
           <span className="kl-claims-k">
-            {claims.length} {claims.length === 1 ? "claim" : "claims"} in this run
+            {count} in this run
           </span>
           <ul>
-            {claims.map((c, i) => (
-              <li key={c.id} className={running && stage === 2 && i === focus ? "on" : ""}>
+            {claims.map((c) => (
+              <li key={c.id}>
                 <span className="kl-spin" aria-hidden="true" />
                 <span className="kl-text">{c.text}</span>
+                <span className="kl-wait">Result pending</span>
               </li>
             ))}
           </ul>
