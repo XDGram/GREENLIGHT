@@ -71,12 +71,12 @@ test("Kane remote mode: --remote hyper only via the option, still --local and --
   assert.throws(() => buildTestrunArgs({ testFiles: ["a_test.md"], remote: "hyper", local: false }), /--local is mandatory/);
 });
 
-test("config: sandbox execution needs Supabase, remote hyper and Kane credentials; credentials never serialise", () => {
+test("config: sandbox execution needs Supabase and Kane credentials (Chrome runs in the sandbox unless remote hyper is chosen); credentials never serialise", () => {
   const c = loadConfig(SANDBOX_ENV);
   assert.deepEqual([c.execution, c.kaneRemote], ["sandbox", "hyper"]);
   assert.deepEqual(c.kaneCredentials, { username: "kane-user", accessKey: "kane-access-key-secret" });
   assert.ok(!JSON.stringify(c).includes("kane-access-key-secret") && !JSON.stringify(c).includes(KEY));
-  assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_REMOTE: "" }), /GREENLIGHT_KANE_REMOTE=hyper/);
+  assert.equal(loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_REMOTE: "" }).kaneRemote, null, "Kane may drive Chrome inside the sandbox");
   assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_ACCESS_KEY: "" }), /GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY/);
   assert.throws(() => loadConfig({ ...SANDBOX_ENV, GREENLIGHT_KANE_REMOTE: "lambdatest" }), /must be "hyper"/);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir(), GREENLIGHT_EXECUTION: "sandbox", GREENLIGHT_KANE_REMOTE: "hyper", ...KANE }), /needs Supabase/);
@@ -146,7 +146,7 @@ test("dispatcher: one sandbox per job, Greenlight's files and the bootstrap writ
   assert.equal(JSON.parse(files.find((f) => f.path.endsWith("package.json")).content).type, "module");
   assert.deepEqual([cmd.cmd, cmd.args, cmd.cwd, cmd.detached], ["bash", [`${SANDBOX_APP_DIR}/run-job.sh`, `job_${"a".repeat(32)}`], SANDBOX_APP_DIR, true]);
   assert.equal(cmd.env.SUPABASE_SERVICE_ROLE_KEY, KEY);
-  assert.deepEqual([cmd.env.GREENLIGHT_KANE_USERNAME, cmd.env.GREENLIGHT_KANE_ACCESS_KEY, cmd.env.GREENLIGHT_KANE_REMOTE], ["kane-user", "kane-access-key-secret", "hyper"]);
+  assert.deepEqual([cmd.env.GREENLIGHT_KANE_USERNAME, cmd.env.GREENLIGHT_KANE_ACCESS_KEY, cmd.env.GREENLIGHT_KANE_REMOTE], ["kane-user", "kane-access-key-secret", undefined], "Kane drives Chrome in the sandbox by default");
   assert.equal(cmd.env.GREENLIGHT_KANE_TIMEOUT_MINUTES, "20");
   assert.equal(cmd.env.UNRELATED_SECRET, undefined, "only the listed settings are forwarded");
   // Regression: without the signing key the worker rejected every signed approval (signature_invalid).

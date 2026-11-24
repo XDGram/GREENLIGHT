@@ -144,7 +144,6 @@ export function loadConfig(env = process.env) {
   if (!["local", "sandbox"].includes(execution)) throw new Error('GREENLIGHT_EXECUTION must be "local" or "sandbox"');
   if (execution === "sandbox") {
     if (!supabase) throw new Error("sandbox execution needs Supabase persistence");
-    if (kaneRemote !== "hyper") throw new Error("sandbox execution needs GREENLIGHT_KANE_REMOTE=hyper (no Chrome in the sandbox)");
     if (!env.GREENLIGHT_KANE_USERNAME || !env.GREENLIGHT_KANE_ACCESS_KEY) throw new Error("sandbox execution needs GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY");
     // The sandbox reports "job settled" to this URL so the API can stop it (no Vercel credential inside).
     assertPublicBaseUrl(env.GREENLIGHT_PUBLIC_BASE_URL);
