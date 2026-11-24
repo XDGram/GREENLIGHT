@@ -34,6 +34,57 @@ export const STDERR_FILE = "kane-stderr.txt";
 export const REMOTE_LOG_FILE = "kane-remote.log";
 const REMOTE_LOG_TAIL = 32 * 1024;
 
+/** Kane's remote session folder (remote_done.sessions_path): the grid's downloaded artifacts. */
+export const REMOTE_ARTIFACTS_FILE = "kane-remote-artifacts.txt";
+function remoteSessionsPath(stdout) {
+  for (const line of String(stdout ?? "").split("\n")) {
+    if (!line.includes('"remote_done"')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e?.type === "remote_done" && typeof e.sessions_path === "string") return e.sessions_path;
+    } catch {
+      // not JSON
+    }
+  }
+  return null;
+}
+
+/** A listing of the folder plus the tails of its small text files (logs), at most ~96 KB. */
+async function describeFolder(root) {
+  const { readdir, stat } = await import("node:fs/promises");
+  const out = [];
+  let budget = 96 * 1024;
+  async function walk(dir, depth) {
+    if (depth > 6 || budget <= 0) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full, depth + 1);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      const st = await stat(full).catch(() => null);
+      out.push(`# ${path.relative(root, full)} (${st?.size ?? "?"} bytes)`);
+      if (st && /\.(log|txt|ndjson|json|yaml|yml|md|out|err)$/i.test(e.name) && budget > 0) {
+        const raw = await readFile(full).catch(() => null);
+        if (raw) {
+          const take = Math.min(raw.length, 8 * 1024, budget);
+          budget -= take;
+          out.push(raw.subarray(raw.length - take).toString("utf8"), "");
+        }
+      }
+    }
+  }
+  await walk(root, 0);
+  return out.join("\n");
+}
+
 /** The log_path of Kane's remote_start event, if any. */
 function remoteLogPath(stdout) {
   for (const line of String(stdout ?? "").split("\n")) {
@@ -175,6 +226,15 @@ export async function collectEvidence({
       await writePrivate(path.join(runDir, REMOTE_LOG_FILE), Buffer.from(redactText(tail), "utf8"));
     } catch {
       // the log is diagnostic only; a run never fails for want of it
+    }
+  }
+  const sessions = remoteSessionsPath(runResult.stdout);
+  if (sessions) {
+    try {
+      const text = await describeFolder(sessions);
+      if (text) await writePrivate(path.join(runDir, REMOTE_ARTIFACTS_FILE), Buffer.from(redactText(text), "utf8"));
+    } catch {
+      // diagnostic only
     }
   }
 
