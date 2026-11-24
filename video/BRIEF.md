@@ -34,3 +34,14 @@ These rules come first. Every scene, every line of voiceover and every transitio
 ## Voice
 
 - Bella (ai33pro), natural pace. Generate only once the script is approved.
+
+## Music (chosen 24 Nov)
+
+- **"Inspired" by Kevin MacLeod** (incompetech.com), 120 BPM, 4:46: bright, uplifting, guitar over synths. File: `video/music/Inspired.mp3`.
+- Licence CC BY 4.0. Put this in the YouTube description:
+
+  "Inspired" Kevin MacLeod (incompetech.com)
+  Licensed under Creative Commons: By Attribution 4.0 License
+  http://creativecommons.org/licenses/by/4.0/
+
+- Mix: music dips under Bella's voice and rises in the gaps; drops to near silence when the newsletter claim fails; comes back fuller when Kane passes the fix. Cuts land on its beats.

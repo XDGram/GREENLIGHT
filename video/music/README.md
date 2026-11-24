@@ -12,6 +12,6 @@ http://creativecommons.org/licenses/by/4.0/
 | Option | Track | Tempo | Length |
 |---|---|---|---|
 | 1 | Getting it Done | 135 BPM | 3:30 |
-| 2 | Inspired | 120 BPM | 4:46 |
+| 2 | **Inspired (chosen)** | 120 BPM | 4:46 |
 | 3 | Beauty Flow | 108 BPM | 7:13 |
 | 4 | Numinous Shine | 68 BPM | 4:18 |
