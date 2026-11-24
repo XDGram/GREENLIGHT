@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
 import { Sidebar, TopBar } from "./components/Shell";
+import { SkyBackdrop } from "./components/Sky";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
 import { Landing } from "./pages/Landing";
@@ -193,7 +194,8 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
   }, [route]);
 
   return (
-    <div className="page">
+    <div className="page sky-page">
+      <SkyBackdrop />
       <div className="frame">
         <Sidebar session={session} pending={pending} onSignOut={signOut} project={project} />
         <main className="main" id="main">

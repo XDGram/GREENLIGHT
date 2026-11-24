@@ -293,12 +293,7 @@ export function CheckResultPage({ id }: { id: string }) {
 
   return (
     <>
-      <PageHead kicker="Check" title={title} text={detail ? <a href={detail.project.url}>{host}</a> : null}>
-        <Link href="/app" className="btn ghost">
-          <I.Plus size={15} aria-hidden="true" />
-          New check
-        </Link>
-      </PageHead>
+      <AppHeader title={title} url={detail?.project.url ?? null} host={host} repository={detail?.details?.repository ?? null} job={job} run={run} />
       <FormError error={error} />
       {!detail && !error ? <section className="pcard skeleton" style={{ height: 200 }} aria-busy="true" /> : null}
       {detail && !job ? (
@@ -319,6 +314,62 @@ export function CheckResultPage({ id }: { id: string }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+/**
+ * The app being checked, set on the sky: owner / name, the live site as a browser address bar,
+ * the repository, and the current status.
+ */
+function AppHeader({ title, url, host, repository, job, run }: { title: string; url: string | null; host: string; repository: string | null; job: Job | null; run: RunDetail | null }) {
+  const repo = repository?.replace(/^https?:\/\/(www\.)?github\.com\//, "").replace(/\.git$/, "").replace(/\/+$/, "") ?? null;
+  const parts = title.split("/");
+  const owner = parts.length > 1 ? parts.slice(0, -1).join("/") : null;
+  const name = parts[parts.length - 1] ?? title;
+  const running = job && (job.status === "queued" || job.status === "running");
+  const status = running ? "testing" : run ? (run.record.status === "passed" ? "passed" : run.record.status === "failed" ? "failed" : "unknown") : job?.status === "failed" ? "stopped" : null;
+  const label: Record<string, string> = { testing: "Kane is testing", passed: "Passed", failed: "Failed", unknown: "Could not verify", stopped: "Run stopped" };
+  return (
+    <section className="app-hero" aria-label="App">
+      <div className="app-hero-top">
+        <div>
+          {owner ? <span className="app-owner">{owner} /</span> : <span className="app-owner">Check</span>}
+          <h1 className="app-title">{name}</h1>
+        </div>
+        <div className="app-hero-actions">
+          {status ? (
+            <span className={`app-pill ${status}`}>
+              <i aria-hidden="true" /> {label[status]}
+            </span>
+          ) : null}
+          <Link href="/app" className="btn-sky">
+            <I.Plus size={15} aria-hidden="true" />
+            New check
+          </Link>
+        </div>
+      </div>
+      <div className="app-hero-bar">
+        {url ? (
+          <a className="addr" href={url} rel="noopener">
+            <span className="addr-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+            <I.Lock size={13} aria-hidden="true" />
+            <span className="addr-host">{host}</span>
+            <span className="addr-open">
+              Open <I.ArrowUpRight size={13} aria-hidden="true" />
+            </span>
+          </a>
+        ) : null}
+        {repo ? (
+          <a className="repo-chip" href={`https://github.com/${repo}`} rel="noopener">
+            <I.GitBranch size={14} aria-hidden="true" /> {repo}
+          </a>
+        ) : null}
+      </div>
+    </section>
   );
 }
 
