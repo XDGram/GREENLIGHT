@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Greenlight">
+  <defs>
+    <linearGradient id="gl-tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#030a24"/>
+      <stop offset="0.62" stop-color="#071a63"/>
+      <stop offset="1" stop-color="#0b2a8f"/>
+    </linearGradient>
+    <radialGradient id="gl-sheen" cx="0.3" cy="0.12" r="0.9">
+      <stop offset="0" stop-color="#3b82f6" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#3b82f6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gl-stroke" gradientUnits="userSpaceOnUse" x1="121" y1="346" x2="346" y2="211">
+      <stop offset="0" stop-color="#93c5fd"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <radialGradient id="gl-glow">
+      <stop offset="0" stop-color="#d9f24a" stop-opacity="0.75"/>
+      <stop offset="0.45" stop-color="#d9f24a" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#d9f24a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="512" height="512" rx="118" fill="url(#gl-tile)"/>
+  <rect width="512" height="512" rx="118" fill="url(#gl-sheen)"/>
+  <rect x="1.5" y="1.5" width="509" height="509" rx="116.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3"/>
+  <g transform="translate(-8 40)">
+    <circle cx="96" cy="256" r="30.0" fill="url(#gl-stroke)"/>
+    <circle cx="176" cy="336" r="31.3" fill="url(#gl-stroke)"/>
+    <circle cx="256" cy="256" r="32.7" fill="url(#gl-stroke)"/>
+    <circle cx="336" cy="176" r="34.0" fill="url(#gl-stroke)"/>
+    <circle cx="416" cy="96" r="112" fill="url(#gl-glow)"/>
+    <circle cx="416" cy="96" r="40" fill="#d9f24a"/>
+    <circle cx="404.0" cy="84.0" r="12.0" fill="#ffffff" fill-opacity="0.5"/>
+  </g>
+</svg>
