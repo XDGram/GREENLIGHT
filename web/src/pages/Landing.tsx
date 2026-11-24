@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { guestApi } from "../api";
 import { Logo } from "../components/Chrome";
-import { GlobeField, PixelScatter } from "../components/GlobeField";
+import { PixelScatter } from "../components/GlobeField";
+import { DotWave } from "../components/DotWave";
 import { LoopIllustration } from "../components/LoopIllustration";
 import { useRouter } from "../router";
 import "../styles/landing.css";
@@ -94,7 +95,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
 
       <main id="top">
         <section className="lp-hero" aria-labelledby="hero-h">
-          <GlobeField />
+          <DotWave horizon={0.6} amplitude={1.2} className="lp-wave" />
           <div className="lp-hero-in">
             <a className="lp-badge" href="#claude" onClick={go("claude")}>
               <span className="lp-badge-new">New</span>
@@ -139,6 +140,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
         </section>
 
         <section id="how" className="lp-sec lp-deep" aria-labelledby="how-h">
+          <DotWave horizon={0.72} amplitude={0.7} className="lp-band-wave" />
           <PixelScatter tone="white" />
           <div className="lp-wrap">
             <span className="lp-eyebrow on-dark">How it works</span>
@@ -197,6 +199,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
         </section>
 
         <section id="claude" className="lp-sec lp-dark" aria-labelledby="claude-h">
+          <DotWave horizon={0.62} amplitude={0.8} className="lp-band-wave" />
           <div className="lp-wrap lp-split">
             <div>
               <span className="lp-eyebrow on-dark">Claude Code</span>
@@ -235,7 +238,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
         </section>
 
         <section className="lp-sec lp-close" aria-labelledby="close-h">
-          <GlobeField center={1.12} size={0.7} arcs={false} lightFrom={2} clearAbove={0.55} className="lp-close-globe" />
+          <DotWave horizon={0.5} amplitude={0.9} className="lp-close-globe" />
           <div className="lp-wrap lp-close-in">
             <h2 id="close-h">Find out what your app really does.</h2>
             <p className="lp-lead on-dark">One free run without signing up. You see the cost before anything runs.</p>

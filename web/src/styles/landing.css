@@ -233,3 +233,17 @@
   .lp-hero { min-height: 860px; padding: 120px 20px 360px; }
   .lp-close { padding: 100px 0 140px; }
 }
+
+
+/* ------------------------------------------------------------ the dot wave */
+.lp-wave { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.lp-band-wave { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0.55; }
+.lp-hero {
+  background:
+    radial-gradient(1200px 520px at 50% 100%, rgba(96, 165, 250, 0.55), rgba(96, 165, 250, 0) 70%),
+    linear-gradient(180deg, #02081f 0%, #05124a 24%, #0a2a96 48%, #1553e6 72%, #2f7bff 100%);
+  padding-bottom: 420px;
+}
+.lp-proof { background: linear-gradient(180deg, #2f7bff 0px, #9cc5ff 120px, #e8f0ff 260px, #f6f9ff 100%); padding-top: 120px; }
+.lp-proof h2 { color: var(--lp-ink); }
+.lp-deep > .lp-wrap, .lp-dark > .lp-wrap { z-index: 1; }

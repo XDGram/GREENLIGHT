@@ -357,3 +357,17 @@ a.ws-tile:hover { background: rgba(255, 255, 255, 0.12); }
   .ws-side .ws-brand span { display: none; }
   .ws-nav-item svg { display: none; }
 }
+
+
+/* ------------------------------------------------------------ the backdrop is everywhere */
+.ws { background: linear-gradient(180deg, #030a24 0%, #061553 30%, #0a2a96 62%, #1553e6 100%) fixed; }
+.dotwave.is-fixed { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 0; pointer-events: none; }
+.ws-side { z-index: 2; }
+.ws-page { position: relative; z-index: 1; padding-bottom: 60px; }
+.ws-hero { background: transparent; }
+.ws-hero::after { display: none; }
+.ws-lift { margin-top: -40px; }
+.ws-main > .ws-note, .ws-main > p { color: rgba(230, 237, 255, 0.8); }
+.ws-lift .ws-card { box-shadow: 0 1px 0 rgba(255, 255, 255, 0.6) inset, 0 24px 60px rgba(2, 8, 31, 0.35); border-color: rgba(255, 255, 255, 0.7); }
+.ws-side { background: radial-gradient(rgba(147, 197, 253, 0.12) 1px, transparent 1px) 0 0 / 14px 14px, rgba(3, 10, 36, 0.86); backdrop-filter: blur(10px); }
+.ws { align-content: start; }

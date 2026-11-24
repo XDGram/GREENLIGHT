@@ -3,6 +3,7 @@ import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
 import { AppBar, Sidebar, TopBar } from "./components/Shell";
 import "./styles/workspace.css";
+import { DotWave } from "./components/DotWave";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
 import { Landing } from "./pages/Landing";
@@ -198,6 +199,7 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
   if (workspace) {
     return (
       <div className="ws">
+        <DotWave fixed horizon={0.42} amplitude={1} />
         <AppBar session={session} onSignOut={signOut} />
         <main className="ws-page" id="main">
           {page}
