@@ -2,12 +2,18 @@ import { useId } from "react";
 import { initials } from "../format";
 
 export function Logo({ size = 22 }: { size?: number }) {
-  // A switch turned on: the moment an app gets the green light.
+  // The Greenlight mark: a check drawn in dots rising to a green light (brand/greenlight-icon-*.svg).
+  // Tile and dot colours follow --logo-bg / --logo-fg, so each area keeps its own treatment.
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect width="24" height="24" rx="7" fill="var(--logo-bg)" />
-      <rect x="4.5" y="8" width="15" height="8" rx="4" fill="var(--logo-fg)" />
-      <circle cx="15.5" cy="12" r="2.4" fill="var(--logo-bg)" />
+      <rect width="24" height="24" rx="5.6" fill="var(--logo-bg)" />
+      <circle cx="4.1" cy="13.9" r="1.45" fill="var(--logo-fg)" />
+      <circle cx="7.9" cy="17.6" r="1.52" fill="var(--logo-fg)" />
+      <circle cx="11.6" cy="13.9" r="1.58" fill="var(--logo-fg)" />
+      <circle cx="15.4" cy="10.1" r="1.64" fill="var(--logo-fg)" />
+      <circle cx="19.1" cy="6.4" r="3.6" fill="#7ef0a8" fillOpacity="0.28" />
+      <circle cx="19.1" cy="6.4" r="2" fill="#22b36b" />
+      <circle cx="18.5" cy="5.8" r="0.55" fill="#ffffff" fillOpacity="0.75" />
     </svg>
   );
 }

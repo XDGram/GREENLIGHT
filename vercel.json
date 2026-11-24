@@ -49,7 +49,7 @@
       "destination": "/app/index.html"
     },
     {
-      "source": "/app/:path((?!api/|assets/|downloads/|favicon\\.svg$).*)",
+      "source": "/app/:path((?!api/|assets/|downloads/|brand/|favicon\\.svg$).*)",
       "destination": "/app/index.html"
     }
   ],
