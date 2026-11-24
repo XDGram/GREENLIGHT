@@ -273,7 +273,6 @@ function GlassStep({ n, of, label, title, text, cta, time, next, children, go, v
         {children}
         <div className="gcard-cta">
           <button type="button" className={`pill-dark ${variant === "plain" ? "wide" : ""}`} onClick={go}>
-            {variant === "stack" ? <span className="pill-ic" aria-hidden="true">▶</span> : null}
             {cta}
             {variant === "plain" ? <span className="pill-time">{time}</span> : null}
           </button>
