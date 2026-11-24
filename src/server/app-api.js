@@ -503,14 +503,18 @@ async function approveInApp({ config, store, s, project, v, now }) {
 }
 
 /**
- * Kane credits already committed on this server: the larger of the recorded actual spend and the
- * recorded estimates over all finished runs, plus the confirmed ceiling of every queued or
- * running job. Reads existing tables only.
+ * Kane credits already committed on this server. A finished run counts the larger of its recorded
+ * estimate and actual spend, unless Kane never started it (no execution id: nothing was spent, so
+ * only its recorded actual spend counts). Plus the confirmed ceiling of every queued or running job.
+ * Reads existing tables only.
  */
 export async function committedCredits(store) {
-  const r = (await store.adminOverview()) ?? {};
-  const o = r.overview ?? r;
-  const done = Math.max(Number(o.creditsSpent ?? 0), Number(o.creditsEstimated ?? 0));
+  const records = await store.adminList("records", 1000);
+  const done = (records ?? []).reduce((n, r) => {
+    const actual = Number(r.credits?.actualSpend ?? 0) || 0;
+    const estimate = Number(r.credits?.estimate ?? 0) || 0;
+    return n + (r.evidenceStatus === "no_execution_id" ? actual : Math.max(actual, estimate));
+  }, 0);
   const open = await store.listJobs({ statuses: ["queued", "running"] });
   const pending = (open ?? []).reduce((n, j) => n + (Number.isFinite(j.request?.confirmSpend) ? j.request.confirmSpend : 0), 0);
   return Math.ceil(done + pending);
@@ -520,7 +524,7 @@ export async function committedCredits(store) {
 async function checkTotalCap(store, config, credits) {
   const cap = config.totalCreditCap ?? 0;
   if (!cap) return null;
-  if (typeof store.adminOverview !== "function") return null; // local development store
+  if (typeof store.adminList !== "function") return null; // local development store
   let used;
   try {
     used = await committedCredits(store);
@@ -541,6 +545,42 @@ async function guestJobsUsed(store, account) {
   const projects = await store.listProjects(account);
   const jobs = await projectJobs(store, projects.map((p) => p.id));
   return jobs.filter((j) => !failedBeforeKane(j)).length;
+}
+
+/**
+ * A check as a coding agent sees it: the app, its approved claims and the latest Kane verdict with
+ * Kane's own note on each failure. `status` is queued | running | passed | failed | couldnt_verify |
+ * error | not_run.
+ */
+export async function checkView(config, store, project) {
+  const d = await store.getProjectDetails(project.id).catch(() => null);
+  const versions = await store.listVersions(project.id);
+  const latest = versions.length ? versions[versions.length - 1] : null;
+  const job = (await projectJobs(store, [project.id]))[0] ?? null;
+  const base = (config.publicBaseUrl ?? "").replace(/\/+$/, "");
+  const out = {
+    id: project.id,
+    name: project.name,
+    url: project.url,
+    repository: d?.repository ?? null,
+    branch: d?.branch ?? null,
+    claims: (latest?.claims ?? []).map((c) => ({ id: c.id, text: c.text })),
+    resultUrl: base ? `${base}/app/check/${project.id}` : null,
+    status: "not_run",
+    job: job ? { id: job.id, status: job.status, commit: job.request?.commit ?? null, createdAt: job.createdAt, finishedAt: job.finishedAt ?? null, error: job.error ? { code: job.error.code ?? null, message: job.error.message ?? null } : null } : null,
+    verdict: null,
+  };
+  if (!job) return out;
+  if (job.status === "queued" || job.status === "running") return { ...out, status: job.status };
+  if (!job.recordId) return { ...out, status: "error" };
+  const record = await store.getRecord(job.recordId);
+  const version = await store.getVersion(project.id, record.testVersion);
+  const tests = (await testResults(store, record, version)) ?? [];
+  const claims = record.claims.map((c) => {
+    const t = tests.find((x) => x.claims.includes(c.id));
+    return { id: c.id, text: c.text, status: c.status, kaneSaw: c.status === "passed" ? null : t?.failureMessage ?? (t?.reasons?.length ? t.reasons.join(", ") : null), failedStep: t?.failedStep?.text ?? null };
+  });
+  return { ...out, status: record.status, verdict: { status: record.status, commit: record.deployment?.commit ?? null, endedAt: record.execution?.endedAt ?? null, claims } };
 }
 
 /**
@@ -565,7 +605,7 @@ async function serverCommit({ store, project, config, fetchImpl, checkHost, now 
  * estimate, and the run is reserved atomically against the per-visitor and daily limits.
  * @returns {Promise<object>} the queued job
  */
-async function submitVerification({ config, store, s, project, body, jobs, fetchImpl, checkHost, now, log, autoCommit = false }) {
+export async function submitVerification({ config, store, s, project, body, jobs, fetchImpl, checkHost, now, log, autoCommit = false, recheck = false }) {
   if (!jobs) throw new GreenlightError("server_not_configured", "Verification runs are not available on this server.");
   if (!Number.isInteger(body.version) || body.version < 1) throw new GreenlightError("invalid_request", "Choose the approved test version to verify.");
   if (body.confirmSpend !== undefined && (!Number.isFinite(body.confirmSpend) || body.confirmSpend <= 0)) throw new GreenlightError("invalid_request", "confirmSpend must be a positive number of credits.");
@@ -599,10 +639,15 @@ async function submitVerification({ config, store, s, project, body, jobs, fetch
     }
     request.confirmSpend = Math.min(Math.ceil(est), config.guest.maxCreditsPerRun);
     await checkTotalCap(store, config, request.confirmSpend);
-    reservation = (
+    if (recheck) {
+      // A coding agent re-running tests the visitor already approved and paid for once: a few
+      // re-checks per check (to confirm fixes), under the server's total credit cap.
+      const used = (await projectJobs(store, [project.id])).filter((j) => !(j.status === "failed" && !j.recordId && PRE_KANE.has(j.error?.code ?? ""))).length;
+      if (used >= 1 + (config.guest.rechecksPerCheck ?? 3)) throw new GreenlightError("guest_limit_reached", `This check has used its ${config.guest.rechecksPerCheck ?? 3} free re-checks.`);
+    } else reservation = (
       await store.reserveGuestRun(project.account, { credits: Math.ceil(est), perAccount: config.guest.realRunsPerGuest, perDay: config.guest.realRunsPerDay, dailyCredits: config.guest.dailyCredits, maxPerRun: config.guest.maxCreditsPerRun })
     ).reservation;
-    if (reservation === null && (await guestJobsUsed(store, project.account)) >= config.guest.realRunsPerGuest) {
+    if (!recheck && reservation === null && (await guestJobsUsed(store, project.account)) >= config.guest.realRunsPerGuest) {
       // Database without reservations: the per-visitor limit is counted from the visitor's jobs.
       throw new GreenlightError("guest_limit_reached", "You have used your free Kane run on this browser.");
     }
@@ -789,7 +834,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       let files = [];
       try {
         const run = await store.getRun(record.execution.runId);
-        files = run.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256, kind: /\.(png|jpe?g|webp)$/i.test(f.name) ? "image" : f.name === "kane-stdout.ndjson" ? "log" : f.name === "kane-stderr.txt" ? "log" : f.name === "manifest.json" ? "manifest" : "file" }));
+        files = run.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256, kind: /\.(png|jpe?g|webp)$/i.test(f.name) ? "image" : f.name === "kane-stdout.ndjson" ? "log" : f.name === "kane-stderr.txt" || f.name === "kane-remote.log" || f.name === "kane-remote-artifacts.txt" ? "log" : f.name === "manifest.json" ? "manifest" : "file" }));
       } catch {
         files = [];
       }

@@ -239,11 +239,10 @@ export function CheckResultPage({ id }: { id: string }) {
         if (stop) return;
         setDetail(d);
         const job = latest(d.jobs);
-        if (job?.recordId) {
-          setRun(await api.run(id, job.recordId));
-          return;
-        }
-        if (job && (job.status === "queued" || job.status === "running")) timer = setTimeout(tick, 4000);
+        if (job?.recordId) setRun(await api.run(id, job.recordId));
+        else setRun(null);
+        // Keep watching: a coding agent (Claude Code) may start a re-check after pushing a fix.
+        timer = setTimeout(tick, job && (job.status === "queued" || job.status === "running") ? 4000 : 15000);
       } catch (e) {
         if (!stop) setError(asErr(e));
       }
@@ -271,7 +270,142 @@ export function CheckResultPage({ id }: { id: string }) {
       {detail && !job ? <section className="card">No Kane run was started for this app.</section> : null}
       {job && !job.recordId ? <Progress job={job} /> : null}
       {run ? <Verdict run={run} /> : null}
+      {run && detail ? <ConnectClaudeCode projectId={id} name={detail.project.name} repository={detail.details?.repository ?? null} /> : null}
     </>
+  );
+}
+
+function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
+  const [done, setDone] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn ghost sm"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setDone(true);
+          setTimeout(() => setDone(false), 1600);
+        } catch {
+          // the text stays selectable
+        }
+      }}
+    >
+      {done ? <I.Check size={14} aria-hidden="true" /> : <I.Copy size={14} aria-hidden="true" />}
+      {done ? "Copied" : label}
+    </button>
+  );
+}
+
+/**
+ * Close the loop: a token that can read this check and re-run its approved claims, inside one
+ * message to paste into Claude Code (it fetches the /greenlight instructions and runs the loop).
+ */
+function ConnectClaudeCode({ projectId, name, repository }: { projectId: string; name: string; repository: string | null }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Err>(null);
+  const origin = window.location.origin;
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const t = await api.createToken("agent", `Claude Code · ${name}`.slice(0, 80));
+      setToken(t.token);
+    } catch (e) {
+      setError(asErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const repo = repository?.replace(/\.git$/, "").replace(/\/+$/, "") ?? null;
+  const message = token
+    ? [
+        "Use Greenlight to fix my app until Kane CLI passes every claim.",
+        `First run: curl -fsSL ${origin}/app/downloads/greenlight/commands/greenlight.md`,
+        "Then follow those instructions exactly, with:",
+        `- GREENLIGHT_URL: ${origin}`,
+        `- GREENLIGHT_CHECK: ${projectId}`,
+        `- GREENLIGHT_TOKEN: ${token}`,
+        ...(repo ? [`- Repository: ${repo} (clone it if this folder isn't it)`] : []),
+      ].join("\n")
+    : "";
+  return (
+    <section className="card cc-card" aria-labelledby="cc-h">
+      <div className="cc-head">
+        <span className="cc-badge" aria-hidden="true">
+          <I.Play size={14} />
+        </span>
+        <div>
+          <h2 id="cc-h" className="card-title lg">
+            Fix it with <em>Claude Code</em>
+          </h2>
+          <p className="small" style={{ margin: "4px 0 0" }}>
+            Paste one message into Claude Code. It gets your code, reads Kane's verdict, fixes what failed, pushes and asks Kane to check again until every claim passes. This page updates as it goes.
+          </p>
+        </div>
+      </div>
+      {token ? (
+        <>
+          <div className="cc-copyrow">
+            <span>Paste this into Claude Code</span>
+            <CopyButton text={message} />
+          </div>
+          <pre className="cc-code">{message}</pre>
+          <p className="small" style={{ margin: 0 }}>
+            The token is shown only once. It can only read this check and re-run the claims you approved. Don't share it publicly.
+          </p>
+        </>
+      ) : (
+        <div>
+          <button type="button" className="btn" onClick={connect} disabled={busy}>
+            {busy ? <span className="spinner" aria-hidden="true" /> : null}
+            Connect Claude Code
+          </button>
+        </div>
+      )}
+      <FormError error={error} />
+      <InstallGuide />
+    </section>
+  );
+}
+
+/** First-time setup for people who don't have Claude Code (or Git) yet. */
+function InstallGuide() {
+  const win = [
+    "irm https://claude.ai/install.ps1 | iex",
+    '$bin = "$env:USERPROFILE\\.local\\bin"',
+    '[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$bin", "User")',
+    '$env:Path += ";$bin"',
+    "claude",
+  ].join("\n");
+  const mac = ["curl -fsSL https://claude.ai/install.sh | bash", "claude"].join("\n");
+  return (
+    <details className="cc-details">
+      <summary>First time? Install Claude Code</summary>
+      <div className="cc-in">
+        <span>You need Git and Claude Code with a Claude account. It takes about five minutes, once.</span>
+        <b>Windows</b>
+        <ol>
+          <li>
+            Install Git for Windows: <a href="https://git-scm.com/download/win">git-scm.com/download/win</a>
+          </li>
+          <li>Open PowerShell and run:</li>
+        </ol>
+        <div className="cc-copyrow">
+          <span>PowerShell</span>
+          <CopyButton text={win} />
+        </div>
+        <pre className="cc-code">{win}</pre>
+        <b>macOS or Linux</b>
+        <div className="cc-copyrow">
+          <span>Terminal</span>
+          <CopyButton text={mac} />
+        </div>
+        <pre className="cc-code">{mac}</pre>
+        <span>Sign in when Claude Code opens, then paste the message above. When it asks to run curl or git, choose "Yes, and don't ask again". Pushing the fix needs write access to the repository.</span>
+      </div>
+    </details>
   );
 }
 

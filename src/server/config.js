@@ -50,8 +50,9 @@ export const SANDBOX_OVERHEAD_MS = 10 * 60_000;
 
 export const ROLES = Object.freeze({ OWNER: "owner", AGENT: "agent" });
 const PERMISSIONS = Object.freeze({
-  owner: new Set(["read", "propose", "approve", "certify"]),
-  agent: new Set(["read", "propose"]),
+  owner: new Set(["read", "propose", "approve", "certify", "recheck"]),
+  // recheck: re-run tests a person already approved (the coding agent confirming its fix).
+  agent: new Set(["read", "propose", "recheck"]),
 });
 
 const num = (v, d, { min = 0 } = {}) => {
@@ -144,7 +145,6 @@ export function loadConfig(env = process.env) {
   if (!["local", "sandbox"].includes(execution)) throw new Error('GREENLIGHT_EXECUTION must be "local" or "sandbox"');
   if (execution === "sandbox") {
     if (!supabase) throw new Error("sandbox execution needs Supabase persistence");
-    if (kaneRemote !== "hyper") throw new Error("sandbox execution needs GREENLIGHT_KANE_REMOTE=hyper (no Chrome in the sandbox)");
     if (!env.GREENLIGHT_KANE_USERNAME || !env.GREENLIGHT_KANE_ACCESS_KEY) throw new Error("sandbox execution needs GREENLIGHT_KANE_USERNAME and GREENLIGHT_KANE_ACCESS_KEY");
     // The sandbox reports "job settled" to this URL so the API can stop it (no Vercel credential inside).
     assertPublicBaseUrl(env.GREENLIGHT_PUBLIC_BASE_URL);
@@ -227,6 +227,7 @@ export function loadConfig(env = process.env) {
       projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
       // Real Kane runs by guests (they spend Greenlight's credits): strict caps, enforced in the database.
       realRunsPerGuest: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST, 1),
+      rechecksPerCheck: num(env.GREENLIGHT_GUEST_RECHECKS_PER_CHECK, 3),
       realRunsPerDay: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_DAY, 3),
       // Credits all visitors together may spend per rolling 24 hours (reserved before each run).
       dailyCredits: num(env.GREENLIGHT_GUEST_DAILY_CREDITS, 150),

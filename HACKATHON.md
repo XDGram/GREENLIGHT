@@ -11,9 +11,9 @@ Three bars first. **Miss one and nothing else is scored.**
 
 | Bar | Status |
 |---|---|
-| 1. It works end to end | ❌ Not proven: no real Kane run through the live flow yet |
-| 2. Kane CLI caught or proved something | ❌ Needs a real run with a real Pass and a real Fail |
-| 3. Our agent and Kane CLI talked to each other | ⚠️ Partial: Kane's result doesn't go back to a coding agent yet |
+| 1. It works end to end | ✅ 24 Nov: real Kane run through the live site (job_e868514451124027b71f5a9df4cf3c96) |
+| 2. Kane CLI caught or proved something | ✅ Cart claim Passed; newsletter claim Failed: "Both normal subscription attempts displayed 'Subscription failed. Please try again later,' with no confirmation available." |
+| 3. Our agent and Kane CLI talked to each other | ✅ 24 Nov: Claude Code `/greenlight` loop. Real run on the demo shop: Kane failed the newsletter claim, fix `6919b14`, re-check via the agent token, Kane passed both claims |
 
 Then four scores, 25% each: **Ships** (works end to end), **Verified** (Kane proved something meaningful), **Closed loop** (Kane's result feeds back to the agent), **Craft** (would a developer install it tonight?). Ties break on Verified, then Closed loop.
 
@@ -21,7 +21,7 @@ Then four scores, 25% each: **Ships** (works end to end), **Verified** (Kane pro
 
 ## YOU (only you can do these)
 
-- [ ] **Sign up on testmuai.com and claim the 10,000 free credits:** https://www.testmuai.com/kane-cli/#creditOffer. Use the **same email** as your hackathon registration. Required to be scored.
+- [x] **Sign up on testmuai.com and claim the 10,000 free credits** (balance 10,999 on 24 Nov): https://www.testmuai.com/kane-cli/#creditOffer. Use the **same email** as your hackathon registration. Required to be scored.
 - [ ] **Register for the hackathon:** https://www.kaneclihack.sh/o/register
 - [ ] **Make the GitHub repo public** (XDGram/GREENLIGHT).
 - [ ] **Say "yes" to real Kane runs** so I can do Step 1 below. Each 2-claim run costs about 94 credits.
@@ -35,14 +35,17 @@ Then four scores, 25% each: **Ships** (works end to end), **Verified** (Kane pro
 ## ME (what I'll build)
 
 ### Step 1: Prove it works (bars 1 and 2)
-- [ ] Make a small test app with **one true claim and one deliberately broken claim**.
-- [ ] Run Greenlight on it for real, through the live site.
-- [ ] Show Kane giving a real **Passed** and a real **Failed**, with what it saw.
-- [ ] Fix anything that breaks along the way.
+- [x] Make a small test app with **one true claim and one deliberately broken claim**.
+- [x] Run Greenlight on it for real, through the live site.
+- [x] Show Kane giving a real **Passed** and a real **Failed**, with what it saw.
+- [x] Fix anything that breaks along the way. TestMu's remote grid refused macOS on the free plan and
+  its Linux sessions errored, so Kane now drives Chromium inside the Vercel Sandbox (local mode).
+  Note: the two 20 Nov records were written by `test/server/supabase-live.test.js` (fake Kane), not real runs.
 
 ### Step 2: Close the loop (bar 3, and the Closed loop score)
-- [ ] Add a **Claude Code command** that reads the Greenlight verdict and Kane's notes, fixes the code, and starts a re-check.
-- [ ] The story it shows: **Kane fails it → the agent fixes it → Kane passes it.**
+- [x] Add a **Claude Code command** (`skills/greenlight/commands/greenlight.md`, installed from the result page's "Fix it with Claude Code") that reads the Greenlight verdict and Kane's notes, fixes the code, and starts a re-check.
+- [x] The story it shows: **Kane fails it → the agent fixes it → Kane passes it.** Demo app: `examples/demo-shop`, live at https://greenlight-demo-shop.vercel.app (bug restored for the video).
+- [ ] **Merge into `main` before submitting**: judges see the default branch, and the demo shop's Vercel project auto-deploys from `main`.
 - [ ] If you add the AI key: specific suggested fixes instead of templates.
 
 ### Step 3: Submission material

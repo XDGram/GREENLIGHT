@@ -18,6 +18,7 @@
 
 import path from "node:path";
 import { constants as fsc } from "node:fs";
+import { redactText } from "../report/redact.js";
 import { mkdir, writeFile, copyFile, rename, rm, lstat, chmod, readFile } from "node:fs/promises";
 import { sha256File, sha256Bytes, canonicalJson } from "./hash.js";
 import { checkZipStructure } from "./zip-check.js";
@@ -29,6 +30,74 @@ export const MANIFEST_FILE = "manifest.json";
 export const RECORD_HASH_FILE = "manifest.sha256";
 export const STDOUT_FILE = "kane-stdout.ndjson";
 export const STDERR_FILE = "kane-stderr.txt";
+/** The tail of Kane's remote-execution log (HyperExecute), when Kane names one: why a dispatch failed. */
+export const REMOTE_LOG_FILE = "kane-remote.log";
+const REMOTE_LOG_TAIL = 32 * 1024;
+
+/** Kane's remote session folder (remote_done.sessions_path): the grid's downloaded artifacts. */
+export const REMOTE_ARTIFACTS_FILE = "kane-remote-artifacts.txt";
+function remoteSessionsPath(stdout) {
+  for (const line of String(stdout ?? "").split("\n")) {
+    if (!line.includes('"remote_done"')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e?.type === "remote_done" && typeof e.sessions_path === "string") return e.sessions_path;
+    } catch {
+      // not JSON
+    }
+  }
+  return null;
+}
+
+/** A listing of the folder plus the tails of its small text files (logs), at most ~96 KB. */
+async function describeFolder(root) {
+  const { readdir, stat } = await import("node:fs/promises");
+  const out = [];
+  let budget = 96 * 1024;
+  async function walk(dir, depth) {
+    if (depth > 6 || budget <= 0) return;
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) {
+        await walk(full, depth + 1);
+        continue;
+      }
+      if (!e.isFile()) continue;
+      const st = await stat(full).catch(() => null);
+      out.push(`# ${path.relative(root, full)} (${st?.size ?? "?"} bytes)`);
+      if (st && /\.(log|txt|ndjson|json|yaml|yml|md|out|err)$/i.test(e.name) && budget > 0) {
+        const raw = await readFile(full).catch(() => null);
+        if (raw) {
+          const take = Math.min(raw.length, 8 * 1024, budget);
+          budget -= take;
+          out.push(raw.subarray(raw.length - take).toString("utf8"), "");
+        }
+      }
+    }
+  }
+  await walk(root, 0);
+  return out.join("\n");
+}
+
+/** The log_path of Kane's remote_start event, if any. */
+function remoteLogPath(stdout) {
+  for (const line of String(stdout ?? "").split("\n")) {
+    if (!line.includes('"remote_start"')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e?.type === "remote_start" && typeof e.log_path === "string" && e.log_path.endsWith(".log")) return e.log_path;
+    } catch {
+      // not JSON
+    }
+  }
+  return null;
+}
 export const EVIDENCE_DIR = "evidence";
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -149,6 +218,25 @@ export async function collectEvidence({
   const stderrBytes = Buffer.from(runResult.stderr ?? "", "utf8");
   await writePrivate(path.join(runDir, STDOUT_FILE), stdoutBytes);
   await writePrivate(path.join(runDir, STDERR_FILE), stderrBytes);
+  const remoteLog = remoteLogPath(runResult.stdout);
+  if (remoteLog) {
+    try {
+      const raw = await readFile(remoteLog);
+      const tail = raw.subarray(Math.max(0, raw.length - REMOTE_LOG_TAIL)).toString("utf8");
+      await writePrivate(path.join(runDir, REMOTE_LOG_FILE), Buffer.from(redactText(tail), "utf8"));
+    } catch {
+      // the log is diagnostic only; a run never fails for want of it
+    }
+  }
+  const sessions = remoteSessionsPath(runResult.stdout);
+  if (sessions) {
+    try {
+      const text = await describeFolder(sessions);
+      if (text) await writePrivate(path.join(runDir, REMOTE_ARTIFACTS_FILE), Buffer.from(redactText(text), "utf8"));
+    } catch {
+      // diagnostic only
+    }
+  }
 
   const evidence = await collectPack({ runResult, kaneCwd, runDir, validator });
 

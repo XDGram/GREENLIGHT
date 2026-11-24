@@ -578,3 +578,52 @@ test("without the journey migration, visitor runs still work, one per visitor, a
   assert.equal((await c.go("GET", "/app/api/projects")).body.projects.length, 0, "a capped run stores nothing");
   assert.equal(h.state.kaneCalls.length, 2, "Kane ran exactly twice");
 });
+
+test("Claude Code closes the loop: a token reads Kane's verdict and re-runs the approved claims after a fix, within limits", async () => {
+  const h = await setup({ ai: false, env: { GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "1", GREENLIGHT_GUEST_RECHECKS_PER_CHECK: "2" } });
+  const g = browser(h, "203.0.113.91");
+  await g.go("POST", "/app/api/guest/start", {});
+  const base = { repository: "https://github.com/acme/shop", url: "https://shop.example.com/", notes: "" };
+  const claims = ["Visitors can add products to the cart", "The cart shows a total"];
+  h.state.kane.set("claim-2_test.md", "failed");
+  const started = await g.go("POST", "/app/api/checks", { ...base, claims, confirm: true, confirmSpend: 94 });
+  assert.equal(started.status, 202, started.text);
+  await h.ctx.jobs.idle();
+  const pid = started.body.projectId;
+
+  // "Connect Claude Code": an agent token from the browser session.
+  const t = await g.go("POST", "/app/api/tokens", { role: "agent", label: "Claude Code" });
+  assert.equal(t.status, 201, t.text);
+  const api = async (method, p) => {
+    const r = await fetch(h.url + p, { method, headers: { authorization: `Bearer ${t.body.token}`, ...(method === "POST" ? { "content-type": "application/json" } : {}) }, body: method === "POST" ? "{}" : undefined });
+    return { status: r.status, body: await r.json() };
+  };
+
+  const list = await api("GET", "/v1/checks");
+  assert.deepEqual(list.body.checks.map((c) => c.id), [pid]);
+  let check = (await api("GET", `/v1/checks/${pid}`)).body.check;
+  assert.equal(check.status, "failed");
+  assert.equal(check.repository, "https://github.com/acme/shop");
+  assert.deepEqual(check.verdict.claims.map((c) => [c.text, c.status]), [[claims[0], "passed"], [claims[1], "failed"]]);
+  assert.match(check.verdict.claims[1].kaneSaw, /Cart total/, "Kane's own note reaches the agent");
+  assert.equal(check.resultUrl, `https://greenlight.example.com/app/check/${pid}`);
+
+  // The agent pushed a fix: re-check the same approved claims; Kane now passes both.
+  h.state.kane.set("claim-2_test.md", "passed");
+  const re = await api("POST", `/v1/checks/${pid}/recheck`);
+  assert.equal(re.status, 202, JSON.stringify(re.body));
+  assert.equal(re.body.estimate, 94);
+  await h.ctx.jobs.idle();
+  check = (await api("GET", `/v1/checks/${pid}`)).body.check;
+  assert.equal(check.status, "passed");
+  assert.equal(h.state.kaneCalls.length, 2);
+
+  // The agent can't approve or change claims, and re-checks are limited per check.
+  assert.equal((await api("POST", `/v1/projects/${pid}/versions/1/approval`)).status, 403);
+  assert.equal((await api("POST", `/v1/checks/${pid}/recheck`)).status, 202);
+  await h.ctx.jobs.idle();
+  const over = await api("POST", `/v1/checks/${pid}/recheck`);
+  assert.deepEqual([over.status, over.body.error.code], [429, "guest_limit_reached"]);
+  // Other accounts' checks are invisible to this token.
+  assert.equal((await api("GET", `/v1/checks/prj_${"0".repeat(32)}`)).status, 404);
+});

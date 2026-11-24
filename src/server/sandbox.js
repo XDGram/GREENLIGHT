@@ -13,6 +13,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { errorBody, GreenlightError } from "../cli/errors.js";
 import { KANE_CLI_VERSION } from "../kane/runner.js";
+/** The Chromium build Kane drives inside the sandbox (same pin as the API's page reader). */
+const CHROMIUM_VERSION = "153.0.0";
 import { JobRunner } from "./jobs.js";
 import { JOB_STATUS } from "./models.js";
 
@@ -20,7 +22,7 @@ export const SANDBOX_APP_DIR = "/vercel/sandbox/greenlight";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** Settings the worker needs, copied from the API's environment (secrets marked). */
-const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID", "GREENLIGHT_GUEST_MODE", "GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN", "GREENLIGHT_GUEST_SAMPLE_PROJECT"];
+const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID", "GREENLIGHT_GUEST_MODE", "GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN", "GREENLIGHT_GUEST_SAMPLE_PROJECT", "GREENLIGHT_KANE_RUNSON"];
 // GREENLIGHT_APPROVAL_SIGNING_KEY: the worker re-verifies the signed approval before spending.
 const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME", "GREENLIGHT_KANE_ACCESS_KEY", "GREENLIGHT_APPROVAL_SIGNING_KEY"];
 
@@ -44,15 +46,33 @@ JOB="$1"
 cd ${SANDBOX_APP_DIR}
 fail() { unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY; node bin/greenlight-worker.js --fail "$JOB" "$1" || true; exit 1; }
 trap 'fail setup' ERR
-npm install --no-save --no-audit --no-fund --loglevel=error @testmuai/kane-cli@${KANE_CLI_VERSION} >/dev/null
+npm install --no-save --no-audit --no-fund --loglevel=error @testmuai/kane-cli@${KANE_CLI_VERSION} @sparticuz/chromium@${CHROMIUM_VERSION} >/dev/null
 export GREENLIGHT_KANE_BIN="$PWD/node_modules/.bin/kane-cli"
 test "$("$GREENLIGHT_KANE_BIN" --version)" = "${KANE_CLI_VERSION}" || fail kane_version
 "$GREENLIGHT_KANE_BIN" plugin install remote-execution </dev/null >/dev/null || fail remote_plugin
+# HyperExecute machines: the plugin defaults to macOS, which TestMu's free plan refuses ("needs
+# MultiOS plan to run this on mac"); Linux runs on every plan. GREENLIGHT_KANE_RUNSON overrides.
+node -e 'const fs=require("fs");const f=require("os").homedir()+"/.testmuai/kaneai/plugins/remote-execution/config.json";const c=JSON.parse(fs.readFileSync(f,"utf8"));c.runson=process.argv[1];fs.writeFileSync(f,JSON.stringify(c,null,2))' "\${GREENLIGHT_KANE_RUNSON:-linux}" || fail remote_plugin
 LOGIN=(login --username "$GREENLIGHT_KANE_USERNAME" --access-key "$GREENLIGHT_KANE_ACCESS_KEY")
 [ -n "\${GREENLIGHT_KANE_PROJECT_ID:-}" ] && LOGIN+=(--project-id "$GREENLIGHT_KANE_PROJECT_ID")
 [ -n "\${GREENLIGHT_KANE_FOLDER_ID:-}" ] && LOGIN+=(--folder-id "$GREENLIGHT_KANE_FOLDER_ID")
 "$GREENLIGHT_KANE_BIN" "\${LOGIN[@]}" </dev/null >/dev/null 2>&1 || fail kane_login
 unset GREENLIGHT_KANE_USERNAME GREENLIGHT_KANE_ACCESS_KEY LOGIN
+if [ "\${GREENLIGHT_KANE_REMOTE:-}" != "hyper" ]; then
+  # Kane drives Chrome right here (local mode). The sandbox has no Chrome, so use the Chromium
+  # built for Amazon Linux 2023 (the sandbox's OS) behind a wrapper that adds its libraries and
+  # the flags it needs; Kane is told not to download a browser of its own.
+  CHROME_EXE="$(VERCEL=1 node --input-type=module -e 'const m=await import("@sparticuz/chromium");console.log(await m.default.executablePath())')" || fail chromium_install
+  cat > /tmp/gl-chrome.sh <<WRAP
+#!/bin/bash
+export LD_LIBRARY_PATH=/tmp/al2023/lib:\\\${LD_LIBRARY_PATH:-}
+export FONTCONFIG_PATH=/tmp/fonts
+exec $CHROME_EXE --no-sandbox --no-zygote --single-process --disable-gpu --disable-dev-shm-usage --use-gl=angle --use-angle=swiftshader "\\$@"
+WRAP
+  chmod +x /tmp/gl-chrome.sh
+  /tmp/gl-chrome.sh --version >/dev/null || fail chromium_start
+  export KANE_CLI_CHROME_PATH=/tmp/gl-chrome.sh KANE_CLI_SKIP_BROWSER_DOWNLOAD=1
+fi
 trap - ERR
 # If the worker itself crashes (it settles the job on every normal path), record the job as failed
 # so it never sits on "queued" or "running" until the sandbox expires.
@@ -92,7 +112,9 @@ export function createSandboxDispatcher({ config, env = process.env, Sandbox, ro
   return {
     async dispatch(job) {
       const SandboxClass = Sandbox ?? (await import("@vercel/sandbox")).Sandbox;
-      const commandEnv = { GREENLIGHT_KANE_REMOTE: "hyper", GREENLIGHT_WORK_DIR: "/tmp/greenlight-work", GREENLIGHT_SANDBOX_FINISHED_URL: `${config.publicBaseUrl.replace(/\/+$/, "")}${SANDBOX_FINISHED_PATH}` };
+      // Kane runs Chrome inside the sandbox by default; GREENLIGHT_SANDBOX_KANE_REMOTE=hyper sends the
+      // browser to TestMu HyperExecute instead (needs a TestMu plan that allows it).
+      const commandEnv = { ...(env.GREENLIGHT_SANDBOX_KANE_REMOTE === "hyper" ? { GREENLIGHT_KANE_REMOTE: "hyper" } : {}), GREENLIGHT_WORK_DIR: "/tmp/greenlight-work", GREENLIGHT_SANDBOX_FINISHED_URL: `${config.publicBaseUrl.replace(/\/+$/, "")}${SANDBOX_FINISHED_PATH}` };
       for (const k of [...FORWARD, ...SECRET_FORWARD]) if (env[k]) commandEnv[k] = env[k];
       // Outside Vercel (no OIDC token), the SDK reads VERCEL_TOKEN / VERCEL_TEAM_ID / VERCEL_PROJECT_ID.
       const sbx = await SandboxClass.create({ name: sandboxName(job.id), persistent: false, runtime: "node22", timeout: sandboxTimeoutMs(config), resources: { vcpus: 2 } });
