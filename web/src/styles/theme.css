@@ -645,3 +645,15 @@ h1, h2, h3, .page-title, .app-title, .pcard-title, .verdict-title, .day-copy h1,
   .app-hero-actions { width: 100%; }
   .addr { flex-basis: 100%; }
 }
+/* inner pages: five single clouds spread around the edges */
+.sb-2 { display: block; left: max(-40px, calc((100vw - 1300px) / 2)); top: 360px; width: 170px; opacity: 0.9; }
+.sb-3 { display: block; left: auto; right: max(-30px, calc((100vw - 1320px) / 2)); top: 620px; width: 150px; opacity: 0.85; }
+.sb-4 { left: max(-30px, calc((100vw - 1320px) / 2)); top: 900px; width: 190px; opacity: 0.9; }
+.sb-5 { left: 42%; top: 40px; width: 120px; opacity: 0.7; }
+.sb-3 .cloud, .sb-5 .cloud { animation-duration: 34s; }
+@media (max-width: 640px) {
+  .sb-2 { width: 110px; top: 420px; left: -30px; }
+  .sb-3 { width: 100px; top: 760px; right: -30px; }
+  .sb-4 { width: 120px; top: 1100px; left: -30px; }
+  .sb-5 { display: none; }
+}

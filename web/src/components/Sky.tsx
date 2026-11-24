@@ -88,12 +88,24 @@ export function Stars({ count = 90 }: { count?: number }) {
   );
 }
 
-/** The landing's day sky behind every signed-in page: one single drifting cloud on the blue. */
+/** The landing's day sky behind every signed-in page: five single drifting clouds spread over the blue. */
 export function SkyBackdrop() {
   return (
     <div className="sky-backdrop" aria-hidden="true">
       <div className="sb-cloud sb-1">
         <Cloud seed={4} />
+      </div>
+      <div className="sb-cloud sb-2">
+        <Cloud seed={9} />
+      </div>
+      <div className="sb-cloud sb-3">
+        <Cloud seed={13} />
+      </div>
+      <div className="sb-cloud sb-4">
+        <Cloud seed={17} />
+      </div>
+      <div className="sb-cloud sb-5">
+        <Cloud seed={23} />
       </div>
     </div>
   );
