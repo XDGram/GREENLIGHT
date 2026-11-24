@@ -270,7 +270,7 @@ export function CheckResultPage({ id }: { id: string }) {
       {detail && !job ? <section className="card">No Kane run was started for this app.</section> : null}
       {job && !job.recordId ? <Progress job={job} /> : null}
       {run ? <Verdict run={run} /> : null}
-      {run ? <ConnectClaudeCode projectId={id} name={detail?.project.name ?? "app"} /> : null}
+      {run ? <ConnectClaudeCode projectId={id} name={detail?.project.name ?? "app"} repository={detail?.details?.repository ?? null} /> : null}
     </>
   );
 }
@@ -279,7 +279,7 @@ export function CheckResultPage({ id }: { id: string }) {
  * Close the loop: give Claude Code a token that can read this check and re-run its approved claims,
  * plus the /greenlight command that fixes what Kane failed and asks Kane to confirm the fix.
  */
-function ConnectClaudeCode({ projectId, name }: { projectId: string; name: string }) {
+function ConnectClaudeCode({ projectId, name, repository }: { projectId: string; name: string; repository: string | null }) {
   const [token, setToken] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Err>(null);
@@ -296,15 +296,19 @@ function ConnectClaudeCode({ projectId, name }: { projectId: string; name: strin
       setBusy(false);
     }
   };
+  // One paste: open the app's code (cloning it if this folder isn't it), install /greenlight, and
+  // start Claude Code with edits pre-approved so it runs the whole loop on its own.
+  const repo = repository?.replace(/\.git$/, "").replace(/\/+$/, "") ?? null;
+  const folder = repo ? `${repo.split("/").pop()}-greenlight` : null;
   const commands = token
     ? [
-        "# In your app's repository:",
+        repo
+          ? `R=${repo}; case "$(git remote get-url origin 2>/dev/null)" in "$R"|"$R.git") ;; *) [ -d ${folder} ] || git clone -q "$R.git" ${folder}; cd ${folder};; esac`
+          : "# Run this inside your app's repository",
         "mkdir -p .claude/commands",
         `curl -fsSL ${origin}/app/downloads/greenlight/commands/greenlight.md -o .claude/commands/greenlight.md`,
-        `export GREENLIGHT_URL=${origin}`,
-        `export GREENLIGHT_TOKEN=${token}`,
-        `export GREENLIGHT_CHECK=${projectId}`,
-        'claude "/greenlight"',
+        `export GREENLIGHT_URL=${origin} GREENLIGHT_TOKEN=${token} GREENLIGHT_CHECK=${projectId}`,
+        'claude --permission-mode acceptEdits "/greenlight"',
       ].join("\n")
     : "";
   return (
@@ -314,11 +318,11 @@ function ConnectClaudeCode({ projectId, name }: { projectId: string; name: strin
         <span className="num-tag">004</span>
       </div>
       <p style={{ margin: 0 }}>
-        Connect your Claude Code and run <code>/greenlight</code> in your app's repository. Claude Code reads Kane's verdict, fixes the failed claims, pushes, waits for the deploy and asks Kane to check again until it passes. This page updates as it goes.
+        Click Connect, paste the commands into a terminal, and Claude Code does the rest on its own: it reads Kane's verdict, fixes the failed claims, pushes, waits for the deploy and asks Kane to check again until everything passes. This page updates as it goes.
       </p>
       {token ? (
         <>
-          <CodeBlock title="Run in your terminal" code={commands} />
+          <CodeBlock title="Paste into your terminal, then watch Claude Code work" code={commands} />
           <p className="small" style={{ margin: 0 }}>
             Copy the token now: it is shown only once. It can only read this check and re-run the claims you approved; it can't change or approve claims. Re-checks are limited and come out of the server's Kane budget. Don't commit it.
           </p>
