@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Greenlight"><defs>
+    <linearGradient id="gl-tile" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#1f2733"/>
+      <stop offset="1" stop-color="#141a22"/>
+    </linearGradient>
+    <radialGradient id="gl-sheen" cx="0.25" cy="0.08" r="0.85">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gl-check" gradientUnits="userSpaceOnUse" x1="121" y1="346" x2="346" y2="211">
+      <stop offset="0" stop-color="#b9cfdf"/>
+      <stop offset="1" stop-color="#ffffff"/>
+    </linearGradient>
+    <radialGradient id="gl-glow">
+      <stop offset="0" stop-color="#7ef0a8" stop-opacity="0.85"/>
+      <stop offset="0.45" stop-color="#7ef0a8" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#7ef0a8" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="gl-lamp" cx="0.38" cy="0.34" r="0.7">
+      <stop offset="0" stop-color="#c9ffdc"/>
+      <stop offset="0.45" stop-color="#7ef0a8"/>
+      <stop offset="1" stop-color="#22b36b"/>
+    </radialGradient>
+  </defs><rect width="512" height="512" rx="118" fill="url(#gl-tile)"/><rect width="512" height="512" rx="118" fill="url(#gl-sheen)"/><rect x="1.5" y="1.5" width="509" height="509" rx="116.5" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="3"/><g transform="translate(-8 40)"><circle cx="96" cy="256" r="31.0" fill="url(#gl-check)"/><circle cx="176" cy="336" r="32.3" fill="url(#gl-check)"/><circle cx="256" cy="256" r="33.7" fill="url(#gl-check)"/><circle cx="336" cy="176" r="35.0" fill="url(#gl-check)"/><circle cx="416" cy="96" r="122" fill="url(#gl-glow)"/><circle cx="416" cy="96" r="42" fill="url(#gl-lamp)"/><circle cx="402.6" cy="82.6" r="10.9" fill="#ffffff" fill-opacity="0.7"/></g></svg>
