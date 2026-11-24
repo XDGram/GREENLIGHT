@@ -7,7 +7,8 @@ import { ERRORS } from "../src/cli/errors.js";
 import { KANE_CAPABILITIES } from "../src/kane/capabilities.js";
 
 const API = readFileSync(new URL("../docs/API.md", import.meta.url), "utf8");
-const README = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+// The CLI reference moved from the README to docs/CLI.md; the README is the product overview.
+const README = readFileSync(new URL("../docs/CLI.md", import.meta.url), "utf8");
 const HTTP = readFileSync(new URL("../src/server/http.js", import.meta.url), "utf8");
 const MAIN = readFileSync(new URL("../src/cli/main.js", import.meta.url), "utf8");
 
@@ -26,10 +27,10 @@ test("every API route in src/server/http.js is documented", () => {
   for (const [m, p] of routes) assert.ok(documented.some(([dm, dp]) => dm === m && dp === p), `undocumented route ${m} ${p}`);
 });
 
-test("every CLI command is in the README and the usage text", () => {
+test("every CLI command is in docs/CLI.md and the usage text", () => {
   const commands = /const COMMANDS = \{([^}]+)\}/.exec(MAIN)[1].split(",").map((s) => s.split(":")[0].trim().replace(/"/g, ""));
   for (const c of commands) {
-    assert.ok(README.includes(`greenlight ${c}`), `README lacks greenlight ${c}`);
+    assert.ok(README.includes(`greenlight ${c}`), `docs/CLI.md lacks greenlight ${c}`);
     assert.match(MAIN, new RegExp(`\\n  ${c}\\s`), `usage text lacks ${c}`);
   }
 });

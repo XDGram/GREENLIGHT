@@ -1,123 +1,143 @@
-# GREENLIGHT
+# Greenlight
 
-Greenlight proves that a **deployed** application does what its **approved** requirements claim. A person approves the tests, Kane CLI runs them in a real browser against the live URL, Greenlight classifies Kane's verdicts and hands structured failure reports to Claude Code through a Skill and a Stop hook. Claude fixes the application, pushes, and Greenlight verifies again. A person can then ask the Greenlight server for a fresh, independently executed certification with a permanent public record.
+**Does your app do what its README says?** Greenlight turns the promises in a README into claims, has **Kane CLI** test each one on the live app in a real browser, and gives a verdict per claim. When a claim fails, you paste one message into **Claude Code**: it reads Kane's verdict, fixes the code, pushes, and asks Kane to check again, until every claim passes.
 
-BUILD → VERIFY → DETECT → FIX → RE-VERIFY → CERTIFY. The project brief is [GREENLIGHT_PROJECT_BRIEF.md](GREENLIGHT_PROJECT_BRIEF.md).
+Live app: **https://greenlight-api-xi.vercel.app/app** (no account needed)
 
-## Architecture
+Built for the Kane CLI Hackathon. Agent: **Claude Code**.
+
+![Greenlight](brand/greenlight-share-1200x630.png)
+
+---
+
+## Try it in five minutes
+
+You don't need an account, a key or a credit card. Guest runs use our TestMu credits and have a daily cap.
+
+1. Open **https://greenlight-api-xi.vercel.app/app** and click **Check my app** (top right).
+2. Paste the demo app. It has one claim that works and one that is broken on purpose:
+   - GitHub repository: `https://github.com/XDGram/GREENLIGHT` (the demo lives in `examples/demo-shop`)
+   - Live app URL: `https://greenlight-demo-shop.vercel.app`
+   - README: paste or upload [`examples/demo-shop/README.md`](examples/demo-shop/README.md)
+3. Greenlight lists the claims and the exact credit cost. Click **Run**.
+4. Watch Kane work (about 2 minutes). The verdict comes back claim by claim:
+   - "Users can add items to the cart and the cart count goes up": **Passed**
+   - "Users can subscribe to the newsletter with their email and see a confirmation": **Failed**, with what Kane saw.
+5. Click **Connect Claude Code**, copy the message, and paste it into Claude Code in a clone of the repo. Claude Code fixes the newsletter bug, pushes, and asks Greenlight for a re-check. Kane passes both claims.
+
+You can also try it on your own app: any public GitHub repository and its deployed URL.
+
+**If a third-party service is down:** the sample check at **https://greenlight-api-xi.vercel.app/app/sample** shows a complete result page without running Kane. Section [Proof it works](#proof-it-works) lists real runs that already happened, with their ids and commits.
+
+---
+
+## How it works
 
 ```
-developer's repo (Claude Code works here)          Greenlight server (container with Chrome + kane-cli)
-┌──────────────────────────────────────────┐       ┌───────────────────────────────────────────────┐
-│ greenlight.yaml  .greenlight/tests/*.md  │       │ HTTP API v1 (src/server/http.js)              │
-│ .greenlight/approval.json (local)        │       │  projects · test versions · owner approval    │
-│                                          │       │  certification jobs · permanent records       │
-│ greenlight CLI (src/cli)                 │ HTTPS │  public records (redacted, hash-checkable)    │
-│  generate · approve · status · verify ───┼──┐    │ certify.js: fresh workspace → Kane → record   │
-│  runs · check-run · publish ─────────────┼──┼──▶ │ supabase/: Postgres RPC + private Storage     │
-│ Stop hook (src/hook) ── verify loop      │  │    └───────────────────────────────────────────────┘
-│ Skill (skills/greenlight) ── teaches     │  │
-└──────────────┬───────────────────────────┘  │     live deployment: <url>/greenlight.json = {commit, environment}
-               │ subprocess                   │
-               ▼                              │
-           kane-cli 0.10.6 (--local, --no-adaptive-heal, always)
+ you                     Greenlight                     Kane CLI                  Claude Code
+  │ repo, live URL,        │                               │                           │
+  │ README ──────────────▶ │ claims + cost                  │                           │
+  │ ◀───────────────────── │                               │                           │
+  │ approve, Run ────────▶ │ one test per claim ──────────▶ │ real Chromium,             │
+  │                        │                               │ clicks through the live app│
+  │                        │ ◀──── passed, failed + notes ─ │                           │
+  │ ◀── verdict per claim, │                               │                           │
+  │     what Kane saw, fix │                               │                           │
+  │ paste message ─────────┼───────────────────────────────┼─────────────────────────▶ │
+  │                        │ ◀── GET /v1/checks/:id ────────┼────────────────────────── │ reads Kane's notes
+  │                        │                               │                           │ fixes, commits, pushes
+  │                        │ ◀── POST /v1/checks/:id/recheck┼────────────────────────── │
+  │                        │ new run ─────────────────────▶ │ tests the new deploy       │
+  │                        │ ◀──── passed ───────────────── │                           │
+  │                        │ ── verdict ────────────────────┼─────────────────────────▶ │ stops when all pass
 ```
 
-| Module | Responsibility |
+1. **Claims.** Every bullet point or line of the README (or your own notes) becomes one claim. You can edit, drop or add claims before anything runs.
+2. **Approval and spend.** You see each test and the exact credit cost, and nothing runs until you approve it. Each run is capped, and the server has a total credit cap too.
+3. **Kane tests the live app.** Each job runs in its own Vercel Sandbox (a short-lived microVM). Inside it, Kane CLI 0.10.6 drives a real Chromium against the deployed URL, with `--agent --local --no-adaptive-heal`. Kane can't quietly rewrite an approved test so that it passes.
+4. **Verdict.** Greenlight classifies Kane's own result per test and rolls it up per claim: **Passed**, **Failed** (with Kane's note on what it saw and the step that failed), or **Could not verify** (the site didn't load, Kane errored). "Could not verify" never counts as passed and never goes to the fix loop.
+5. **The closed loop.** The result page creates an agent token for that check and gives you one message to paste into Claude Code. It runs the [`/greenlight` command](skills/greenlight/commands/greenlight.md):
+   - read the verdict (`GET /v1/checks/:id`);
+   - fix the code behind each failed claim, using Kane's note as the symptom;
+   - commit and push, then wait for the new deploy;
+   - ask Kane to check again (`POST /v1/checks/:id/recheck`), and repeat until every claim passes (at most three rounds).
+
+   The agent token can read checks and start re-checks. A re-check only re-runs tests you already approved, within the same credit caps. The token can't approve new tests.
+
+---
+
+## Proof it works
+
+All of these are real Kane CLI runs against live deployments, through the production site (Supabase project records):
+
+| Run | What happened |
 |---|---|
-| `src/kane/` | Run Kane as a subprocess in its own process group; parse its NDJSON stream; timeouts; the pinned version and its limitations (`capabilities.js`) |
-| `src/verify/` | Classify per test from Kane's exit code and final statuses only; roll up to claims (`passed`, `failed`, `partial`, `couldnt_verify`) and the project |
-| `src/evidence/` | Locate, structurally check, copy, validate (`kane-cli evidence validate`) and hash the evidence pack; write a self-hashed run manifest |
-| `src/credits/` | Read the balance, estimate, authorise (cap, reserve, confirmation), reconcile the actual spend |
-| `src/spec/` | `greenlight.yaml` schema, test generation, approved-test hash, local approval, recording detection and integrity |
-| `src/deploy/` | Git readiness (clean, pushed), polling `/greenlight.json` for the exact commit, public-host and SSRF checks |
-| `src/report/` | Failure reports (JSON, Markdown, public copy) and redaction |
-| `src/hook/` | Claude Code Stop hook: when to verify, three-attempt fix limit, locking, state |
-| `src/runs/` | Run history and record re-verification |
-| `src/server/` | API, server-side approval, certification jobs, permanent verification records |
-| `src/server/supabase/` | Production persistence: service-role RPC client, Supabase repository, evidence in private Storage, file → Supabase migration |
-| `supabase/migrations/` | Schema `greenlight` (tables, constraints, immutability triggers, RLS), service-role-only RPC functions, private evidence bucket |
-| `src/cli/` | Commands, `--json` output, stable error codes (`errors.js`) |
+| `job_318ca85431854f0a887d1d92f6446bbc` | Started by a person on the demo shop. Cart claim **Passed**. Newsletter claim **Failed**. Kane: "Three valid email submissions all returned 'Subscription failed. Please try again later.'" |
+| commit [`6919b14`](https://github.com/XDGram/GREENLIGHT/commit/6919b14) | Claude Code's fix from that verdict: the form checked `res.status === "ok"` but the API answers `{ ok: true }`. |
+| `job_160ed9123d7748d387eab3f4484cd93b` | Re-check **started by Claude Code** with its agent token after the push. Both claims **Passed**. |
+| `job_5e09f9e662584ac3a637a63272f7da7d` → [`2ccfdcf`](https://github.com/XDGram/GREENLIGHT/commit/2ccfdcf) → `job_bd86feb988524a9180e410cd0f081e84` | The same loop a second time, after the bug was put back ([`944de35`](https://github.com/XDGram/GREENLIGHT/commit/944de35)): Failed, fixed by Claude Code, re-checked by the agent, Passed. |
 
-There are no runtime dependencies (Node ≥ 20). The only dev dependency is PGlite, which runs the real Supabase migrations in-process for the tests.
+The bug is in the demo shop again ([`a70e334`](https://github.com/XDGram/GREENLIGHT/commit/a70e334)), so the newsletter claim fails when you try it yourself.
 
-## Setup
+---
 
-Developer machine (where Claude Code works on the application):
+## What's in the repository
 
-1. Node ≥ 20 and `npm i -g @testmuai/kane-cli@0.10.6`, then `kane-cli login --oauth` (a person, once).
-2. Chrome is needed by Kane (`KANE_CLI_CHROME_PATH` if it is not found).
-3. In the application repository: install Greenlight, copy `skills/greenlight` to `.claude/skills/greenlight`, and register the Stop hook (`bin/greenlight-stop-hook.js`, with `"timeout": 3600`) as described in [skills/README.md](skills/README.md).
-4. The deployed application must serve `/greenlight.json`: `{"commit": "<full git sha>", "environment": "preview|production"}`, written at build time from the deployed commit.
+| Path | What it is |
+|---|---|
+| `web/` | The app (React 18 + Vite): new check, live run view, verdict, Connect Claude Code. Built into `public/app/`. |
+| `src/server/` | The API on Vercel Functions: checks, claims, approval and spend, jobs, the agent API (`/v1/checks`), guests, sandbox orchestration. |
+| `src/server/sandbox.js`, `bin/greenlight-worker.js` | One Vercel Sandbox per job: installs the pinned Kane CLI and Chromium, runs the job, settles it. |
+| `src/kane/` | Runs Kane as a subprocess, parses its NDJSON stream, enforces the flags and timeouts. |
+| `src/verify/` | Turns Kane's exit code and final statuses into per-test and per-claim verdicts. |
+| `src/credits/` | Estimates, authorises and reconciles Kane credit spend. |
+| `skills/greenlight/` | The Claude Code side: the `/greenlight` command and the skill. |
+| `examples/demo-shop/` | The demo app with one working and one broken claim. |
+| `supabase/migrations/` | Postgres schema, row-level security, write-once records. |
+| `docs/` | [API](docs/API.md), [CLI and certification](docs/CLI.md), [Supabase](docs/SUPABASE.md), [hosting](docs/HOSTING.md), [web app](docs/WEB.md). |
 
-Server (certification): a container or dedicated host with Chrome and an authenticated `kane-cli` 0.10.6. Not a serverless function. It persists to Supabase: apply `supabase/migrations/`, then run `SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node bin/greenlight-server.js` behind a TLS reverse proxy, and issue tokens with `greenlight-admin`. See [docs/SUPABASE.md](docs/SUPABASE.md) and [docs/API.md](docs/API.md). Container image and hosting: `Dockerfile`, `compose.yaml`, [docs/HOSTING.md](docs/HOSTING.md).
+Stack: Node 20+ (ES modules), React 18, Vite, Vercel Functions and Sandbox, Supabase (Postgres and Storage), Kane CLI 0.10.6, `@sparticuz/chromium`.
 
-## CLI
+---
 
-| Command | What it does | Exit codes |
-|---|---|---|
-| `greenlight init` | Starter `greenlight.yaml` (never overwrites) | 0, 4 |
-| `greenlight generate` | Validate the spec, write `.greenlight/tests/*_test.md`, print the approved-test hash | 0, 4 |
-| `greenlight approve` | **A person**, at an interactive terminal, types the first 12 characters of the hash. Refused for agents/CI. | 0, 4 |
-| `greenlight approve --relayed <hash>` | Controlled tests only (`GREENLIGHT_RELAYED_APPROVAL=1`): records an approval a person gave in chat. **Never certifiable.** | 0, 4 |
-| `greenlight status` | Spec, approval, generated tests, recording cache, Kane limitations | 0, 4 |
-| `greenlight verify` | Gates → deployment → credits → Kane → classification → evidence → report | 0 pass, 1 app failures, 3 could not verify, 4 blocked, 130 interrupted |
-| `greenlight runs` | Run history with every record's integrity re-checked | 0, 3 |
-| `greenlight check-run <run-id>` | Re-check one run record and its files against their hashes | 0, 3, 4 |
-| `greenlight submit` | Propose `greenlight.yaml` as a server test version (agent or owner token); creates the server project once and records it in `.greenlight/server.json` | 0, 3, 4 |
-| `greenlight server-approve` | **A person** reviews the server version's tests and types the full hash back to approve it on the server (owner token). Refused for agents/CI | 0, 4 |
-| `greenlight publish --confirm-spend <credits>` (`--project`/`--version` default to `.greenlight/server.json`) | **A person** asks the server for a fresh certification run. Refused for agents/CI and relayed approvals. | 0 certified, 1 not certified, 3, 4 |
+## Run it yourself
 
-Every command accepts `--json` (one `greenlight.cli-result/v1` document on stdout; human lines on stderr). Errors carry stable codes; see [docs/API.md](docs/API.md#error-codes).
+Tests (no network, no Kane, no credits; a booby-trapped `kane-cli` on `PATH` fails the run if anything tries to call it):
 
-`verify` options: `--url`, `--environment`, `--max-credits` (default 60), `--reserve` (default 500), `--kane`, `--kane-timeout-minutes` (30), `--deploy-timeout-seconds` (600), `--deploy-interval-seconds` (10), `--confirm-spend` (relayed only), `--estimate-margin` (≥ 1).
+```bash
+npm install
+npm test               # 460 tests
+npm run typecheck:web
+npm run build          # web app → public/app
+```
 
-## Configuration and environment
+Your own deployment needs:
 
-| Variable | Used by | Meaning |
-|---|---|---|
-| `GREENLIGHT_KANE_BIN` | CLI | Kane binary (default `kane-cli`) |
-| `GREENLIGHT_RELAYED_APPROVAL=1` | CLI | Enables relayed approval for controlled tests (never certifiable) |
-| `GREENLIGHT_URL` | Stop hook | Live URL to verify instead of `project.url` (e.g. the preview URL) |
-| `GREENLIGHT_CONFIRM_SPEND` | Stop hook | Relayed mode: the spend a person approved for this one invocation |
-| `GREENLIGHT_API_URL`, `GREENLIGHT_API_TOKEN` | `publish` | Server URL and an **owner** token |
-| `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `AI_AGENT`, `CI`, `GITHUB_ACTIONS`, `GREENLIGHT_AGENT` | CLI | Detected as an agent/CI: approval, spend confirmation and publish are refused |
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (secret), `GREENLIGHT_EVIDENCE_BUCKET`, `GREENLIGHT_WORK_DIR` | server, admin, migration | Production persistence ([docs/SUPABASE.md](docs/SUPABASE.md)) |
-| `GREENLIGHT_API_TOKENS`, `GREENLIGHT_PORT`, `GREENLIGHT_HOST`, `GREENLIGHT_PUBLIC_BASE_URL`, `GREENLIGHT_MAX_CONCURRENT_JOBS`, `GREENLIGHT_MAX_QUEUED_JOBS`, `GREENLIGHT_MAX_CREDITS_PER_RUN`, `GREENLIGHT_CREDIT_RESERVE`, `GREENLIGHT_RATE_LIMIT_PER_MINUTE`, `GREENLIGHT_KANE_TIMEOUT_MINUTES`, `GREENLIGHT_DEPLOY_TIMEOUT_SECONDS` | server | See `src/server/config.js` |
+- A Vercel project with this repository (Vercel Sandbox enabled).
+- A Supabase project with `supabase/migrations/` applied (see [docs/SUPABASE.md](docs/SUPABASE.md)).
+- A TestMu account for Kane CLI.
 
-## Verification lifecycle (developer side)
+Set these environment variables:
 
-1. `greenlight.yaml` → `generate` → a person reviews `.greenlight/tests/` and runs `approve`. Any later change to the spec or a generated file invalidates the approval (the hash is recomputed every time).
-2. Claude changes the app, commits and **pushes**. The Stop hook runs when Claude finishes:
-   - asks for commit/push once per commit, skips commits that only touch Greenlight/Claude files, never re-runs a commit with a result;
-   - runs `greenlight verify`, which takes the verify lock (one verification at a time, hook or person), checks the recording cache, waits for `/greenlight.json` to report HEAD, estimates and authorises credits **before Kane starts**, runs Kane, classifies, stores and validates evidence, reconciles the actual spend and writes `.greenlight/reports/latest.{json,md}` and a run record under `.greenlight/runs/<run-id>/`;
-   - an infrastructure failure (no app failures, not an interruption) is retried **once**, only within what is left of the same credit limit and with a new confirmation if it authors;
-   - exit 1 (app failures) blocks Claude with the report (exit 2 of the hook), up to **three** automatic fix attempts; then a person must review and run `greenlight-stop-hook reset`. The attempt count is also rebuilt from the immutable run records, and an unreadable state file stops the loop, so neither restarting the hook nor deleting `state.json` resets it.
-3. Statuses stay distinct: `passed`, `failed`, `couldnt_verify` (infrastructure, deployment, broken runs — never sent to the fix loop), `interrupted` (never trusted).
+| Variable | What it is |
+|---|---|
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Database and storage (the key is secret) |
+| `GREENLIGHT_KANE_USERNAME`, `GREENLIGHT_KANE_ACCESS_KEY` | Kane CLI login, passed only into the job's sandbox |
+| `GREENLIGHT_PUBLIC_BASE_URL` | The deployment's public URL |
+| `GREENLIGHT_APPROVAL_SIGNING_KEY` | Signs approvals; the worker checks the signature before spending |
+| `GREENLIGHT_GUEST_MODE=on` | Lets people try it without an account |
+| `GREENLIGHT_MAX_CREDITS_PER_RUN`, `GREENLIGHT_TOTAL_CREDIT_CAP` | Spend limits |
 
-## Approval and certification rules
+Every setting is in `src/server/config.js`.
 
-- Claude may propose tests and changes; only a person approves. Locally: an interactive terminal, agent/CI refused. On the server: an `owner` token and the full hash typed back. `agent` tokens can propose but never approve or certify.
-- Relayed approvals are explicitly `certifiable: false` and are refused by `publish`. The server never accepts local approvals at all.
-- Developer-side runs and reports are `runKind: "iteration"`, `certification: false`, always. There is no API to upload them.
-- A certification exists only as a server VerificationRecord from the server's own fresh run: hash re-derived from the stored spec, owner approval for exactly that hash, deployed commit confirmed, empty workspace (nothing cached), spend confirmed and capped, evidence stored and validated, all claims passed. Failed runs get permanent records too, with `certified: false`.
-- Records are write-once with a self-hash; the public view is redacted and carries a recomputable `publicSha256`; a tampered record is refused.
-- Every URL must be a public deployed URL: localhost, private, link-local (cloud metadata) and reserved addresses are refused; the server also resolves DNS and refuses private answers.
+To use the Claude Code command without the web page, copy `skills/greenlight/commands/greenlight.md` to `.claude/commands/` in your app's repository. Then set `GREENLIGHT_TOKEN` (an agent token) and `GREENLIGHT_CHECK`, and run `/greenlight`.
 
-## Known limitations
+---
 
-- **Kane 0.10.6 keeps no recordings in local mode.** Greenlight never enables Test Manager uploads, and in `--local` Kane writes the replayable `execution.json` only through its upload pipeline, which needs a Test Manager test id. So every run authors every test afresh (≈ 37 credits per test of up to 3 steps, +20 per run; E1 actually cost 76.64 for two tests), cross-run replay is impossible, and a `recording_not_retained` warning is raised. Because fresh authoring needs explicit spend confirmation, **the Stop-hook fix loop cannot run unattended** except in relayed mode with a per-invocation `GREENLIGHT_CONFIRM_SPEND`. Lifting this needs a Kane release that persists recordings under `--local`, or a decision to allow uploads (see `src/kane/capabilities.js`).
-- Local approval, state and run records are guardrails, not security: someone with write access to the checkout can forge them. Certification does not depend on any of them; the server is the authority.
-- Kane's own session logs undercount spend (E1: 61.70 logged vs 76.64 by balance); the balance difference is the only actual spend and the discrepancy is always recorded.
-- Supabase persistence is implemented and tested against the real migrations on PGlite with a mocked Data API and Storage, but **no Supabase project has the schema yet** (see [docs/SUPABASE.md](docs/SUPABASE.md)). Rate limits and the job concurrency limit are per server process. The server has not yet run against real Kane, a real deployment or real credits. Requirement analysis by AI (brief §3) is done by Claude writing `greenlight.yaml`; there is no server-side analysis.
-- Certification runs are not retried automatically (each attempt spends credits); a person starts another.
+## Limits, honestly
 
-## Web app
-
-Signed-in approvers get a dashboard at `/app` (projects, verification path, claims, tests, approvals, records). It is read-only and uses the Sign in with Vercel session; see [docs/WEB.md](docs/WEB.md).
-
-## Development
-
-`npm run build` builds the web app into `public/app/`; `npm run dev:web` serves it locally.
-
-`npm test` runs the whole suite with mocks only: no Kane, network, deployments or credits (a booby-trapped `kane-cli` on `PATH` fails the run if anything tries). Real captured Kane 0.10.6 output lives in `test/fixtures/kane/`.
+- **Each run authors its tests fresh.** In local mode, Kane 0.10.6 keeps no replayable recording, so every run pays to author each test again. A 2-claim run costs about 90 to 100 credits. This is why every run needs an approved spend.
+- **The live view shows only what the server knows.** While a run is going, Kane doesn't report per-claim progress, so the page shows the run's status, a timer and the claims, but not which claim Kane is on.
+- **Deploy timing.** A re-check tests whatever is deployed at the live URL. The `/greenlight` command waits for the new deploy before asking for a re-check, but a slow deploy can mean testing the old version. Kane's notes make that visible.
+- **Guest runs stay private.** They are capped per guest and per day and never become public records.
+- **Fix suggestions.** Without an Anthropic API key configured, the result page's suggested fixes are generic. Kane's own note on what it saw is always shown.
