@@ -1,380 +1,500 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { LayoutGroup, motion, useInView, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { guestApi } from "../api";
 import { Logo } from "../components/Chrome";
-import { PixelScatter } from "../components/GlobeField";
-import { DotWave } from "../components/DotWave";
-import { LoopIllustration } from "../components/LoopIllustration";
-import { useRouter } from "../router";
-import "../styles/landing.css";
+import { Cloud, CloudBank, Stars } from "../components/Sky";
+import { Link, useRouter } from "../router";
+import type { Session } from "../types";
+import { CheckForm } from "./CheckPage";
 
-// The public landing page. Night blue fading to white, an upright serif for headlines and Geist for
-// everything else, illustrations where they explain something. Every "Check your app" opens the
-// app itself (a visitor session starts on the first click; no sign-up).
+// The public landing page, in three skies: a bright day sky with the Greenlight app window rising
+// out of the clouds (its claims move Queued -> Testing -> Verdict as you scroll), frosted glass
+// step cards, and a night sky to close. Buttons, switches, the loader and check marks are adapted
+// from Uiverse.io (uiverse.css). Motion stops for viewers who prefer reduced motion.
 
 const ADMIN_LOGIN = "/approve/login?next=%2Fapp";
-const REPO = "https://github.com/XDGram/GREENLIGHT";
+const ease = [0.22, 1, 0.36, 1] as const;
 
-export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void> }) {
-  const { navigate } = useRouter();
-  const [scrolled, setScrolled] = useState(false);
-  const [opening, setOpening] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Open the app: start a visitor session (a cookie on this browser), then show the app.
-  const openApp = async (e?: React.MouseEvent) => {
-    e?.preventDefault();
-    if (opening) return;
-    if (!guestMode) {
-      window.location.assign(googleUrl ?? ADMIN_LOGIN);
-      return;
-    }
-    setOpening(true);
-    setError(null);
-    try {
-      await guestApi.start();
-      navigate("/app");
-      await onEntered();
-    } catch (err) {
-      setError((err as Error).message);
-      setOpening(false);
-    }
-  };
-  const go = (id: string) => (e?: React.MouseEvent) => {
-    e?.preventDefault();
-    const still = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
-  };
-
-  useEffect(() => {
-    document.title = "Greenlight · Your README makes promises. Kane checks them.";
-    const onScroll = () => setScrolled(window.scrollY > 16);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  const Cta = ({ label = "Check your app", small = false }: { label?: string; small?: boolean }) => (
-    <a className={`lp-btn ${small ? "lp-btn-sm" : ""}`} href="/app" onClick={openApp} aria-busy={opening}>
-      {opening ? <span className="lp-spin" aria-hidden="true" /> : null}
-      {label}
-    </a>
-  );
-
+function Reveal({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
+  const still = useReducedMotion();
   return (
-    <div className="lp">
-      <header className={`lp-nav ${scrolled ? "is-scrolled" : ""}`}>
-        <div className="lp-nav-in">
-          <a href="/app" className="lp-brand" aria-label="Greenlight home" onClick={go("top")}>
-            <Logo size={20} />
-            <span>Greenlight</span>
-          </a>
-          <nav className="lp-links" aria-label="Main">
-            <a href="#how" onClick={go("how")}>
-              How it works
-            </a>
-            <a href="#why" onClick={go("why")}>
-              Why Greenlight
-            </a>
-            <a href="#claude" onClick={go("claude")}>
-              Claude Code
-            </a>
-            <a href={REPO} rel="noopener">
-              GitHub
-            </a>
-          </nav>
-          <div className="lp-nav-right">
-            {googleUrl ? (
-              <a className="lp-signin" href={googleUrl}>
-                Log in
-              </a>
-            ) : null}
-            <Cta small />
-          </div>
-        </div>
-      </header>
+    <motion.div
+      className={className}
+      initial={still ? false : { opacity: 0, y: 40, scale: 0.97, filter: "blur(14px)" }}
+      whileInView={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+      viewport={{ once: true, margin: "-8% 0px" }}
+      transition={{ duration: 1.1, ease, delay }}
+    >
+      {children}
+    </motion.div>
+  );
+}
 
-      <main id="top">
-        <section className="lp-hero" aria-labelledby="hero-h">
-          <DotWave horizon={0.6} amplitude={1.2} className="lp-wave" />
-          <div className="lp-hero-in">
-            <a className="lp-badge" href="#claude" onClick={go("claude")}>
-              <span className="lp-badge-new">New</span>
-              Fix what Kane finds with Claude Code
-              <span aria-hidden="true">›</span>
-            </a>
-            <h1 id="hero-h">
-              Your README makes promises.
-              <br />
-              Kane checks them.
-            </h1>
-            <p>Greenlight tests every claim in your README on your live app, in a real browser with Kane CLI, and tells you what passed, what failed and how to fix it.</p>
-            <div className="lp-cta">
-              <Cta />
-              <a className="lp-btn-ghost" href="#how" onClick={go("how")}>
-                See how it works
-              </a>
-            </div>
-            {error ? (
-              <p className="lp-err" role="alert">
-                {error}
-              </p>
-            ) : (
-              <ul className="lp-hero-notes" aria-label="What you get">
-                <li>Free to try</li>
-                <li>No sign-up</li>
-                <li>Real browser</li>
-              </ul>
-            )}
-          </div>
-        </section>
+// ------------------------------------------------------------------ the app window in the hero
 
-        <section className="lp-sec lp-proof" aria-labelledby="proof-h">
-          <PixelScatter />
-          <div className="lp-wrap">
-            <h2 id="proof-h">Ship it, then prove it</h2>
-            <p className="lp-lead">
-              Every claim gets a <strong>verdict from a real browser</strong>, with what Kane saw when something breaks.
-            </p>
-            <ProductWindow />
-          </div>
-        </section>
+type Stage = "queued" | "testing" | "pass" | "fail";
+const BOARD = [
+  { id: "c1", title: "Add to cart", text: "Visitors can add a product to the cart and the count goes up.", ok: true },
+  { id: "c2", title: "Cart total", text: "The cart shows the total of the items in it.", ok: true },
+  { id: "c3", title: "Password reset", text: "Users can reset their password from the sign-in page.", ok: false },
+];
+/** Where each claim is at a given scroll step (0..6). */
+function stageOf(i: number, step: number, ok: boolean): Stage {
+  const start = i * 2 + 1;
+  if (step < start) return "queued";
+  if (step === start) return "testing";
+  return ok ? "pass" : "fail";
+}
 
-        <section id="how" className="lp-sec lp-deep" aria-labelledby="how-h">
-          <DotWave horizon={0.72} amplitude={0.7} className="lp-band-wave" />
-          <PixelScatter tone="white" />
-          <div className="lp-wrap">
-            <span className="lp-eyebrow on-dark">How it works</span>
-            <h2 id="how-h">From README to green light</h2>
-            <p className="lp-lead on-dark">Four steps. The last one repeats until every claim passes.</p>
-            <div className="lp-figure">
-              <LoopIllustration />
-            </div>
-            <ol className="lp-steps on-dark">
-              <li>
-                <span className="lp-num">01</span>
-                <h3>Paste</h3>
-                <p>Your GitHub repo, the live URL and your README. Each bullet point becomes a claim.</p>
-              </li>
-              <li>
-                <span className="lp-num">02</span>
-                <h3>Kane tests</h3>
-                <p>Kane CLI uses your deployed app like a visitor would, one claim at a time.</p>
-              </li>
-              <li>
-                <span className="lp-num">03</span>
-                <h3>Verdict</h3>
-                <p>Passed or failed for every claim, with what Kane saw and a suggested fix.</p>
-              </li>
-              <li>
-                <span className="lp-num">04</span>
-                <h3>Claude Code fixes</h3>
-                <p>Paste one message into Claude Code. It fixes, pushes and asks Kane to check again.</p>
-              </li>
-            </ol>
-          </div>
-        </section>
-
-        <section id="why" className="lp-sec lp-dotted" aria-labelledby="why-h">
-          <div className="lp-wrap">
-            <span className="lp-eyebrow">Why Greenlight</span>
-            <h2 id="why-h">Honest answers, not screenshots</h2>
-            <div className="lp-cards">
-              <article className="lp-card">
-                <BrowserArt />
-                <h3>A real browser, on the real app</h3>
-                <p>Kane clicks, types and reads your deployed site. No mocks, no staging copy, no guessing from code.</p>
-              </article>
-              <article className="lp-card">
-                <LockArt />
-                <h3>You approve every claim</h3>
-                <p>You see exactly what will be tested and what it costs. Agents can re-run your claims, never change them.</p>
-              </article>
-              <article className="lp-card">
-                <VerdictArt />
-                <h3>Three plain answers</h3>
-                <p>Passed, failed, or could not verify. When something fails you see what Kane saw, not just a red cross.</p>
-              </article>
-            </div>
-          </div>
-        </section>
-
-        <section id="claude" className="lp-sec lp-dark" aria-labelledby="claude-h">
-          <DotWave horizon={0.62} amplitude={0.8} className="lp-band-wave" />
-          <div className="lp-wrap lp-split">
-            <div>
-              <span className="lp-eyebrow on-dark">Claude Code</span>
-              <h2 id="claude-h">One paste. It fixes, Kane confirms.</h2>
-              <p className="lp-lead on-dark">
-                Every result has a <strong>Fix it with Claude Code</strong> message. Paste it into Claude Code and it gets your code, reads Kane’s verdict, fixes what failed, pushes and asks Kane to check again until every claim passes.
-              </p>
-              <ul className="lp-ticks">
-                <li>Claims stay exactly as you approved them</li>
-                <li>The result page updates live while it works</li>
-                <li>Windows, macOS and Linux</li>
-              </ul>
-            </div>
-            <div className="lp-term" aria-label="Claude Code fixing a failed claim">
-              <div className="lp-term-bar">
-                <span />
-                <span />
-                <span />
-                <b>claude code</b>
-              </div>
-              <pre>
-                <span className="t-dim">› Kane: newsletter claim </span>
-                <span className="t-red">failed</span>
-                {"\n"}
-                <span className="t-dim">{'  "Subscription failed. Please try again later."'}</span>
-                {"\n\n"}
-                {"✎ app.js: read the API's "}
-                <span className="t-hl">ok</span>
-                {" field\n↑ pushed 2ccfdcf, deploy is live\n⟳ asked Kane to re-check\n\n"}
-                <span className="t-green">✓ cart          passed</span>
-                {"\n"}
-                <span className="t-green">✓ newsletter    passed</span>
-              </pre>
-            </div>
-          </div>
-        </section>
-
-        <section className="lp-sec lp-close" aria-labelledby="close-h">
-          <DotWave horizon={0.5} amplitude={0.9} className="lp-close-globe" />
-          <div className="lp-wrap lp-close-in">
-            <h2 id="close-h">Find out what your app really does.</h2>
-            <p className="lp-lead on-dark">One free run without signing up. You see the cost before anything runs.</p>
-            <div className="lp-cta">
-              <Cta />
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="lp-foot">
-        <div className="lp-wrap lp-foot-in">
-          <span className="lp-brand">
-            <Logo size={18} />
-            <span>Greenlight</span>
+function ClaimCard({ c, stage }: { c: (typeof BOARD)[number]; stage: Stage }) {
+  return (
+    <motion.div layout layoutId={c.id} transition={{ type: "spring", stiffness: 260, damping: 30 }} className={`bcard ${stage}`}>
+      <b>{c.title}</b>
+      <p>{c.text}</p>
+      <div className="bcard-foot">
+        {stage === "testing" ? (
+          <span className="bchip run">
+            <span className="dash-loader small" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            Kane is testing
           </span>
-          <span className="lp-foot-note">Real browser tests by Kane CLI. Fixes by Claude Code.</span>
-          <span className="lp-foot-sp" />
-          <nav className="lp-foot-links" aria-label="Footer">
-            {googleUrl ? <a href={googleUrl}>Log in</a> : null}
-            <a href={ADMIN_LOGIN}>Administrator</a>
-            <a href={REPO} rel="noopener">
-              GitHub
-            </a>
-          </nav>
+        ) : stage === "queued" ? (
+          <>
+            <span className="bchip">Approved</span>
+            <span className="bchip">~37 credits</span>
+          </>
+        ) : (
+          <>
+            <span className={`bchip ${stage}`}>
+              <span className={`uv-check on ${stage === "fail" ? "fail" : ""}`} aria-hidden="true" />
+              {stage === "pass" ? "Passed" : "Failed"}
+            </span>
+            <span className="bchip">{stage === "pass" ? "View evidence" : "See the fix"}</span>
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function AppWindow() {
+  const ref = useRef<HTMLDivElement>(null);
+  const still = useReducedMotion();
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end 0.75"] });
+  const [step, setStep] = useState(still ? 6 : 0);
+  useEffect(() => {
+    if (still) return;
+    return scrollYProgress.on("change", (v) => setStep(Math.max(0, Math.min(6, Math.floor((v - 0.35) / 0.08)))));
+  }, [scrollYProgress, still]);
+  const cols: { key: string; title: string; icon: string; match: (s: Stage) => boolean }[] = [
+    { key: "queued", title: "Queued", icon: "q", match: (s) => s === "queued" },
+    { key: "testing", title: "Testing", icon: "t", match: (s) => s === "testing" },
+    { key: "verdict", title: "Verdict", icon: "v", match: (s) => s === "pass" || s === "fail" },
+  ];
+  const winBlur = useTransform(scrollYProgress, [0, 0.4], still ? ["blur(0px)", "blur(0px)"] : ["blur(10px)", "blur(0px)"]);
+  const winScale = useTransform(scrollYProgress, [0, 0.4], still ? [1, 1] : [0.92, 1]);
+  const winY = useTransform(scrollYProgress, [0, 0.4], still ? [0, 0] : [60, 0]);
+  const stages = BOARD.map((c, i) => stageOf(i, step, c.ok));
+  const passed = stages.filter((s) => s === "pass").length;
+  return (
+    <motion.div className="appwin-wrap" ref={ref} style={{ filter: winBlur, scale: winScale, y: winY }}>
+      <div className="appwin" role="img" aria-label="The Greenlight app: claims move from Queued to Testing to a verdict; two pass, one fails.">
+        <aside className="aw-side">
+          <div className="aw-brand">
+            <Logo size={20} />
+            Greenlight
+          </div>
+          <span className="aw-item on">
+            <i className="ic ic-check" /> Checks <em>3</em>
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-act" /> Activity
+          </span>
+          <span className="aw-group">Main</span>
+          <span className="aw-item">
+            <i className="ic ic-grid" /> Overview
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-list" /> Claims
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-doc" /> Evidence
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-fix" /> Fixes
+          </span>
+          <span className="aw-group">Records</span>
+          <span className="aw-item">
+            <i className="ic ic-hist" /> History
+          </span>
+        </aside>
+        <div className="aw-main">
+          <div className="aw-top">
+            <span className="aw-search">acme/shop · shop.example.com</span>
+            <span className="aw-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
+          <div className="aw-head">
+            <div>
+              <h3>Claims</h3>
+              <span className="aw-filter">
+                {passed} of {BOARD.length} passed · 94 credits approved
+              </span>
+            </div>
+            <span className="aw-btn">‹ Run again</span>
+          </div>
+          <LayoutGroup>
+            <div className="board">
+              {cols.map((col) => (
+                <div key={col.key} className="bcol">
+                  <div className="bcol-head">
+                    <span className={`bico ${col.icon}`} aria-hidden="true" />
+                    {col.title}
+                  </div>
+                  {BOARD.map((c, i) => (col.match(stages[i]!) ? <ClaimCard key={c.id} c={c} stage={stages[i]!} /> : null))}
+                  <span className="bcol-add">+ Add claim</span>
+                </div>
+              ))}
+            </div>
+          </LayoutGroup>
         </div>
-      </footer>
+      </div>
+    </motion.div>
+  );
+}
+
+// ------------------------------------------------------------------ glass step cards
+
+function MiniRun() {
+  const ref = useRef<HTMLDivElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-20% 0px" });
+  const still = useReducedMotion();
+  const [phase, setPhase] = useState(still ? 3 : 0);
+  useEffect(() => {
+    if (!inView || still) return;
+    const ts = [setTimeout(() => setPhase(1), 1600), setTimeout(() => setPhase(2), 2100), setTimeout(() => setPhase(3), 2600)];
+    return () => ts.forEach(clearTimeout);
+  }, [inView, still]);
+  return (
+    <div className="g-mini" ref={ref}>
+      {phase === 0 ? (
+        <span className="g-run">
+          <span className="dash-loader" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          Kane is testing…
+        </span>
+      ) : (
+        ["Add to cart works", "Cart shows the total", "Password reset works"].map((t, i) => (
+          <span key={t} className="g-line">
+            <span className={`uv-check ${phase > i ? "on" : ""} ${i === 2 ? "fail" : ""}`} aria-hidden="true" />
+            {t}
+            <b className={i === 2 ? "f" : "p"}>{phase > i ? (i === 2 ? "Failed" : "Passed") : ""}</b>
+          </span>
+        ))
+      )}
     </div>
   );
 }
 
-/** A still picture of a Greenlight result, laid out like the real result page. */
-function ProductWindow() {
+function MiniApprove() {
+  const [on, setOn] = useState([true, true, false]);
+  const n = on.filter(Boolean).length;
+  const labels = ["Add to cart works", "Cart shows the total", "Order email arrives"];
   return (
-    <div className="lp-window" aria-label="Example Greenlight result">
-      <aside className="lp-win-side" aria-hidden="true">
-        <Logo size={18} />
-        <span className="on" />
-        <span />
-        <span />
-      </aside>
-      <div className="lp-win-main">
-        <div className="lp-win-top">
-          <span className="lp-chip">‹ My checks</span>
-          <span className="lp-win-title">greenlight-demo-shop.vercel.app</span>
-          <span className="lp-chip">2 claims</span>
-        </div>
-        <div className="lp-win-body">
-          <div className="lp-verdict">
-            <span className="lp-kv">
-              <span className="lp-small">Verdict</span>
-              <span className="lp-kane">Kane CLI</span>
+    <div className="g-mini">
+      {labels.map((t, i) => (
+        <span key={t} className="g-line">
+          <label className="uv-switch small">
+            <input type="checkbox" checked={on[i]} onChange={() => setOn((o) => o.map((x, j) => (j === i ? !x : x)))} aria-label={`Test “${t}”`} />
+            <span className="switch-track" aria-hidden="true">
+              <span className="switch-inner" />
+              <span className="switch-knob" />
             </span>
-            <strong>Failed</strong>
-            <span className="lp-small">1 of 2 claims passed</span>
-          </div>
-          <div className="lp-claims">
-            <div className="lp-claim">
-              <span className="lp-mark pass">✓</span>
-              <span>Users can add items to the cart and the cart count goes up</span>
-              <span className="lp-tag pass">Passed</span>
-            </div>
-            <div className="lp-claim">
-              <span className="lp-mark fail">✕</span>
-              <span>
-                Users can subscribe to the newsletter and see a confirmation
-                <span className="lp-saw">Kane saw: “Subscription failed. Please try again later.” on every attempt.</span>
-              </span>
-              <span className="lp-tag fail">Failed</span>
-            </div>
-          </div>
+          </label>
+          {t}
+        </span>
+      ))}
+      <span className="g-cost">
+        {n} claim{n === 1 ? "" : "s"} <b>{n ? 20 + n * 37 : 0} credits</b>
+      </span>
+    </div>
+  );
+}
+
+function GlassStep({ n, of, label, title, text, cta, time, next, children, go, variant = "stack" }: { n: number; of: number; label: string; title: ReactNode; text: string; cta: string; time: string; next: string; children?: ReactNode; go: () => void; variant?: "stack" | "plain" }) {
+  return (
+    <div className={`gcard ${variant}`}>
+      {variant === "stack" ? (
+        <div className="gcard-top">
+          <span className="ring" style={{ ["--p" as string]: `${Math.round((n / of) * 100)}%` }} aria-hidden="true" />
+          Step {n} of {of}
+          <span className="sp" />
+          {Math.round((n / of) * 100)}%
         </div>
+      ) : null}
+      <div className="gcard-body">
+        <span className="gcard-k">{label}</span>
+        <h3>{title}</h3>
+        <p>{text}</p>
+        {children}
+        <div className="gcard-cta">
+          <button type="button" className={`pill-dark ${variant === "plain" ? "wide" : ""}`} onClick={go}>
+            {variant === "stack" ? <span className="pill-ic" aria-hidden="true">▶</span> : null}
+            {cta}
+            {variant === "plain" ? <span className="pill-time">{time}</span> : null}
+          </button>
+          {variant === "stack" ? <span className="gtime">◷ {time}</span> : null}
+        </div>
+      </div>
+      <div className="gcard-next">
+        <span>Coming next</span>
+        {next}
       </div>
     </div>
   );
 }
 
-const ART = { ink: "#0b1437", line: "#dbe3f3", soft: "#eef3fc", blue: "#2563eb", sky: "#93c5fd", lime: "#d9f24a" };
+// ------------------------------------------------------------------ page
 
-function BrowserArt() {
-  return (
-    <svg className="lp-art" viewBox="0 0 280 150" aria-hidden="true">
-      <rect x="20" y="14" width="240" height="122" rx="12" fill="#fff" stroke={ART.line} />
-      <path d="M20 26 a12 12 0 0 1 12 -12 h216 a12 12 0 0 1 12 12 v10 h-240 z" fill={ART.soft} />
-      <circle cx="34" cy="25" r="3" fill={ART.line} />
-      <circle cx="44" cy="25" r="3" fill={ART.line} />
-      <circle cx="54" cy="25" r="3" fill={ART.line} />
-      <rect x="74" y="20" width="150" height="10" rx="5" fill="#fff" stroke={ART.line} />
-      <rect x="36" y="50" width="96" height="10" rx="5" fill={ART.soft} />
-      <rect x="36" y="68" width="140" height="8" rx="4" fill={ART.soft} />
-      <rect x="36" y="94" width="110" height="26" rx="8" fill="#fff" stroke={ART.line} />
-      <rect x="156" y="94" width="74" height="26" rx="13" fill={ART.blue} />
-      <path d="M206 104 L206 130 L212 124 L217 135 L222 133 L217 122 L225 122 Z" fill="#fff" stroke={ART.ink} strokeWidth="1.4" strokeLinejoin="round" />
-    </svg>
-  );
-}
+export function Landing({ googleUrl, guestMode, onEntered, session = null }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void>; session?: Session | null }) {
+  const { navigate } = useRouter();
+  const [started, setStarted] = useState(false);
+  const still = useReducedMotion();
+  // The first call starts a visitor session (a cookie on this browser): no sign-up.
+  const start = async () => {
+    if (started || session) return;
+    await guestApi.start();
+    setStarted(true);
+  };
+  const heroRef = useRef<HTMLElement>(null);
+  const { scrollYProgress: heroP } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
+  const cloudL = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -160]);
+  const cloudR = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -90]);
+  // Cinematic exit: the hero copy drifts up, softens and blurs as the app window takes over.
+  const heroBlur = useTransform(heroP, [0, 0.45], still ? ["blur(0px)", "blur(0px)"] : ["blur(0px)", "blur(12px)"]);
+  const heroFade = useTransform(heroP, [0, 0.45], still ? [1, 1] : [1, 0.15]);
+  const heroY = useTransform(heroP, [0, 0.45], still ? [0, 0] : [0, -70]);
+  const heroScale = useTransform(heroP, [0, 0.45], still ? [1, 1] : [1, 0.95]);
+  const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
+  useEffect(() => {
+    document.title = "Greenlight · Does your app do what its README says?";
+  }, []);
 
-function LockArt() {
   return (
-    <svg className="lp-art" viewBox="0 0 280 150" aria-hidden="true">
-      {[0, 1, 2].map((i) => (
-        <g key={i} transform={`translate(40 ${20 + i * 38})`}>
-          <rect width="200" height="30" rx="8" fill="#fff" stroke={ART.line} />
-          <rect x="10" y="8" width="14" height="14" rx="4" fill={i < 2 ? ART.blue : "#fff"} stroke={i < 2 ? ART.blue : ART.line} />
-          {i < 2 ? <path d="M13 15 L16 18 L21 12" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /> : null}
-          <rect x="34" y="11" width={[120, 96, 132][i]} height="8" rx="4" fill={ART.soft} />
-        </g>
-      ))}
-      <g transform="translate(206 86)">
-        <rect width="44" height="38" rx="9" fill={ART.ink} />
-        <path d="M13 8 v-6 a9 9 0 0 1 18 0 v6" fill="none" stroke={ART.ink} strokeWidth="4" transform="translate(0 0)" />
-        <circle cx="22" cy="19" r="4" fill={ART.lime} />
-        <rect x="20.5" y="21" width="3" height="8" rx="1.5" fill={ART.lime} />
-      </g>
-    </svg>
-  );
-}
+    <div className="land">
+      <header className="topbar-land">
+        <a href="/app" className="brand">
+          <Logo size={24} />
+          <span className="brand-name">Greenlight</span>
+        </a>
+        <nav className="tl-links" aria-label="Main">
+          <a href="#how" onClick={(e) => (e.preventDefault(), go("how"))}>
+            How it works
+          </a>
+          <a href="#verdicts" onClick={(e) => (e.preventDefault(), go("verdicts"))}>
+            Verdicts
+          </a>
+          <a href="#check" onClick={(e) => (e.preventDefault(), go("check"))}>
+            Check an app
+          </a>
+        </nav>
+        <span className="tl-right">
+          {session ? (
+            <Link href="/app/projects" className="btn-outline">
+              My checks
+            </Link>
+          ) : null}
+          {googleUrl ? (
+            <a className="btn-outline" href={googleUrl}>
+              Sign in
+            </a>
+          ) : null}
+          <button type="button" className="btn-blue" onClick={() => go("check")}>
+            Check my app
+          </button>
+        </span>
+      </header>
 
-function VerdictArt() {
-  const rows: [string, string, string][] = [
-    ["#16a34a", "Passed", "M-4 0 L-1 3 L5 -3"],
-    ["#dc2626", "Failed", "M-3 -3 L3 3 M3 -3 L-3 3"],
-    ["#94a3b8", "Could not verify", "M-3 0 L3 0"],
-  ];
-  return (
-    <svg className="lp-art" viewBox="0 0 280 150" aria-hidden="true">
-      {rows.map(([c, t, d], i) => (
-        <g key={t} transform={`translate(40 ${22 + i * 38})`}>
-          <rect width="200" height="30" rx="15" fill="#fff" stroke={ART.line} />
-          <circle cx="16" cy="15" r="9" fill={c} />
-          <path d={d} transform="translate(16 15)" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-          <text x="34" y="19.5" fontSize="12" fontWeight="600" fontFamily="Geist Sans, Geist, sans-serif" fill={ART.ink}>
-            {t}
-          </text>
-        </g>
-      ))}
-    </svg>
+      <main id="main">
+        <section className="day" ref={heroRef} aria-labelledby="hero-h">
+          <span className="frame-line" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <motion.div className="cloud-wrap cl-1" style={{ y: cloudR }}>
+            <Cloud seed={4} />
+          </motion.div>
+          <motion.div className="cloud-wrap cl-2" style={{ y: cloudL }}>
+            <Cloud seed={9} />
+          </motion.div>
+          <motion.div className="cloud-wrap cl-3" style={{ y: cloudR }}>
+            <Cloud seed={13} />
+          </motion.div>
+
+          <motion.div className="day-copy" style={{ filter: heroBlur, opacity: heroFade, y: heroY, scale: heroScale }}>
+            <motion.span className="tag" initial={still ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease }}>
+              less guessing, more proof.
+            </motion.span>
+            <motion.h1 id="hero-h" initial={still ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, ease, delay: 0.05 }}>
+              Your README makes <span className="soft">promises.</span>
+              <br />
+              Kane checks <span className="soft">them.</span>
+            </motion.h1>
+            <motion.p initial={still ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.2 }}>
+              Paste a GitHub repo and its live URL. Kane tests every claim in your README on the deployed app, in a real browser, and tells you what passed and what to fix.
+            </motion.p>
+            <motion.div className="day-cta" initial={still ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.3 }}>
+              <span className="cta-main">
+                <button type="button" className="uv-button" onClick={() => go("check")}>
+                  Check my app
+                </button>
+                <span className="scrawl" aria-hidden="true">
+                  <svg viewBox="0 0 60 40">
+                    <path d="M8 4 C 4 18, 12 30, 34 32" fill="none" stroke="#1b2a3f" strokeWidth="1.6" strokeLinecap="round" />
+                    <path d="M28 27 L 35 32 L 28 36" fill="none" stroke="#1b2a3f" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  it’s free
+                </span>
+              </span>
+              <button type="button" className="btn-glass" onClick={() => go("how")}>
+                <span aria-hidden="true">▶</span> See how it works
+              </button>
+            </motion.div>
+          </motion.div>
+
+          <AppWindow />
+          <CloudBank className="bank-day" seed={7} />
+          <div className="built">
+            <span>Built with</span>
+            <div className="built-row">
+              <b>Kane CLI</b>
+              <b>TestMu AI</b>
+              <b>Vercel</b>
+              <b>Supabase</b>
+              <b>React</b>
+            </div>
+          </div>
+        </section>
+
+        <section className="glass-sec" id="how" aria-labelledby="how-h">
+          <Reveal className="sec-head">
+            <span className="tag dark">How it works</span>
+            <h2 id="how-h">
+              Three steps to an <span className="soft">honest</span> answer
+            </h2>
+          </Reveal>
+          <div className="gcards">
+            <Reveal>
+              <GlassStep n={1} of={3} label="Paste" title={<>Your repo, the live URL, your README</>} text="Every bullet point in your README becomes a claim. Edit them, drop some, add your own." cta="Start a check" time="1 min" next="Approve the cost" go={() => go("check")} />
+            </Reveal>
+            <Reveal delay={0.08}>
+              <GlassStep n={2} of={3} label="Approve" title={<>Pick the claims, see the cost</>} text="Switch claims on or off. Clicking Run approves exactly these tests and this cost, nothing more." cta="Try the switches" time="94 credits" next="Kane runs the tests" go={() => go("check")}>
+                <MiniApprove />
+              </GlassStep>
+            </Reveal>
+            <Reveal delay={0.16}>
+              <GlassStep variant="plain" n={3} of={3} label="Verdict" title={<>Passed or failed, claim by claim</>} text="Kane uses your live app in a real browser. Each failure comes with what it saw and a fix." cta="Get a verdict" time="a few minutes" next="Fix it and check again" go={() => go("check")}>
+                <MiniRun />
+              </GlassStep>
+            </Reveal>
+          </div>
+
+          <div className="verdict-row" id="verdicts">
+            <Reveal className="vglass p">
+              <span className="uv-check on" aria-hidden="true" />
+              <b>Passed</b>
+              <span>Kane did what the claim says on your live app, and it worked.</span>
+            </Reveal>
+            <Reveal className="vglass f" delay={0.08}>
+              <span className="uv-check on fail" aria-hidden="true" />
+              <b>Failed</b>
+              <span>It didn’t work. You get what Kane saw and a suggested fix.</span>
+            </Reveal>
+            <Reveal className="vglass u" delay={0.16}>
+              <span className="result-mark unknown" aria-hidden="true" />
+              <b>Could not verify</b>
+              <span>Kane can’t check it from a browser, so it says so instead of guessing.</span>
+            </Reveal>
+          </div>
+        </section>
+
+        <section className="check-sec" id="check" aria-labelledby="check-h">
+          <Reveal className="sec-head center">
+            <span className="tag dark">Check an app</span>
+            <h2 id="check-h">
+              Does your app do what its README <span className="soft">says?</span>
+            </h2>
+            <p>One free run, up to two claims. No account needed. You see the cost before anything runs.</p>
+          </Reveal>
+          <Reveal className="check-glass" delay={0.1}>
+            {guestMode ? (
+              <CheckForm
+                session={session}
+                beforeFirstCall={start}
+                onStarted={async (id) => {
+                  navigate(`/app/check/${id}`);
+                  await onEntered();
+                }}
+              />
+            ) : (
+              <p className="small" style={{ textAlign: "center" }}>
+                Visitor access is not enabled on this server.
+              </p>
+            )}
+          </Reveal>
+        </section>
+
+        <section className="night" aria-labelledby="night-h">
+          <Stars />
+          <Reveal className="night-copy">
+            <h2 id="night-h">
+              Get the green light in <span className="lit">minutes</span>
+              <svg className="sparkle" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 1 C 12.6 8, 16 11.4, 23 12 C 16 12.6, 12.6 16, 12 23 C 11.4 16, 8 12.6, 1 12 C 8 11.4, 11.4 8, 12 1 Z" fill="none" stroke="#fff" strokeWidth="1.2" />
+              </svg>
+            </h2>
+            <p>Paste a repo and a live URL. Your first verdict arrives in minutes. No sign-up, no setup.</p>
+            <div className="night-cta">
+              <button type="button" className="btn-night" onClick={() => go("check")}>
+                Check my app
+              </button>
+              <button type="button" className="btn-night icon" onClick={() => go("how")}>
+                <span className="kbd" aria-hidden="true">
+                  ⏵
+                </span>
+                How it works
+              </button>
+            </div>
+          </Reveal>
+          <CloudBank className="bank-night" seed={21} />
+          <footer className="foot-sky">
+            <span className="brand">
+              <Logo size={22} />
+              <span className="brand-name">Greenlight</span>
+            </span>
+            <span className="foot-links">
+              {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
+              <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+              <a href="https://uiverse.io" rel="noopener">
+                UI elements from Uiverse.io
+              </a>
+            </span>
+          </footer>
+        </section>
+      </main>
+    </div>
   );
 }

@@ -1,6 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { api } from "../api";
-import { ListChecks, LogOut as LogOutIcon, PlusCircle, ShieldCheck } from "lucide-react";
+import type { ReactNode } from "react";
 import { Link, useRouter, type Route } from "../router";
 import type { Session } from "../types";
 import { Avatar, Logo } from "./Chrome";
@@ -10,7 +8,7 @@ type NavItem = { href: string; label: string; icon: typeof I.Home; match: Route[
 
 function journeyNav(_project: string | null): NavItem[] {
   return [
-    { href: "/app", label: "Check", icon: I.Play, match: ["home"] },
+    { href: "/app/new", label: "New check", icon: I.Play, match: ["new"] },
     { href: "/app/projects", label: "My checks", icon: I.Projects, match: ["projects", "check", "project", "project_run"] },
   ];
 }
@@ -110,84 +108,5 @@ export function ApprovalsBell({ pending }: { pending: number }) {
       <I.Bell size={18} strokeWidth={1.6} aria-hidden="true" />
       {pending > 0 ? <span className="badge">{pending}</span> : null}
     </Link>
-  );
-}
-
-/** The workspace's slim top bar: brand, two tabs, the visitor's limits, who is signed in. */
-export function AppBar({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
-  const { route } = useRouter();
-  const guest = session.role === "guest";
-  const display = guest ? "Guest" : session.name ?? session.email ?? session.username ?? session.user;
-  const initials = display
-    .split(/\s+/)
-    .map((w) => w[0] ?? "")
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-  // The visitor's free runs change as checks start, so the count refreshes itself.
-  const [runs, setRuns] = useState(session.guestRuns);
-  useEffect(() => {
-    if (!guest) return;
-    let stop = false;
-    const refresh = () =>
-      api
-        .session()
-        .then((s) => !stop && setRuns(s.guestRuns))
-        .catch(() => {});
-    void refresh();
-    const t = setInterval(refresh, 15000);
-    return () => {
-      stop = true;
-      clearInterval(t);
-    };
-  }, [guest, route.name]);
-  const nav = [
-    { href: "/app", label: "New check", icon: PlusCircle, on: route.name === "home" },
-    { href: "/app/projects", label: "My checks", icon: ListChecks, on: route.name === "projects" || route.name === "check" },
-    ...(session.role === "admin" ? [{ href: "/app/admin", label: "Admin", icon: ShieldCheck, on: route.name === "admin" || route.name === "admin_list" }] : []),
-  ];
-  return (
-    <aside className="ws-side" aria-label="Main">
-      <Link href="/app" className="ws-brand">
-        <Logo size={24} />
-        <span>Greenlight</span>
-      </Link>
-      <nav className="ws-nav">
-        <span className="ws-nav-h">Workspace</span>
-        {nav.map((n) => (
-          <Link key={n.href} href={n.href} className="ws-nav-item" aria-current={n.on ? "page" : undefined}>
-            <n.icon size={17} strokeWidth={1.8} aria-hidden="true" />
-            {n.label}
-          </Link>
-        ))}
-      </nav>
-      <span className="ws-side-sp" />
-      {guest && runs ? (
-        <div className="ws-side-card">
-          <span className="k">Free Kane runs</span>
-          <span className="v">
-            <b>{runs.leftForYou}</b>
-            <span>left on this browser</span>
-          </span>
-          <span className="track" aria-hidden="true">
-            <span className="fill" style={{ width: `${Math.round((runs.leftForYou / Math.max(1, runs.perGuest)) * 100)}%` }} />
-          </span>
-        </div>
-      ) : null}
-      <div className="ws-side-user">
-        <span className="ws-avatar" aria-hidden="true">
-          {initials}
-        </span>
-        <span className="who">
-          <b>{display}</b>
-          <span>{guest ? "No account" : session.role === "admin" ? "Administrator" : "Signed in"}</span>
-        </span>
-        {guest ? null : (
-          <button type="button" className="ws-link-btn" onClick={onSignOut} aria-label="Sign out">
-            <LogOutIcon size={16} aria-hidden="true" />
-          </button>
-        )}
-      </div>
-    </aside>
   );
 }

@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { AppBar, Sidebar, TopBar } from "./components/Shell";
-import "./styles/workspace.css";
-import { DotWave } from "./components/DotWave";
+import { Sidebar, TopBar } from "./components/Shell";
+import { SkyBackdrop } from "./components/Sky";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
 import { Landing } from "./pages/Landing";
@@ -103,7 +102,7 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
 
   let page;
   switch (route.name) {
-    case "home":
+    case "new":
       page = <CheckPage session={session} />;
       break;
     case "check":
@@ -191,24 +190,15 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
       admin: "Administration",
       admin_list: "Administration",
     };
-    document.title = route.name === "home" ? "Greenlight" : `${titles[route.name] ?? "Greenlight"} · Greenlight`;
+    document.title = route.name === "home" || route.name === "new" ? "Greenlight" : `${titles[route.name] ?? "Greenlight"} · Greenlight`;
   }, [route]);
 
-  // The check flow (new check, results, my checks) lives in the workspace; older tools keep their frame.
-  const workspace = route.name === "home" || route.name === "check" || route.name === "projects";
-  if (workspace) {
-    return (
-      <div className="ws">
-        <DotWave fixed horizon={0.42} amplitude={1} />
-        <AppBar session={session} onSignOut={signOut} />
-        <main className="ws-page" id="main">
-          {page}
-        </main>
-      </div>
-    );
-  }
+  // The site always opens on the landing page, signed in or not.
+  if (route.name === "home") return <Landing googleUrl={null} guestMode sample={false} session={session} onEntered={async () => {}} />;
+
   return (
-    <div className="page">
+    <div className="page sky-page">
+      <SkyBackdrop />
       <div className="frame">
         <Sidebar session={session} pending={pending} onSignOut={signOut} project={project} />
         <main className="main" id="main">
