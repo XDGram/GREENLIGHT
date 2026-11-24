@@ -6,7 +6,7 @@ import "@fontsource/geist-sans/600.css";
 import "@fontsource/geist-mono/400.css";
 import "@fontsource/geist-mono/500.css";
 import "@fontsource/geist-sans/700.css";
-import "@fontsource/caveat/600.css";
+import "@fontsource-variable/newsreader/opsz.css";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/theme.css";

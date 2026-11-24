@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 
 // The hero illustration: a field of dots drawn on a canvas. Two tall arcs frame the page (as in a
-// globe seen edge-on) and a large check mark made of dots glows in the middle: the green light.
+// globe seen edge-on) and a large check mark made of dots rises out of the light below the headline.
 // Dots twinkle slowly; with reduced motion the picture is drawn once and stays still.
 
 type Dot = { x: number; y: number; r: number; a: number; s: number };
@@ -85,9 +85,9 @@ export function DotField() {
       for (const d of dots) {
         const tw = still ? 1 : 0.72 + 0.28 * Math.sin(t / 900 + d.s);
         ctx.globalAlpha = Math.min(1, d.a * tw);
-        // White on the night sky; green where the background has faded to light.
+        // White on the night sky; blue where the background has faded to light.
         const light = d.y > h * 0.8;
-        ctx.fillStyle = light ? (d.a > 0.7 ? "#0f7a3c" : "#3fbf73") : d.a > 0.7 ? "#f4fff7" : "#c9f5d9";
+        ctx.fillStyle = light ? (d.a > 0.7 ? "#1d4ed8" : "#60a5fa") : d.a > 0.7 ? "#ffffff" : "#bfdbfe";
         ctx.beginPath();
         ctx.arc(d.x, d.y, d.r, 0, Math.PI * 2);
         ctx.fill();

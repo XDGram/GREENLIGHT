@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, guestApi, SignInRequired } from "./api";
 import { ErrorNotice } from "./components/Bits";
-import { Sidebar, TopBar } from "./components/Shell";
+import { AppBar, Sidebar, TopBar } from "./components/Shell";
+import "./styles/workspace.css";
 import { AccountPage } from "./pages/AccountPage";
 import { CheckPage, CheckResultPage, ChecksListPage } from "./pages/CheckPage";
 import { Landing } from "./pages/Landing";
@@ -192,6 +193,18 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
     document.title = route.name === "home" ? "Greenlight" : `${titles[route.name] ?? "Greenlight"} · Greenlight`;
   }, [route]);
 
+  // The check flow (new check, results, my checks) lives in the workspace; older tools keep their frame.
+  const workspace = route.name === "home" || route.name === "check" || route.name === "projects";
+  if (workspace) {
+    return (
+      <div className="ws">
+        <AppBar session={session} onSignOut={signOut} />
+        <main className="ws-page" id="main">
+          {page}
+        </main>
+      </div>
+    );
+  }
   return (
     <div className="page">
       <div className="frame">
