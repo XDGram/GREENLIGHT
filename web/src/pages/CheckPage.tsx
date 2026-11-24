@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { api, ApiError, checkApi, type ClaimsResult } from "../api";
 import { FormError, ResultMark } from "../components/Bits";
 import * as I from "../components/Icons";
+import { KaneLive } from "../components/KaneLive";
 import { Link, useRouter } from "../router";
 import type { Job, ProjectDetail, RunDetail, Session } from "../types";
 
@@ -304,7 +305,7 @@ export function CheckResultPage({ id }: { id: string }) {
       {detail && job ? (
         <div className="result-grid">
           <div className="result-main">
-            {!job.recordId ? <Progress job={job} host={host} /> : null}
+            {!job.recordId ? <Progress job={job} host={host} claims={detail.versions.find((v) => v.version === job.version)?.claims ?? []} /> : null}
             {run ? <Verdict run={run} host={host} /> : null}
           </div>
           <aside className="result-side">
@@ -385,7 +386,7 @@ function latest(jobs: Job[]): Job | null {
   return [...jobs].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
 }
 
-function Progress({ job, host }: { job: Job; host: string }) {
+function Progress({ job, host, claims }: { job: Job; host: string; claims: { id: string; text: string }[] }) {
   if (job.status === "failed") {
     return (
       <Panel top={<><Ring tone="fail" /> Run stopped</>} next={<><span>Coming next</span>Start a new check</>}>
@@ -403,17 +404,7 @@ function Progress({ job, host }: { job: Job; host: string }) {
       <span className="pcard-k">In progress</span>
       <h2 className="pcard-title">{job.status === "queued" ? "Waiting for Kane to start" : "Kane is using your live app"}</h2>
       <p className="pcard-text">This usually takes a few minutes. You can leave this page open; the verdict appears here when it's done.</p>
-      <div className="pcard-cta">
-        <span className="pill-dark ghosted">
-          <span className="dash-loader small" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-          Testing in a real browser
-        </span>
-      </div>
+      <KaneLive job={job} claims={claims} />
     </Panel>
   );
 }

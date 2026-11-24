@@ -1,0 +1,80 @@
+/*
+ * From Uiverse.io by Vosoone - https://uiverse.io/Vosoone/smooth-penguin-53
+ * MIT License, Copyright (c) Vosoone (Vosoone)
+ *
+ * Scoped with a kc- prefix; the look and the flow animation are as published.
+ */
+.kc-main {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+}
+
+.kc-loader {
+  width: 100%;
+}
+
+.kc-loader svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.kc-trace-bg {
+  stroke: #333;
+  stroke-width: 1.8;
+  fill: none;
+}
+
+.kc-trace-flow {
+  stroke-width: 1.8;
+  fill: none;
+  stroke-dasharray: 40 400;
+  stroke-dashoffset: 438;
+  filter: drop-shadow(0 0 6px currentColor);
+  animation: kc-flow 3s cubic-bezier(0.5, 0, 0.9, 1) infinite;
+}
+
+.kc-yellow {
+  stroke: #ffea00;
+  color: #ffea00;
+}
+.kc-blue {
+  stroke: #00ccff;
+  color: #00ccff;
+}
+.kc-green {
+  stroke: #00ff15;
+  color: #00ff15;
+}
+.kc-purple {
+  stroke: #9900ff;
+  color: #9900ff;
+}
+.kc-red {
+  stroke: #ff3300;
+  color: #ff3300;
+}
+
+@keyframes kc-flow {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.kc-chip-text {
+  font-family: Arial, sans-serif;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kc-trace-flow {
+    animation: none;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    opacity: 0.5;
+  }
+}

@@ -1,0 +1,65 @@
+/* The live Kane run view around the circuit loader (components/KaneLive.tsx). */
+.kl { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+
+.kl-board {
+  position: relative;
+  border-radius: 18px;
+  padding: 8px 10px 0;
+  background: radial-gradient(120% 90% at 50% 45%, #1a2230 0%, #0d1118 70%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06), 0 10px 28px rgba(13, 17, 24, 0.25);
+  overflow: hidden;
+}
+.kl-board .kc-main { margin: -4% 0 -8%; }
+
+.kl-hud {
+  position: absolute; top: 12px; left: 14px; right: 14px;
+  display: flex; justify-content: space-between; align-items: center;
+  font: 600 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #9fb0c4;
+}
+.kl-live { display: inline-flex; align-items: center; gap: 7px; letter-spacing: 0.08em; text-transform: uppercase; }
+.kl-live i { width: 8px; height: 8px; border-radius: 50%; background: #22b36b; box-shadow: 0 0 0 0 rgba(126, 240, 168, 0.7); animation: kl-ping 1.6s ease-out infinite; }
+.kl-time { font-variant-numeric: tabular-nums; color: #e6edf5; }
+
+.kl-ticker {
+  display: flex; gap: 8px; align-items: baseline;
+  padding: 10px 4px 12px;
+  font: 500 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: #cfe3d6;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.kl-caret { color: #7ef0a8; }
+.kl-line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; animation: kl-in 0.4s ease-out; }
+.kl-line::after { content: ""; display: inline-block; width: 7px; height: 13px; margin-left: 3px; vertical-align: -2px; background: #7ef0a8; animation: kl-blink 1s steps(1) infinite; }
+
+.kl-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, 0.06); overflow: hidden; }
+.kl-bar span { position: absolute; top: 0; bottom: 0; width: 35%; background: linear-gradient(90deg, transparent, #22b36b, #7ef0a8, transparent); animation: kl-slide 1.8s ease-in-out infinite; }
+
+.kl-stages { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.kl-stages li { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600; color: #8a97a8; padding: 8px 10px; border-radius: 12px; background: #f2f5f9; }
+.kl-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; border: 2px solid #c3ccd8; }
+.kl-stages li.done { color: #1d6b45; }
+.kl-stages li.done .kl-dot { border-color: #22b36b; background: #22b36b; }
+.kl-stages li.now { color: #141a22; background: #e8f0fc; }
+.kl-stages li.now .kl-dot { border-color: #2f6fd1; border-top-color: transparent; animation: kl-spin 0.9s linear infinite; }
+
+.kl-claims-k { display: block; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7889; margin-bottom: 6px; }
+.kl-claims ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.kl-claims li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 12px; background: #f6f8fb; font-size: 14px; color: #3a4655; transition: background 0.3s, box-shadow 0.3s; }
+.kl-claims li.on { background: #fff; color: #141a22; box-shadow: 0 0 0 2px rgba(47, 111, 209, 0.35); }
+.kl-spin { flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid #c3ccd8; }
+.kl-claims li.on .kl-spin { border-color: #2f6fd1; border-top-color: transparent; animation: kl-spin 0.9s linear infinite; }
+.kl-text { min-width: 0; overflow-wrap: anywhere; }
+
+@keyframes kl-ping { 0% { box-shadow: 0 0 0 0 rgba(126, 240, 168, 0.7); } 100% { box-shadow: 0 0 0 9px rgba(126, 240, 168, 0); } }
+@keyframes kl-blink { 50% { opacity: 0; } }
+@keyframes kl-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes kl-slide { from { left: -35%; } to { left: 100%; } }
+@keyframes kl-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 640px) {
+  .kl-stages { grid-template-columns: 1fr 1fr; }
+  .kl-ticker { font-size: 11.5px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kl-live i, .kl-line, .kl-line::after, .kl-bar span, .kl-stages li.now .kl-dot, .kl-claims li.on .kl-spin { animation: none; }
+}
