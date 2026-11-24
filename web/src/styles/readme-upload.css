@@ -1,0 +1,6 @@
+/* README upload on the new-check form. */
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.field-head > label { font-size: 13px; color: var(--ink-2); font-weight: 500; }
+.field textarea.dropping { border-color: var(--blue); outline: 3px dashed rgba(59, 130, 230, 0.35); outline-offset: 0; background: #f3f8ff; }
+.field .hint.upload-ok { color: #1d6b45; }
+.field .hint.upload-bad { color: #b42318; }

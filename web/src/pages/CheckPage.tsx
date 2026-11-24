@@ -1,10 +1,16 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { api, ApiError, checkApi, type ClaimsResult } from "../api";
 import { FormError, ResultMark } from "../components/Bits";
 import * as I from "../components/Icons";
 import { KaneLive } from "../components/KaneLive";
+import "../styles/readme-upload.css";
 import { Link, useRouter } from "../router";
 import type { Job, ProjectDetail, RunDetail, Session } from "../types";
+
+// The server reads at most 20,000 characters of README or notes.
+const NOTES_MAX = 20000;
+const README_MAX_BYTES = 1024 * 1024;
+const README_ACCEPT = ".md,.markdown,.mdx,.txt,.rst,text/markdown,text/plain";
 
 // The whole product on one page: paste the GitHub URL, the live URL and the README (or notes),
 // see the claims Kane will test and what it costs, click Run, get a verdict per claim.
@@ -20,6 +26,10 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
   const [repository, setRepository] = useState("");
   const [url, setUrl] = useState("");
   const [notes, setNotes] = useState("");
+  const [upload, setUpload] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const notesId = useId();
   const [found, setFound] = useState<ClaimsResult | null>(null);
   const [claims, setClaims] = useState<{ text: string; on: boolean }[]>([]);
   const [extra, setExtra] = useState("");
@@ -97,6 +107,25 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
       : `No account needed · ${guestRuns.leftForYou} free run${guestRuns.leftForYou === 1 ? "" : "s"} left · results stay private`
     : null;
 
+  async function loadReadme(f: File) {
+    if (!/\.(md|markdown|mdx|txt|rst)$/i.test(f.name) && f.type && !f.type.startsWith("text/")) {
+      setUpload({ tone: "bad", text: `${f.name} is not a text file. Upload a README such as README.md or README.txt.` });
+      return;
+    }
+    if (f.size > README_MAX_BYTES) {
+      setUpload({ tone: "bad", text: `${f.name} is larger than 1 MB. Paste the parts that describe what the app does instead.` });
+      return;
+    }
+    const raw = (await f.text()).replace(/\r\n/g, "\n");
+    const body = raw.length > NOTES_MAX ? raw.slice(0, NOTES_MAX) : raw;
+    setNotes(body);
+    changed();
+    setUpload({
+      tone: "ok",
+      text: raw.length > NOTES_MAX ? `Loaded the first ${NOTES_MAX.toLocaleString()} characters of ${f.name} (it has ${raw.length.toLocaleString()}). Claims further down were left out.` : `Loaded ${f.name}. You can edit it below.`,
+    });
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "var(--gap)" }}>
       <section className="step-card" aria-labelledby="c1">
@@ -114,11 +143,48 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
             <input value={url} onChange={(e) => (setUrl(e.target.value), changed())} placeholder="https://your-app.vercel.app" inputMode="url" autoComplete="off" />
           </label>
         </div>
-        <label className="field">
-          <span>README or notes · optional</span>
-          <textarea value={notes} onChange={(e) => (setNotes(e.target.value), changed())} placeholder={"Paste your README, or list what the app does, one per line:\n- Users can sign up with email\n- The dashboard shows their tasks"} rows={8} />
+        <div className="field">
+          <div className="field-head">
+            <label htmlFor={notesId}>README or notes · optional</label>
+            <button type="button" className="btn ghost sm" onClick={() => fileRef.current?.click()}>
+              Upload README
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={README_ACCEPT}
+              hidden
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) void loadReadme(f);
+              }}
+            />
+          </div>
+          <textarea
+            id={notesId}
+            className={dragging ? "dropping" : ""}
+            value={notes}
+            onChange={(e) => (setNotes(e.target.value), e.target.value ? null : setUpload(null), changed())}
+            onDragOver={(e) => {
+              if (!e.dataTransfer.types.includes("Files")) return;
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              const f = e.dataTransfer.files?.[0];
+              if (!f) return;
+              e.preventDefault();
+              setDragging(false);
+              void loadReadme(f);
+            }}
+            placeholder={"Paste your README, drop the file here, or list what the app does, one per line:\n- Users can sign up with email\n- The dashboard shows their tasks"}
+            rows={8}
+          />
+          {upload ? <span className={`hint upload-${upload.tone}`}>{upload.text}</span> : null}
           <span className="hint">Leave empty to use the README from the repository. Each bullet point or line becomes one claim.</span>
-        </label>
+        </div>
         {!found ? (
           <div>
             <button type="button" className="btn" onClick={findClaims} disabled={busy !== null || !repository.trim() || !url.trim()}>
