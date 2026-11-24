@@ -1,7 +1,7 @@
 ---
 description: Check this app with Greenlight (Kane CLI tests it in a real browser), fix the claims that fail, push, and re-check until Kane passes them.
 argument-hint: "[check id, optional]"
-allowed-tools: Bash(curl:*), Bash(git:*), Bash(sleep:*), Read, Edit, Grep, Glob
+allowed-tools: Bash(curl:*), Bash(git:*), Bash(sleep:*), Bash(cd:*), Read, Edit, Grep, Glob
 ---
 
 # /greenlight: fix what Kane says is broken, then let Kane confirm it
@@ -11,16 +11,29 @@ Kane CLI tests each claim on the live app in a real browser and says **passed** 
 a note on what it saw. Your job: read Kane's verdict, fix the code for every failed claim, push,
 wait for the new deploy, and ask Greenlight to re-check. Repeat until Kane passes every claim.
 
-## Setup (from the environment)
+## Setup
 
-- `GREENLIGHT_TOKEN`: required. The token from "Connect Claude Code" on the Greenlight result page.
-  Never print it, echo it, write it to a file or commit it.
+Take these values from the user's message (the "Fix it with Claude Code" message from the Greenlight
+result page) or, if they aren't there, from the environment variables of the same name:
+
+- `GREENLIGHT_TOKEN`: required. Treat it as a secret: use it only in the `Authorization` header,
+  never print it back, write it to a file or commit it. Shell variables may not survive between
+  commands, so put the value directly in each `curl` call.
 - `GREENLIGHT_URL`: the Greenlight server, default `https://greenlight-api-xi.vercel.app`.
-- `GREENLIGHT_CHECK`: the check id (`prj_…`). If `$ARGUMENTS` has one, use that instead. If neither
-  is set, list the checks and use the newest one whose `repository` matches `git remote get-url origin`.
+- `GREENLIGHT_CHECK`: the check id (`prj_…`). If missing, list the checks and use the newest one
+  whose `repository` matches `git remote get-url origin`.
+- The app's **repository** (also returned by the check as `repository`).
 
-If `GREENLIGHT_TOKEN` is missing, stop and tell the user to click "Connect Claude Code" on their
-Greenlight result page and run the commands it shows.
+If there is no token, stop and tell the user to click "Connect Claude Code" on their Greenlight
+result page and paste the message it shows.
+
+## Step 0: be in the app's repository
+
+Run `git remote get-url origin`. If it isn't the check's `repository` (ignore a trailing `.git`),
+clone it into a new folder next to where you are (`git clone <repository> <name>-greenlight`, or
+reuse that folder if it already exists and pull), and work inside that folder from now on (use
+`cd <folder> && …` in every command, or absolute paths). Work on the branch the live app deploys
+from: the repository's default branch unless the user says otherwise.
 
 ## The API (always send `Authorization: Bearer $GREENLIGHT_TOKEN`)
 

@@ -296,19 +296,18 @@ function ConnectClaudeCode({ projectId, name, repository }: { projectId: string;
       setBusy(false);
     }
   };
-  // One paste: open the app's code (cloning it if this folder isn't it), install /greenlight, and
-  // start Claude Code with edits pre-approved so it runs the whole loop on its own.
+  // One paste into Claude Code: it downloads the /greenlight instructions and runs the whole loop
+  // (gets the code, reads Kane's verdict, fixes, pushes, waits for the deploy, re-checks).
   const repo = repository?.replace(/\.git$/, "").replace(/\/+$/, "") ?? null;
-  const folder = repo ? `${repo.split("/").pop()}-greenlight` : null;
   const commands = token
     ? [
-        repo
-          ? `R=${repo}; case "$(git remote get-url origin 2>/dev/null)" in "$R"|"$R.git") ;; *) [ -d ${folder} ] || git clone -q "$R.git" ${folder}; cd ${folder};; esac`
-          : "# Run this inside your app's repository",
-        "mkdir -p .claude/commands",
-        `curl -fsSL ${origin}/app/downloads/greenlight/commands/greenlight.md -o .claude/commands/greenlight.md`,
-        `export GREENLIGHT_URL=${origin} GREENLIGHT_TOKEN=${token} GREENLIGHT_CHECK=${projectId}`,
-        'claude --permission-mode acceptEdits "/greenlight"',
+        "Use Greenlight to fix my app until Kane CLI passes every claim.",
+        `First run: curl -fsSL ${origin}/app/downloads/greenlight/commands/greenlight.md`,
+        "Then follow those instructions exactly, with:",
+        `- GREENLIGHT_URL: ${origin}`,
+        `- GREENLIGHT_CHECK: ${projectId}`,
+        `- GREENLIGHT_TOKEN: ${token}`,
+        ...(repo ? [`- Repository: ${repo} (clone it if this folder isn't it)`] : []),
       ].join("\n")
     : "";
   return (
@@ -318,13 +317,13 @@ function ConnectClaudeCode({ projectId, name, repository }: { projectId: string;
         <span className="num-tag">004</span>
       </div>
       <p style={{ margin: 0 }}>
-        Click Connect, paste the commands into a terminal, and Claude Code does the rest on its own: it reads Kane's verdict, fixes the failed claims, pushes, waits for the deploy and asks Kane to check again until everything passes. This page updates as it goes.
+        Click Connect, open Claude Code in any folder and paste the message. Claude Code does the rest on its own: it gets your code, reads Kane's verdict, fixes the failed claims, pushes, waits for the deploy and asks Kane to check again until everything passes. This page updates as it goes.
       </p>
       {token ? (
         <>
-          <CodeBlock title="Paste into your terminal, then watch Claude Code work" code={commands} />
+          <CodeBlock title="Paste this into Claude Code" code={commands} />
           <p className="small" style={{ margin: 0 }}>
-            Copy the token now: it is shown only once. It can only read this check and re-run the claims you approved; it can't change or approve claims. Re-checks are limited and come out of the server's Kane budget. Don't commit it.
+            Copy it now: the token in it is shown only once. It can only read this check and re-run the claims you approved; it can't change or approve claims. Re-checks are limited and come out of the server's Kane budget. Don't share the message publicly.
           </p>
         </>
       ) : (
