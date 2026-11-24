@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type Ancho
 
 export type Route =
   | { name: "home" }
+  | { name: "new" }
   | { name: "projects" }
   | { name: "project_new" }
   | { name: "project"; id: string }
@@ -32,6 +33,7 @@ export type AdminKind = (typeof ADMIN_KINDS)[number];
 export function parse(pathname: string): Route {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/app" || p === "") return { name: "home" };
+  if (p === "/app/new") return { name: "new" };
   if (p === "/app/projects") return { name: "projects" };
   if (p === "/app/projects/new") return { name: "project_new" };
   const m = /^\/app\/projects\/(prj_[0-9a-f]{32})(?:\/(tests|verify))?$/.exec(p);

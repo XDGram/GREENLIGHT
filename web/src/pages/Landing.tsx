@@ -3,7 +3,8 @@ import { LayoutGroup, motion, useInView, useReducedMotion, useScroll, useTransfo
 import { guestApi } from "../api";
 import { Logo } from "../components/Chrome";
 import { Cloud, CloudBank, Stars } from "../components/Sky";
-import { useRouter } from "../router";
+import { Link, useRouter } from "../router";
+import type { Session } from "../types";
 import { CheckForm } from "./CheckPage";
 
 // The public landing page, in three skies: a bright day sky with the Greenlight app window rising
@@ -17,7 +18,13 @@ const ease = [0.22, 1, 0.36, 1] as const;
 function Reveal({ children, delay = 0, className }: { children: ReactNode; delay?: number; className?: string }) {
   const still = useReducedMotion();
   return (
-    <motion.div className={className} initial={still ? false : { opacity: 0, y: 26 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-10% 0px" }} transition={{ duration: 0.8, ease, delay }}>
+    <motion.div
+      className={className}
+      initial={still ? false : { opacity: 0, y: 40, scale: 0.97, filter: "blur(14px)" }}
+      whileInView={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+      viewport={{ once: true, margin: "-8% 0px" }}
+      transition={{ duration: 1.1, ease, delay }}
+    >
       {children}
     </motion.div>
   );
@@ -88,10 +95,13 @@ function AppWindow() {
     { key: "testing", title: "Testing", icon: "t", match: (s) => s === "testing" },
     { key: "verdict", title: "Verdict", icon: "v", match: (s) => s === "pass" || s === "fail" },
   ];
+  const winBlur = useTransform(scrollYProgress, [0, 0.4], still ? ["blur(0px)", "blur(0px)"] : ["blur(10px)", "blur(0px)"]);
+  const winScale = useTransform(scrollYProgress, [0, 0.4], still ? [1, 1] : [0.92, 1]);
+  const winY = useTransform(scrollYProgress, [0, 0.4], still ? [0, 0] : [60, 0]);
   const stages = BOARD.map((c, i) => stageOf(i, step, c.ok));
   const passed = stages.filter((s) => s === "pass").length;
   return (
-    <div className="appwin-wrap" ref={ref}>
+    <motion.div className="appwin-wrap" ref={ref} style={{ filter: winBlur, scale: winScale, y: winY }}>
       <div className="appwin" role="img" aria-label="The Greenlight app: claims move from Queued to Testing to a verdict; two pass, one fails.">
         <aside className="aw-side">
           <div className="aw-brand">
@@ -156,7 +166,7 @@ function AppWindow() {
           </LayoutGroup>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -257,13 +267,13 @@ function GlassStep({ n, of, label, title, text, cta, time, next, children, go, v
 
 // ------------------------------------------------------------------ page
 
-export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void> }) {
+export function Landing({ googleUrl, guestMode, onEntered, session = null }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void>; session?: Session | null }) {
   const { navigate } = useRouter();
   const [started, setStarted] = useState(false);
   const still = useReducedMotion();
   // The first call starts a visitor session (a cookie on this browser): no sign-up.
   const start = async () => {
-    if (started) return;
+    if (started || session) return;
     await guestApi.start();
     setStarted(true);
   };
@@ -271,6 +281,11 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
   const { scrollYProgress: heroP } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
   const cloudL = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -160]);
   const cloudR = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -90]);
+  // Cinematic exit: the hero copy drifts up, softens and blurs as the app window takes over.
+  const heroBlur = useTransform(heroP, [0, 0.45], still ? ["blur(0px)", "blur(0px)"] : ["blur(0px)", "blur(12px)"]);
+  const heroFade = useTransform(heroP, [0, 0.45], still ? [1, 1] : [1, 0.15]);
+  const heroY = useTransform(heroP, [0, 0.45], still ? [0, 0] : [0, -70]);
+  const heroScale = useTransform(heroP, [0, 0.45], still ? [1, 1] : [1, 0.95]);
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
   useEffect(() => {
     document.title = "Greenlight · Does your app do what its README says?";
@@ -295,6 +310,11 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
           </a>
         </nav>
         <span className="tl-right">
+          {session ? (
+            <Link href="/app/projects" className="btn-outline">
+              My checks
+            </Link>
+          ) : null}
           {googleUrl ? (
             <a className="btn-outline" href={googleUrl}>
               Sign in
@@ -324,7 +344,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
             <Cloud seed={13} />
           </motion.div>
 
-          <div className="day-copy">
+          <motion.div className="day-copy" style={{ filter: heroBlur, opacity: heroFade, y: heroY, scale: heroScale }}>
             <motion.span className="tag" initial={still ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease }}>
               less guessing, more proof.
             </motion.span>
@@ -353,7 +373,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
                 <span aria-hidden="true">▶</span> See how it works
               </button>
             </motion.div>
-          </div>
+          </motion.div>
 
           <AppWindow />
           <CloudBank className="bank-day" seed={7} />
@@ -422,7 +442,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
           <Reveal className="check-glass" delay={0.1}>
             {guestMode ? (
               <CheckForm
-                session={null}
+                session={session}
                 beforeFirstCall={start}
                 onStarted={async (id) => {
                   navigate(`/app/check/${id}`);
@@ -439,7 +459,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
 
         <section className="night" aria-labelledby="night-h">
           <Stars />
-          <div className="night-copy">
+          <Reveal className="night-copy">
             <h2 id="night-h">
               Get the green light in <span className="lit">minutes</span>
               <svg className="sparkle" viewBox="0 0 24 24" aria-hidden="true">
@@ -458,7 +478,7 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
                 How it works
               </button>
             </div>
-          </div>
+          </Reveal>
           <CloudBank className="bank-night" seed={21} />
           <footer className="foot-sky">
             <span className="brand">

@@ -342,7 +342,7 @@ function AppHeader({ title, url, host, repository, job, run }: { title: string; 
               <i aria-hidden="true" /> {label[status]}
             </span>
           ) : null}
-          <Link href="/app" className="btn-sky">
+          <Link href="/app/new" className="btn-sky">
             <I.Plus size={15} aria-hidden="true" />
             New check
           </Link>
@@ -662,7 +662,7 @@ export function ChecksListPage() {
   return (
     <>
       <PageHead kicker="History" title="My checks" text="Every app you have checked from this browser.">
-        <Link href="/app" className="btn">
+        <Link href="/app/new" className="btn">
           <I.Plus size={15} aria-hidden="true" />
           New check
         </Link>
@@ -674,7 +674,7 @@ export function ChecksListPage() {
           <span className="pcard-k">Nothing yet</span>
           <h2 className="pcard-title">No checks yet</h2>
           <p className="pcard-text">Paste a repository and its live URL, and Kane will test what its README promises.</p>
-          <Link href="/app" className="pill-dark wide">
+          <Link href="/app/new" className="pill-dark wide">
             Check an app <span className="pill-time">free</span>
           </Link>
         </Panel>

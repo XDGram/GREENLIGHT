@@ -8,7 +8,7 @@ type NavItem = { href: string; label: string; icon: typeof I.Home; match: Route[
 
 function journeyNav(_project: string | null): NavItem[] {
   return [
-    { href: "/app", label: "Check", icon: I.Play, match: ["home"] },
+    { href: "/app/new", label: "New check", icon: I.Play, match: ["new"] },
     { href: "/app/projects", label: "My checks", icon: I.Projects, match: ["projects", "check", "project", "project_run"] },
   ];
 }

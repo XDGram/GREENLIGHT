@@ -102,7 +102,7 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
 
   let page;
   switch (route.name) {
-    case "home":
+    case "new":
       page = <CheckPage session={session} />;
       break;
     case "check":
@@ -190,8 +190,11 @@ function Signed({ session, onSignIn }: { session: Session; onSignIn: (e: SignInR
       admin: "Administration",
       admin_list: "Administration",
     };
-    document.title = route.name === "home" ? "Greenlight" : `${titles[route.name] ?? "Greenlight"} · Greenlight`;
+    document.title = route.name === "home" || route.name === "new" ? "Greenlight" : `${titles[route.name] ?? "Greenlight"} · Greenlight`;
   }, [route]);
+
+  // The site always opens on the landing page, signed in or not.
+  if (route.name === "home") return <Landing googleUrl={null} guestMode sample={false} session={session} onEntered={async () => {}} />;
 
   return (
     <div className="page sky-page">
