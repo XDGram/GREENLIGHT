@@ -20,7 +20,7 @@ export const SANDBOX_APP_DIR = "/vercel/sandbox/greenlight";
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 
 /** Settings the worker needs, copied from the API's environment (secrets marked). */
-const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID", "GREENLIGHT_GUEST_MODE", "GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN", "GREENLIGHT_GUEST_SAMPLE_PROJECT"];
+const FORWARD = ["SUPABASE_URL", "GREENLIGHT_EVIDENCE_BUCKET", "GREENLIGHT_PUBLIC_BASE_URL", "GREENLIGHT_MAX_CREDITS_PER_RUN", "GREENLIGHT_CREDIT_RESERVE", "GREENLIGHT_KANE_TIMEOUT_MINUTES", "GREENLIGHT_DEPLOY_TIMEOUT_SECONDS", "GREENLIGHT_KANE_PROJECT_ID", "GREENLIGHT_KANE_FOLDER_ID", "GREENLIGHT_GUEST_MODE", "GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN", "GREENLIGHT_GUEST_SAMPLE_PROJECT", "GREENLIGHT_KANE_RUNSON"];
 // GREENLIGHT_APPROVAL_SIGNING_KEY: the worker re-verifies the signed approval before spending.
 const SECRET_FORWARD = ["SUPABASE_SERVICE_ROLE_KEY", "GREENLIGHT_KANE_USERNAME", "GREENLIGHT_KANE_ACCESS_KEY", "GREENLIGHT_APPROVAL_SIGNING_KEY"];
 
@@ -48,6 +48,9 @@ npm install --no-save --no-audit --no-fund --loglevel=error @testmuai/kane-cli@$
 export GREENLIGHT_KANE_BIN="$PWD/node_modules/.bin/kane-cli"
 test "$("$GREENLIGHT_KANE_BIN" --version)" = "${KANE_CLI_VERSION}" || fail kane_version
 "$GREENLIGHT_KANE_BIN" plugin install remote-execution </dev/null >/dev/null || fail remote_plugin
+# HyperExecute machines: the plugin defaults to macOS, which TestMu's free plan refuses ("needs
+# MultiOS plan to run this on mac"); Linux runs on every plan. GREENLIGHT_KANE_RUNSON overrides.
+node -e 'const fs=require("fs");const f=require("os").homedir()+"/.testmuai/kaneai/plugins/remote-execution/config.json";const c=JSON.parse(fs.readFileSync(f,"utf8"));c.runson=process.argv[1];fs.writeFileSync(f,JSON.stringify(c,null,2))' "\${GREENLIGHT_KANE_RUNSON:-linux}" || fail remote_plugin
 LOGIN=(login --username "$GREENLIGHT_KANE_USERNAME" --access-key "$GREENLIGHT_KANE_ACCESS_KEY")
 [ -n "\${GREENLIGHT_KANE_PROJECT_ID:-}" ] && LOGIN+=(--project-id "$GREENLIGHT_KANE_PROJECT_ID")
 [ -n "\${GREENLIGHT_KANE_FOLDER_ID:-}" ] && LOGIN+=(--folder-id "$GREENLIGHT_KANE_FOLDER_ID")
