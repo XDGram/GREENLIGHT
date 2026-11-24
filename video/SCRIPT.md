@@ -1,188 +1,179 @@
-# Greenlight demo video script
+# Greenlight: product video script
 
-**Length: 3:50.** That's inside the hackathon's 3 to 5 minutes and long enough to show the whole flow once, at a calm pace, with no filler. Judges watch many of these; a tight 3:50 that shows a real Fail turning into a real Pass beats a 5-minute tour.
+Follows [BRIEF.md](BRIEF.md). **Length: 3:30.** Motion video, 1920 × 1080, 30 fps, built in Remotion. Voice: Bella.
 
-**Format:** a motion video, built in Remotion (`video/remotion`), 1920 × 1080, 30 fps. Every scene is animated. The app's screens are rebuilt from the real UI (same components, colours and copy), so they stay sharp and can move. The real data is the real data: the claims, Kane's note, the fix and the job ids all come from runs that happened.
+## How to read this
 
-**Voice:** Bella (ai33pro), speed 1. About 420 words in total, roughly 2:45 of speech. The rest of the 3:50 is room for the screens to breathe: typing, the drop, the sped-up Kane run and the Fail to Pass flip. All the voiceover together is about 2,340 characters, so about 2,340 credits to generate once.
+Each shot has four parts: the **time**, the **picture** (what's on screen), the **voice** (what Bella says over exactly that picture) and the **cut** (how the shot moves into the next one). The voice line is written for its picture: when she says "failed", the badge turns red.
 
-**Look:** the app's sky theme. Sky blue `#2f6fd1` background with soft clouds, white frosted cards, ink `#141a22` text, Plus Jakarta Sans, and green `#22b36b` for Passed. Red only for Failed. The Kane scenes use the dark circuit board with the KANE CLI chip from the live run view.
+## Visual rules for every shot
 
-**Sound:** a light, steady electronic bed at low volume, ducked under the voice. Soft clicks on button presses, a low tone on Failed, a bright chime on Passed.
-
-**Captions:** burned in, bottom centre, two lines at most, so it works muted.
-
-**What the video must make clear to a judge** (the four scores):
-
-| Score | Where the video proves it |
-|---|---|
-| Ships | Scenes 3 to 6: a real check on a real live app, start to finish |
-| Verified | Scenes 5 and 6: Kane finds a real bug, in its own words |
-| Closed loop | Scenes 7 and 8: Kane's verdict goes to Claude Code, Claude Code fixes and asks Kane again, Kane passes |
-| Craft | Scenes 2, 9 and 10: one paste to set up, approval before spend, honest results, guardrails |
+- One continuous world. The camera moves through the product instead of jumping between slides: push in, pull out, follow an element from one screen to the next.
+- Real interface, rebuilt to the pixel: the sky blue, white cards, Plus Jakarta Sans, green for passed, red only for failed.
+- One easing for everything (fast out, soft landing, `cubic-bezier(0.22, 1, 0.36, 1)`). Nothing bounces, nothing spins, nothing sparkles.
+- Every transition is a match: an element in one shot becomes an element in the next. No fades to black except the last one, no wipes, no stock effects.
+- Captions in clean type, bottom centre, two lines at most.
+- Sound: a restrained, warm bed under the voice. Real UI sounds (a click, a soft tone on failed, a clear chime on passed). No whooshes on every cut.
 
 ---
 
-## Scene 1. The hook (0:00 to 0:15)
+## 1. The promise (0:00 to 0:12)
 
-**On screen:** a README on a white card, bullet points typing in: "Users can add items to the cart", "Users can subscribe to the newsletter". A small green check pops next to each one, unasked. Then the checks wobble and one turns into a question mark.
+**Picture:** white screen. A README writes itself, line by line, like someone typing:
+"Demo Shop. Users can add items to the cart. Users can subscribe to the newsletter and see a confirmation."
+The camera slowly pushes in on the last line.
 
-**Motion:** README card slides up from the bottom; checks pop in with a small bounce; the last one flips to "?" with a short shake.
+**Voice:**
+> Every app has a README full of promises. Add to cart. Sign up for the newsletter. But does the live app actually keep them?
 
-**Voiceover:**
-> Every README makes promises. Users can sign up. The cart works. The newsletter sends a confirmation. But who checks that the live app actually does what the README says?
-
----
-
-## Scene 2. Meet Greenlight (0:15 to 0:35)
-
-**On screen:** the Greenlight logo (dot-matrix check rising to the green light) draws itself, then the wordmark. Below it, the four steps from the landing page appear as four cards joined by the dashed connectors: Paste, Approve, Verdict, Fix with Claude Code. A loop arrow runs from the last card back to "Verdict" with the label "until every claim passes".
-
-**Motion:** logo dots light up one by one along the check, the green light glows last. Cards drop in left to right; a green dot travels along each connector.
-
-**Voiceover:**
-> This is Greenlight. You give it your repo, your live URL and your README. Kane CLI tests every claim on the deployed app, in a real browser. And when something fails, Claude Code fixes it, and Kane checks again, until every claim passes.
+**Cut:** on "keep them", the full stop at the end of the newsletter line grows into a green dot.
 
 ---
 
-## Scene 3. Paste (0:35 to 0:55)
+## 2. Greenlight (0:12 to 0:24)
 
-**On screen:** the "Check an app" page. The GitHub repository field fills with `github.com/XDGram/GREENLIGHT`, the live URL with `greenlight-demo-shop.vercel.app`. A README.md file icon is dragged onto the README box; it fills with the demo shop's README. The green line appears: "Loaded README.md. You can edit it below." Cursor clicks "Check my app".
+**Picture:** the green dot becomes the light at the top of the Greenlight mark; the dotted check draws itself into it. The wordmark slides out beside it. The white turns to sky blue behind, with soft clouds. Under the logo: "Does your app do what its README says?"
 
-**Motion:** typed text with a blinking caret; the file icon arcs in from the right; the box's dashed blue outline pulses on drop.
+**Voice:**
+> This is Greenlight. It checks every promise on your live app, using Kane CLI to test it, and Claude Code to fix what's broken.
 
-**Voiceover:**
-> Here's a small demo shop we deployed on Vercel, with one feature that works and one that's quietly broken. I paste the repository and the live URL, and drop in the README. No account needed.
-
----
-
-## Scene 4. Claims and cost (0:55 to 1:20)
-
-**On screen:** two claim rows appear, each with a switch turned on:
-1. "Users can add items to the cart and the cart count goes up"
-2. "Users can subscribe to the newsletter with their email and see a confirmation"
-
-Under them, each claim's test in plain English (open the page, click Add to cart, expect the count to change). The cost line counts up to "94 credits". The button reads "Run · 94 credits". Cursor clicks it.
-
-**Motion:** rows slide in staggered; the credit number ticks up; a soft highlight sweeps the Run button before the click.
-
-**Voiceover:**
-> Greenlight turns every bullet point into a claim, and every claim into a plain-English test for Kane. Before anything runs, I see exactly what will be tested and exactly what it costs. Nothing spends credits until I click Run. That click is my approval.
+**Cut:** the logo moves up into the corner of a browser bar as the camera pulls back to the Greenlight app.
 
 ---
 
-## Scene 5. Kane at work (1:20 to 2:05)
+## 3. Start a check (0:24 to 0:42)
 
-**On screen, part A (1:20 to 1:40):** a simple diagram builds left to right: Greenlight API, then a box labelled "Vercel Sandbox, one per run", inside it "Kane CLI 0.10.6" and "Chromium", then an arrow out to "your live app". The command line appears under it in mono:
-`kane-cli testrun run … --agent --local --no-adaptive-heal`
-Each flag gets a short label as it lights up: `--agent` "machine-readable results", `--local` "nothing uploaded", `--no-adaptive-heal` "approved tests can't be rewritten to pass".
+**Picture:** the "Check an app" form. The repository and live app fields fill in. A README file drags in from the side and drops into the README box; the box fills, and a quiet green line says "Loaded README.md." The cursor clicks "Check my app".
 
-**On screen, part B (1:40 to 2:05):** the live run view: the dark circuit board with traces flowing into the KANE CLI chip, the LIVE dot pulsing, the timer running, and the line `kane-cli: running in a real browser, 2 claims to check`. Stage chips: Queued (done), Kane is running (spinning), Verdict. A small label in the corner: "about 2 minutes, sped up".
+**Voice:**
+> You give it three things: your code on GitHub, the link to your live app, and your README. That's all. No account, no setup.
 
-**Motion:** diagram boxes snap together; flags highlight one at a time; the circuit traces run continuously; the timer races (time-lapse).
-
-**Voiceover:**
-> When I approve, Greenlight starts a fresh Vercel Sandbox just for this run. Inside it, Kane CLI drives a real Chromium against the live URL. We run Kane in agent mode, so its results come back as data. Local mode, so nothing gets uploaded. And with adaptive healing off, so Kane can't quietly rewrite an approved test until it passes. While it works, the page shows the run live. It only shows what's really known: the status, the time, and the claims being checked.
+**Cut:** the README box's lines lift out of the box and fall into place as separate cards.
 
 ---
 
-## Scene 6. The verdict (2:05 to 2:30)
+## 4. Claims (0:42 to 1:00)
 
-**On screen:** the result page. Verdict "Failed". Claim 1 gets a green "Passed" badge. Claim 2 gets a red "Failed" badge, and under it a quote block labelled "What Kane saw":
-"Three valid email submissions all returned 'Subscription failed. Please try again later.'"
-Under that, the failed step and a suggested fix.
+**Picture:** two claim cards, each with a switch:
+"Users can add items to the cart and the cart count goes up."
+"Users can subscribe to the newsletter and see a confirmation."
+Below them, the cost appears, and the button "Run". The cursor rests on it, then clicks.
 
-**Motion:** claim 1 badge pops green with the chime; claim 2 badge drops in red with the low tone; Kane's note types out like a terminal line.
+**Voice:**
+> Greenlight turns each promise into a claim it can test. You choose which ones to check, and you see exactly what the run will cost before anything starts. Nothing runs until you press Run.
 
-**Voiceover:**
-> Two minutes later, the verdict. The cart works: passed. The newsletter doesn't: failed. And Kane tells us exactly what it saw. Three valid emails, and every one said subscription failed. That's a real bug on a real deployment, caught by Kane.
-
----
-
-## Scene 7. The closed loop: Claude Code (2:30 to 3:15)
-
-**On screen, part A (2:30 to 2:45):** cursor clicks "Connect Claude Code". A message card appears with a Copy button; the token in it is blurred. It flies into a terminal window titled "Claude Code".
-
-**On screen, part B (2:45 to 3:15):** the terminal plays the loop, each step a line that ticks green:
-1. `GET /v1/checks/:id` "Reading Kane's verdict" (a small table: cart passed, newsletter failed)
-2. Claude Code opens `examples/demo-shop/app.js`; the line `if (res.status === "ok")` is highlighted red, then changes to `if (res.ok)`, highlighted green. A caption: "The API answers { ok: true }. The form checked a field that never exists."
-3. `git commit` "Fix newsletter sign-up: read the API's ok field" with the hash `6919b14`, then `git push`
-4. "Waiting for the new deploy"
-5. `POST /v1/checks/:id/recheck` "Asking Kane to check again"
-
-A thin line connects the terminal back to the Kane chip from scene 5, closing the loop visually.
-
-**Motion:** the copied message flies in; terminal lines type at a readable pace; the code diff wipes from red to green; the connecting line draws itself and pulses.
-
-**Voiceover:**
-> Now the loop. I click Connect Claude Code and paste one message. Claude Code reads Kane's verdict straight from the Greenlight API, Kane's own note included, and uses it as the symptom. It finds the cause: the form checked a field the API never sends. It fixes one line, commits, pushes, waits for the new deploy, and then asks Greenlight to run Kane again. No copy and paste of logs, no human in the middle.
+**Cut:** the Run button presses down and becomes the KANE CLI chip, in the dark, with its circuit lines flowing in.
 
 ---
 
-## Scene 8. Kane confirms (3:15 to 3:28)
+## 5. Kane CLI tests it (1:00 to 1:32)
 
-**On screen:** the circuit board runs once more (short, sped up), then the result flips: claim 2 badge turns from red to green. Both claims "Passed". Verdict "Passed". Under it: "Re-check started by Claude Code" and the job id `job_160ed912…`.
+**Picture, part A (1:00 to 1:12):** the circuit board from the app's live view, with the KANE CLI chip in the centre and coloured traces flowing into it. The camera moves through the chip.
 
-**Motion:** red badge cross-fades to green with the chime; a soft green glow spreads behind the card; the logo's green light pulses once.
+**Picture, part B (1:12 to 1:32):** we come out inside a real browser showing the demo shop. A cursor, moving the way a person moves, clicks "Add to cart": "Items in cart" goes from 0 to 1. It scrolls to the newsletter, types an email, clicks "Subscribe". A message appears: "Subscription failed. Please try again later." It tries again. Same message. A small label in the corner throughout: "Kane CLI, live app, real browser".
 
-**Voiceover:**
-> Kane tests the new deploy. Both claims pass. Kane found the bug, Claude Code fixed it, and Kane confirmed the fix. That's the whole loop.
+**Voice:**
+> This is where Kane CLI comes in. Greenlight hands it every claim as a plain-English test. Kane opens your live app in a real browser and uses it the way a person would: it clicks, it types, it reads what's on the screen. The cart works. But the newsletter keeps saying no.
 
----
-
-## Scene 9. Built to be trusted (3:28 to 3:42)
-
-**On screen:** four short lines appear one by one, each with a small icon:
-- "You approve every test and every credit"
-- "Claude Code's token can re-run approved tests, not approve new ones"
-- "Could not verify never counts as passed"
-- "Every run has a capped cost"
-
-**Motion:** lines slide in from the left, 0.6 s apart.
-
-**Voiceover:**
-> And it stays honest. You approve every test and every credit. Claude Code can re-run checks, but never approve new ones. And if Kane can't finish, it's never counted as a pass.
+**Cut:** the red error message slides out of the browser and lands on the result page as Kane's note.
 
 ---
 
-## Scene 10. Close (3:42 to 3:50)
+## 6. The verdict (1:32 to 1:54)
 
-**On screen:** the logo and wordmark on sky blue. Under it:
-`greenlight-api-xi.vercel.app/app`
-`github.com/XDGram/GREENLIGHT`
-Small line: "Built with Kane CLI and Claude Code".
+**Picture:** the result page. The cart claim gets a green "Passed". The newsletter claim gets a red "Failed", and under it, "What Kane saw": "Three valid email submissions all returned 'Subscription failed. Please try again later.'" (Kane's real words) Beside it, a suggested fix in one sentence. On the right, the card "Fix it with Claude Code" lights up.
 
-**Motion:** logo settles in the centre, text fades up, clouds drift, the green light glows and holds.
+**Voice:**
+> And here is the verdict, claim by claim. The cart passed. The newsletter failed, and Kane tells you exactly what it saw. Greenlight doesn't stop at the problem. It brings up the fix, ready for Claude Code.
 
-**Voiceover:**
-> Greenlight. Your README makes promises. Kane CLI proves them.
+**Cut:** the camera pushes into the "Fix it with Claude Code" card until it fills the screen.
 
 ---
 
-## Voiceover only (for generating the audio)
+## 7. First time: install (1:54 to 2:10)
 
-One file per scene, generated one at a time, in this order. Scene timings above leave room for the pauses between them.
+**Picture:** the card's "First time? Install Claude Code" section opens. The camera glides down the steps: one line to copy, a Copy button that ticks to "Copied". A terminal window rises from the bottom; Claude Code starts, with its welcome screen.
 
-1. Every README makes promises. Users can sign up. The cart works. The newsletter sends a confirmation. But who checks that the live app actually does what the README says?
-2. This is Greenlight. You give it your repo, your live URL and your README. Kane CLI tests every claim on the deployed app, in a real browser. And when something fails, Claude Code fixes it, and Kane checks again, until every claim passes.
-3. Here's a small demo shop we deployed on Vercel, with one feature that works and one that's quietly broken. I paste the repository and the live URL, and drop in the README. No account needed.
-4. Greenlight turns every bullet point into a claim, and every claim into a plain-English test for Kane. Before anything runs, I see exactly what will be tested and exactly what it costs. Nothing spends credits until I click Run. That click is my approval.
-5. When I approve, Greenlight starts a fresh Vercel Sandbox just for this run. Inside it, Kane CLI drives a real Chromium against the live URL. We run Kane in agent mode, so its results come back as data. Local mode, so nothing gets uploaded. And with adaptive healing off, so Kane can't quietly rewrite an approved test until it passes. While it works, the page shows the run live. It only shows what's really known: the status, the time, and the claims being checked.
-6. Two minutes later, the verdict. The cart works: passed. The newsletter doesn't: failed. And Kane tells us exactly what it saw. Three valid emails, and every one said subscription failed. That's a real bug on a real deployment, caught by Kane.
-7. Now the loop. I click Connect Claude Code and paste one message. Claude Code reads Kane's verdict straight from the Greenlight API, Kane's own note included, and uses it as the symptom. It finds the cause: the form checked a field the API never sends. It fixes one line, commits, pushes, waits for the new deploy, and then asks Greenlight to run Kane again. No copy and paste of logs, no human in the middle.
-8. Kane tests the new deploy. Both claims pass. Kane found the bug, Claude Code fixed it, and Kane confirmed the fix. That's the whole loop.
-9. And it stays honest. You approve every test and every credit. Claude Code can re-run checks, but never approve new ones. And if Kane can't finish, it's never counted as a pass.
-10. Greenlight. Your README makes promises. Kane CLI proves them.
+**Voice:**
+> First time using Claude Code? Greenlight walks you through it. Copy one line, and Claude Code is ready in a few minutes. You only do this once.
+
+**Cut:** the camera returns up the card to the "Connect Claude Code" button as the terminal slides to the right half of the screen.
 
 ---
 
-## Facts used, so nothing in the video is made up
+## 8. One paste (2:10 to 2:24)
 
-- Demo app: `examples/demo-shop`, live at https://greenlight-demo-shop.vercel.app, with the newsletter bug in place.
-- Kane CLI 0.10.6, run with `--agent --local --no-adaptive-heal`, in a Vercel Sandbox per job, driving Chromium (`@sparticuz/chromium`).
-- First real run: `job_318ca85431854f0a887d1d92f6446bbc`. Cart passed, newsletter failed.
-- Kane's note, as recorded in the fix commit: "Three valid email submissions all returned 'Subscription failed. Please try again later.'"
-- Fix: commit `6919b14`, "Fix newsletter sign-up: read the API's ok field" (the form checked `res.status === "ok"`; the API answers `{ ok: true }`).
-- Re-check started by Claude Code's agent token: `job_160ed9123d7748d387eab3f4484cd93b`. Both claims passed.
-- A 2-claim run costs about 94 credits; a Kane run takes about 2 minutes (shown sped up, and labelled so).
-- The agent token reads checks and starts re-checks of approved tests; it can't approve new tests. "Could not verify" is never counted as passed.
+**Picture:** split screen. Left: the result page. The cursor clicks "Connect Claude Code"; a short message appears with a Copy button (the private part blurred). Copy. The message travels across the split and drops into the Claude Code terminal on the right. Enter.
+
+**Voice:**
+> Then click Connect Claude Code, copy one message, and paste it into Claude Code. That message is all it needs to find your check and talk to Greenlight.
+
+**Cut:** the left half slides away; the terminal takes the whole screen.
+
+---
+
+## 9. Claude Code fixes it (2:24 to 2:56)
+
+**Picture:** the Claude Code terminal, full screen. Its messages appear in plain English, one by one, each ticking green when done:
+- "Reading Kane's verdict from Greenlight: cart passed, newsletter failed."
+- "Kane saw every sign-up fail. Looking at the sign-up form."
+- "Found it: the form misreads the server's reply, so every sign-up looks like a failure."
+- A one-line change, shown small and short (red line out, green line in), not explained.
+- "Fixed. Saving the change and publishing it."
+- "Waiting for the new version to go live."
+- "Asking Greenlight to have Kane check again."
+
+**Voice:**
+> Claude Code reads Kane's verdict straight from Greenlight, including what Kane saw. It uses that to find the real cause: the form was misreading the server's reply. It fixes it, publishes the change, waits for the new version to go live, and asks Kane to check again. You just watch.
+
+**Cut:** the last line, "Asking Greenlight to have Kane check again", sends a thin line out of the terminal that connects back to the KANE CLI chip.
+
+---
+
+## 10. Kane checks again (2:56 to 3:14)
+
+**Picture:** the chip and its circuit lines, brief. Back in the real browser: the email is typed, "Subscribe" clicked, and this time "Thanks for subscribing, ada@example.com!" appears. Cut to the result page: the newsletter claim's red "Failed" turns green, "Passed". Both claims green. The header reads "Passed". In the Claude Code terminal, a last line: "Kane passed every claim."
+
+**Voice:**
+> Kane tests the new version on your live app. This time it works. Every claim passes. Kane found the problem, Claude Code fixed it, and Kane proved the fix.
+
+**Cut:** the green "Passed" badge grows into the green light of the Greenlight mark.
+
+---
+
+## 11. Close (3:14 to 3:30)
+
+**Picture:** the Greenlight mark and wordmark, centred on sky blue. The four steps line up beneath it as small labels joined by a line: Check, Verdict, Fix, Check again. Then the links: greenlight-api-xi.vercel.app and github.com/XDGram/GREENLIGHT. "Built with Kane CLI and Claude Code." The mark's green light holds; slow fade to white.
+
+**Voice:**
+> Greenlight. Kane CLI checks every promise. Claude Code keeps them. Try it on your app today.
+
+---
+
+## Voiceover, line by line (for generating the audio)
+
+Generate one line per shot, in order, only after this script is approved.
+
+1. Every app has a README full of promises. Add to cart. Sign up for the newsletter. But does the live app actually keep them?
+2. This is Greenlight. It checks every promise on your live app, using Kane CLI to test it, and Claude Code to fix what's broken.
+3. You give it three things: your code on GitHub, the link to your live app, and your README. That's all. No account, no setup.
+4. Greenlight turns each promise into a claim it can test. You choose which ones to check, and you see exactly what the run will cost before anything starts. Nothing runs until you press Run.
+5. This is where Kane CLI comes in. Greenlight hands it every claim as a plain-English test. Kane opens your live app in a real browser and uses it the way a person would: it clicks, it types, it reads what's on the screen. The cart works. But the newsletter keeps saying no.
+6. And here is the verdict, claim by claim. The cart passed. The newsletter failed, and Kane tells you exactly what it saw. Greenlight doesn't stop at the problem. It brings up the fix, ready for Claude Code.
+7. First time using Claude Code? Greenlight walks you through it. Copy one line, and Claude Code is ready in a few minutes. You only do this once.
+8. Then click Connect Claude Code, copy one message, and paste it into Claude Code. That message is all it needs to find your check and talk to Greenlight.
+9. Claude Code reads Kane's verdict straight from Greenlight, including what Kane saw. It uses that to find the real cause: the form was misreading the server's reply. It fixes it, publishes the change, waits for the new version to go live, and asks Kane to check again. You just watch.
+10. Kane tests the new version on your live app. This time it works. Every claim passes. Kane found the problem, Claude Code fixed it, and Kane proved the fix.
+11. Greenlight. Kane CLI checks every promise. Claude Code keeps them. Try it on your app today.
+
+---
+
+## True to the product
+
+Everything shown happens in the real product; the video only makes it easier to follow.
+
+- The demo shop and its newsletter bug are real (`examples/demo-shop`, live at greenlight-demo-shop.vercel.app).
+- Kane's real note on the first run: "Three valid email submissions all returned 'Subscription failed. Please try again later.'" (Shot 6 shows it word for word.)
+- The real fix was one line in the sign-up form, made by Claude Code, and the re-check it started passed both claims.
+- The install steps, the Connect Claude Code button and the one-message paste are the real result page.
+- The Kane run takes about two minutes in reality; shots 5 and 10 show it shortened.

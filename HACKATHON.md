@@ -51,7 +51,7 @@ Then four scores, 25% each: **Ships** (works end to end), **Verified** (Kane pro
 ### Step 3: Submission material
 - [ ] **About text:** what we built, which agent (Claude Code), what Kane does.
 - [ ] **Demo video script:** 3–5 minutes, scene by scene.
-- [ ] **Demo video** (the submission video, 3–5 minutes): build it with Remotion in `video/`. Not started; wait for the go-ahead.
+- [ ] **Demo video** (the submission video, 3:30): a motion-video product unveiling, built with Remotion in `video/`. Rules in `video/BRIEF.md`, script in `video/SCRIPT.md`. Not started; wait for the go-ahead.
 - [ ] **Motion video** (a separate short animated video, motion graphics): Remotion or HyperFrames in `video/`. Not started; wait for the go-ahead.
 - [ ] **Two or more post drafts:** HN, X, Reddit, LinkedIn.
 - [ ] **README update:** how to run it, and working credentials or a fallback for judges. The rules say to hand over working credentials and include a backup for third-party services.
