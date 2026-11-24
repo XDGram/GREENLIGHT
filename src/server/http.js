@@ -17,6 +17,9 @@
 //   GET  /v1/projects/:projectId/records                    read      (full records, all runs, passed or not)
 //   GET  /v1/projects/:projectId/records/:recordId/evidence read      (re-downloads and re-hashes stored evidence)
 // Public (no auth, rate limited per IP):
+//   GET  /v1/checks                                         read      the account's one-page checks
+//   GET  /v1/checks/:projectId                              read      claims + latest Kane verdict (Kane's notes)
+//   POST /v1/checks/:projectId/recheck                      recheck   re-run the approved claims on the live app
 //   GET  /v1/public/records/:recordId                       redacted public verification record
 //
 // Every error body: {"error": {"code", "message", "action", "details"?}}.
@@ -26,7 +29,7 @@ import { createApprovalWeb } from "./approval-web.js";
 import { createGuestApi, GUEST_PREFIX } from "./guest-api.js";
 import { runDemoCheck } from "./guest-check.js";
 import { createMcpHandler } from "./mcp.js";
-import { sendJson } from "./app-api.js";
+import { sendJson, checkView, submitVerification, runEstimate, jobView } from "./app-api.js";
 import { GreenlightError, errorBody, httpFor } from "../cli/errors.js";
 import { SpecError } from "../spec/schema.js";
 import { projectFromText } from "../spec/generate.js";
@@ -145,6 +148,39 @@ export function createApp({ config, store, jobs, now = () => new Date(), log = (
       const rt = runtime ? { kane: runtime.kane, chrome: runtime.chrome } : {};
       const ok = Boolean(h.ok) && (!runtime || runtime.ok);
       return [ok ? 200 : 503, { schema: "greenlight.ready/v1", ok, store: store.kind ?? h.store ?? null, database: h.database, storage: h.storage, ...rt }];
+    }],
+
+    // The coding agent's loop (Claude Code /greenlight): read a check's verdict, re-run its approved
+    // claims after a fix. It can't change or approve claims: a person approved them on the website.
+    ["GET", /^\/v1\/checks$/, "read", async ({ principal }) => {
+      const projects = await store.listProjects(principal.account);
+      const out = [];
+      for (const p of projects) out.push(await checkView(config, store, p));
+      out.sort((a, b) => String(b.job?.createdAt ?? "").localeCompare(String(a.job?.createdAt ?? "")));
+      return [200, { checks: out }];
+    }],
+    ["GET", /^\/v1\/checks\/([^/]+)$/, "read", async ({ principal, m }) => [200, { check: await checkView(config, store, await store.getProject(m[1], principal.account)) }]],
+    ["POST", /^\/v1\/checks\/([^/]+)\/recheck$/, "recheck", async ({ principal, m }) => {
+      if (!jobs) throw new GreenlightError("server_not_configured", "Kane runs are not available on this server.");
+      const project = await store.getProject(m[1], principal.account);
+      const open = (await store.listJobs({ statuses: ["queued", "running"] })).find((j) => j.projectId === project.id);
+      if (open) return [202, { job: jobView(open), note: "A check of this app is already running." }];
+      const versions = await store.listVersions(project.id);
+      let chosen = null;
+      for (const v of [...versions].reverse()) {
+        if (await store.getApproval(project.id, v.version).catch(() => null)) {
+          chosen = v;
+          break;
+        }
+      }
+      if (!chosen) throw new GreenlightError("approval_not_certifiable", "No approved claims: run this check once on the website first.");
+      const spec = projectFromText(chosen.specText).spec;
+      const estimate = Math.ceil(runEstimate(spec, config));
+      const s = { ...principal, user: principal.name, email: null };
+      const fetchImpl = approvalDeps.fetchImpl ?? ((...a) => globalThis.fetch(...a));
+      const checkHost = approvalDeps.appDeps?.checkHost;
+      const job = await submitVerification({ config, store, s, project, body: { version: chosen.version, confirmSpend: estimate, approvedTestHash: chosen.approvedTestHash }, jobs, fetchImpl, checkHost, now, log, autoCommit: true, recheck: true });
+      return [202, { job: jobView(job), estimate }];
     }],
 
     ["POST", /^\/v1\/projects$/, "propose", async ({ principal, body }) => {

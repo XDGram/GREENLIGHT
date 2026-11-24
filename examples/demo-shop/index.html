@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Demo Shop</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 560px; margin: 40px auto; padding: 0 16px; }
+    section { border: 1px solid #ccc; border-radius: 8px; padding: 16px; margin: 16px 0; }
+    button { padding: 6px 14px; }
+    .ok { color: #116611; } .err { color: #aa1111; }
+  </style>
+</head>
+<body>
+  <h1>Demo Shop</h1>
+
+  <section id="cart">
+    <h2>Cart</h2>
+    <p>Items in cart: <strong id="cart-count">0</strong></p>
+    <button id="add-item" type="button">Add item</button>
+  </section>
+
+  <section id="newsletter">
+    <h2>Newsletter</h2>
+    <form id="subscribe-form">
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" required>
+      <button id="subscribe" type="submit">Subscribe</button>
+    </form>
+    <p id="subscribe-result" role="status"></p>
+  </section>
+
+  <script src="app.js"></script>
+</body>
+</html>

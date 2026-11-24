@@ -43,6 +43,9 @@ Rate limit: `GREENLIGHT_RATE_LIMIT_PER_MINUTE` per token, per client IP for anon
 | `POST /v1/projects/:projectId/versions/:n/approval` | approve (owner) | `{confirmHash}` | `201` Approval. `403 forbidden` for accounts that require a signed browser approval (`GREENLIGHT_BROWSER_APPROVAL_ACCOUNTS`, default `xdgram`) |
 | `POST /v1/projects/:projectId/certifications` | certify (owner) | `{version, commit, confirmSpend, url?, environment?, approvedTestHash?}` | `202` Job |
 | `GET /v1/jobs/:jobId` | read | | `200` Job |
+| `GET /v1/checks` | read | | `200` `{checks: Check[]}`: the account's one-page checks, newest first |
+| `GET /v1/checks/:projectId` | read | | `200` `{check: Check}`: claims and the latest Kane verdict, with Kane's note on each failure |
+| `POST /v1/checks/:projectId/recheck` | recheck | `{}` | `202` `{job, estimate}`: re-runs the claims a person approved on the website (Claude Code's `/greenlight` loop). Limited re-checks per check; the server's total credit cap applies |
 | `GET /v1/projects/:projectId/records` | read | | `200 {records: VerificationRecord[]}`, each with `integrity` |
 | `GET /v1/projects/:projectId/records/:recordId/evidence` | read | | `200` EvidenceIntegrity: stored evidence re-downloaded and re-hashed |
 | `GET /v1/public/records/:recordId` | none | | `200` PublicVerification |

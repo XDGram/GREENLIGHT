@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, checkApi, type ClaimsResult } from "../api";
-import { FormError, ResultMark } from "../components/Bits";
+import { CodeBlock, FormError, ResultMark } from "../components/Bits";
 import { TrafficLight } from "../components/Chrome";
 import * as I from "../components/Icons";
 import { TopBar } from "../components/Shell";
@@ -239,11 +239,10 @@ export function CheckResultPage({ id }: { id: string }) {
         if (stop) return;
         setDetail(d);
         const job = latest(d.jobs);
-        if (job?.recordId) {
-          setRun(await api.run(id, job.recordId));
-          return;
-        }
-        if (job && (job.status === "queued" || job.status === "running")) timer = setTimeout(tick, 4000);
+        if (job?.recordId) setRun(await api.run(id, job.recordId));
+        else setRun(null);
+        // Keep watching: a coding agent may start a re-check after pushing a fix.
+        timer = setTimeout(tick, job && (job.status === "queued" || job.status === "running") ? 4000 : 15000);
       } catch (e) {
         if (!stop) setError(asErr(e));
       }
@@ -271,7 +270,69 @@ export function CheckResultPage({ id }: { id: string }) {
       {detail && !job ? <section className="card">No Kane run was started for this app.</section> : null}
       {job && !job.recordId ? <Progress job={job} /> : null}
       {run ? <Verdict run={run} /> : null}
+      {run ? <ConnectClaudeCode projectId={id} name={detail?.project.name ?? "app"} /> : null}
     </>
+  );
+}
+
+/**
+ * Close the loop: give Claude Code a token that can read this check and re-run its approved claims,
+ * plus the /greenlight command that fixes what Kane failed and asks Kane to confirm the fix.
+ */
+function ConnectClaudeCode({ projectId, name }: { projectId: string; name: string }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Err>(null);
+  const origin = window.location.origin;
+  const connect = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const t = await api.createToken("agent", `Claude Code · ${name}`.slice(0, 80));
+      setToken(t.token);
+    } catch (e) {
+      setError(asErr(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const commands = token
+    ? [
+        "# In your app's repository:",
+        "mkdir -p .claude/commands",
+        `curl -fsSL ${origin}/app/downloads/greenlight/commands/greenlight.md -o .claude/commands/greenlight.md`,
+        `export GREENLIGHT_URL=${origin}`,
+        `export GREENLIGHT_TOKEN=${token}`,
+        `export GREENLIGHT_CHECK=${projectId}`,
+        'claude "/greenlight"',
+      ].join("\n")
+    : "";
+  return (
+    <section className="step-card" aria-labelledby="cc-h">
+      <div className="step-card-head">
+        <h2 id="cc-h">Fix it with Claude Code</h2>
+        <span className="num-tag">004</span>
+      </div>
+      <p style={{ margin: 0 }}>
+        Connect your Claude Code and run <code>/greenlight</code> in your app's repository. Claude Code reads Kane's verdict, fixes the failed claims, pushes, waits for the deploy and asks Kane to check again until it passes. This page updates as it goes.
+      </p>
+      {token ? (
+        <>
+          <CodeBlock title="Run in your terminal" code={commands} />
+          <p className="small" style={{ margin: 0 }}>
+            Copy the token now: it is shown only once. It can only read this check and re-run the claims you approved; it can't change or approve claims. Re-checks are limited and come out of the server's Kane budget. Don't commit it.
+          </p>
+        </>
+      ) : (
+        <div>
+          <button type="button" className="btn" onClick={connect} disabled={busy}>
+            {busy ? <span className="spinner" aria-hidden="true" /> : null}
+            Connect Claude Code
+          </button>
+        </div>
+      )}
+      <FormError error={error} />
+    </section>
   );
 }
 

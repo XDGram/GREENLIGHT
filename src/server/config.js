@@ -50,8 +50,9 @@ export const SANDBOX_OVERHEAD_MS = 10 * 60_000;
 
 export const ROLES = Object.freeze({ OWNER: "owner", AGENT: "agent" });
 const PERMISSIONS = Object.freeze({
-  owner: new Set(["read", "propose", "approve", "certify"]),
-  agent: new Set(["read", "propose"]),
+  owner: new Set(["read", "propose", "approve", "certify", "recheck"]),
+  // recheck: re-run tests a person already approved (the coding agent confirming its fix).
+  agent: new Set(["read", "propose", "recheck"]),
 });
 
 const num = (v, d, { min = 0 } = {}) => {
@@ -226,6 +227,7 @@ export function loadConfig(env = process.env) {
       projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
       // Real Kane runs by guests (they spend Greenlight's credits): strict caps, enforced in the database.
       realRunsPerGuest: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST, 1),
+      rechecksPerCheck: num(env.GREENLIGHT_GUEST_RECHECKS_PER_CHECK, 3),
       realRunsPerDay: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_DAY, 3),
       // Credits all visitors together may spend per rolling 24 hours (reserved before each run).
       dailyCredits: num(env.GREENLIGHT_GUEST_DAILY_CREDITS, 150),
