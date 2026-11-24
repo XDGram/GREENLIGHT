@@ -793,7 +793,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       let files = [];
       try {
         const run = await store.getRun(record.execution.runId);
-        files = run.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256, kind: /\.(png|jpe?g|webp)$/i.test(f.name) ? "image" : f.name === "kane-stdout.ndjson" ? "log" : f.name === "kane-stderr.txt" ? "log" : f.name === "manifest.json" ? "manifest" : "file" }));
+        files = run.files.map((f) => ({ name: f.name, bytes: f.bytes, sha256: f.sha256, kind: /\.(png|jpe?g|webp)$/i.test(f.name) ? "image" : f.name === "kane-stdout.ndjson" ? "log" : f.name === "kane-stderr.txt" || f.name === "kane-remote.log" ? "log" : f.name === "manifest.json" ? "manifest" : "file" }));
       } catch {
         files = [];
       }

@@ -18,6 +18,7 @@
 
 import path from "node:path";
 import { constants as fsc } from "node:fs";
+import { redactText } from "../report/redact.js";
 import { mkdir, writeFile, copyFile, rename, rm, lstat, chmod, readFile } from "node:fs/promises";
 import { sha256File, sha256Bytes, canonicalJson } from "./hash.js";
 import { checkZipStructure } from "./zip-check.js";
@@ -29,6 +30,23 @@ export const MANIFEST_FILE = "manifest.json";
 export const RECORD_HASH_FILE = "manifest.sha256";
 export const STDOUT_FILE = "kane-stdout.ndjson";
 export const STDERR_FILE = "kane-stderr.txt";
+/** The tail of Kane's remote-execution log (HyperExecute), when Kane names one: why a dispatch failed. */
+export const REMOTE_LOG_FILE = "kane-remote.log";
+const REMOTE_LOG_TAIL = 32 * 1024;
+
+/** The log_path of Kane's remote_start event, if any. */
+function remoteLogPath(stdout) {
+  for (const line of String(stdout ?? "").split("\n")) {
+    if (!line.includes('"remote_start"')) continue;
+    try {
+      const e = JSON.parse(line);
+      if (e?.type === "remote_start" && typeof e.log_path === "string" && e.log_path.endsWith(".log")) return e.log_path;
+    } catch {
+      // not JSON
+    }
+  }
+  return null;
+}
 export const EVIDENCE_DIR = "evidence";
 
 const RUN_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -149,6 +167,16 @@ export async function collectEvidence({
   const stderrBytes = Buffer.from(runResult.stderr ?? "", "utf8");
   await writePrivate(path.join(runDir, STDOUT_FILE), stdoutBytes);
   await writePrivate(path.join(runDir, STDERR_FILE), stderrBytes);
+  const remoteLog = remoteLogPath(runResult.stdout);
+  if (remoteLog) {
+    try {
+      const raw = await readFile(remoteLog);
+      const tail = raw.subarray(Math.max(0, raw.length - REMOTE_LOG_TAIL)).toString("utf8");
+      await writePrivate(path.join(runDir, REMOTE_LOG_FILE), Buffer.from(redactText(tail), "utf8"));
+    } catch {
+      // the log is diagnostic only; a run never fails for want of it
+    }
+  }
 
   const evidence = await collectPack({ runResult, kaneCwd, runDir, validator });
 
