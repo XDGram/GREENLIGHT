@@ -1,3 +1,4 @@
 out/
 music/*.mp3
 !music/Inspired.mp3
+public/music/

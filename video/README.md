@@ -1,5 +1,20 @@
 # Greenlight demo video
 
+**The film:** `release/greenlight-demo.mp4` (1920 × 1080, 30 fps, 3:06). Script and rules: `SCRIPT.md`, `BRIEF.md`.
+
+Rebuild it:
+
+```bash
+cd video && npm install
+python3 prep.py 186        # voice timings, interface sounds, music stems (from music/Inspired.mp3)
+npx remotion render Demo out/greenlight-demo.mp4 --crf=18
+```
+
+- `remotion/src/scenes.tsx`: the 11 shots. Every action is timed to the spoken words (`say()` in `timeline.ts`, from the pauses measured in each voice file).
+- `remotion/src/ui.tsx`: the rebuilt interface (sky, nav, logo, result page, demo shop, Kane board, Claude Code terminal).
+- Cuts are match cuts on a shared element, and land on the music's beat grid (HyperFrames `beats`: 120 BPM).
+- Music: "Inspired" by Kevin MacLeod (incompetech.com), CC BY 4.0. Credit it in the YouTube description.
+
 Tools for the hackathon demo video. This folder has its own `package.json` and is not part of the app build.
 
 - **Remotion 4.0.547** (React compositions): `remotion/src/`
