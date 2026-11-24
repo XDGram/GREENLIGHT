@@ -283,7 +283,7 @@ test("vercel.json routes /v1 to the function, bundles the files the sandbox need
   const toFunction = v.rewrites.filter((r) => r.destination === "/api");
   assert.deepEqual(toFunction, [{ source: "/v1/:path*", destination: "/api" }, { source: "/approve", destination: "/api" }, { source: "/approve/:path*", destination: "/api" }, { source: "/api/auth/callback", destination: "/api" }, { source: "/api/auth/google/:path*", destination: "/api" }, { source: "/mcp", destination: "/api" }, { source: "/app/api/:path*", destination: "/api" }]);
   // Every other rewrite only serves the web app's own entry page (client-side routes under /app).
-  assert.deepEqual(v.rewrites.filter((r) => r.destination !== "/api"), [{ source: "/app", destination: "/app/index.html" }, { source: "/app/:path((?!api/|assets/|downloads/|favicon\\.svg$).*)", destination: "/app/index.html" }]);
+  assert.deepEqual(v.rewrites.filter((r) => r.destination !== "/api"), [{ source: "/app", destination: "/app/index.html" }, { source: "/app/:path((?!api/|assets/|downloads/|brand/|favicon\\.svg$).*)", destination: "/app/index.html" }]);
   // Static files come only from public/. In the repository it holds nothing but .gitkeep; the
   // build writes the web app (from web/ only) to public/app, which is never committed. No source,
   // docs or config of the repository is ever served.
