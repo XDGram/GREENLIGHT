@@ -1,0 +1,18 @@
+{
+  "name": "greenlight-video",
+  "private": true,
+  "type": "module",
+  "description": "Demo video for Greenlight (Remotion and HyperFrames). Not part of the app build.",
+  "scripts": {
+    "studio": "remotion studio",
+    "render": "remotion render",
+    "hf": ". ./env.sh && hyperframes"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.547",
+    "hyperframes": "0.9.91",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.547"
+  }
+}
