@@ -334,6 +334,7 @@ function ConnectClaudeCode({ projectId, name, repository }: { projectId: string;
           </button>
         </div>
       )}
+      <InstallGuide />
       <FormError error={error} />
     </section>
   );
@@ -479,5 +480,50 @@ export function ChecksListPage() {
         )}
       </section>
     </>
+  );
+}
+
+/** First-time setup for people who don't have Claude Code (or Git) yet. */
+function InstallGuide() {
+  return (
+    <details className="tech">
+      <summary>First time? Install Claude Code (about 5 minutes, once)</summary>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        <p className="small" style={{ margin: 0 }}>
+          You need Git and Claude Code (with a Claude account). Already have both? Open Claude Code and paste the message above.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <b>Windows</b>
+          <ol className="small" style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+            <li>
+              Install Git for Windows (default options): <a href="https://git-scm.com/download/win">git-scm.com/download/win</a>
+            </li>
+            <li>Open PowerShell (not Command Prompt) and run the commands below. They install Claude Code and make the claude command available.</li>
+            <li>Sign in when Claude Code opens, then paste the message above.</li>
+          </ol>
+          <CodeBlock
+            title="PowerShell"
+            code={[
+              "irm https://claude.ai/install.ps1 | iex",
+              '$bin = "$env:USERPROFILE\\.local\\bin"',
+              '[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path","User") + ";$bin", "User")',
+              '$env:Path += ";$bin"',
+              "claude",
+            ].join("\n")}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <b>macOS or Linux</b>
+          <ol className="small" style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+            <li>Check Git with git --version (macOS offers to install it if missing).</li>
+            <li>Run the commands below in Terminal, sign in when Claude Code opens, then paste the message above.</li>
+          </ol>
+          <CodeBlock title="Terminal" code={["curl -fsSL https://claude.ai/install.sh | bash", "claude"].join("\n")} />
+        </div>
+        <p className="small" style={{ margin: 0 }}>
+          When Claude Code asks to run curl or git, choose "Yes, and don't ask again". To push the fix, your GitHub account needs write access to the app's repository; Git may open a browser window once to sign you in.
+        </p>
+      </div>
+    </details>
   );
 }
