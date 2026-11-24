@@ -1,13 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { motion, useInView, useReducedMotion, useScroll, useTransform, type MotionValue } from "framer-motion";
+import { LayoutGroup, motion, useInView, useReducedMotion, useScroll, useTransform } from "framer-motion";
 import { guestApi } from "../api";
 import { Logo } from "../components/Chrome";
+import { Cloud, CloudBank, Stars } from "../components/Sky";
 import { useRouter } from "../router";
 import { CheckForm } from "./CheckPage";
 
-// The public landing page. Warm paper, serif headlines and the product itself as the picture:
-// the hero frame is a Greenlight result whose claims tick as it scrolls into view. Elements such
-// as the buttons, switches, loader and check marks are adapted from Uiverse.io (see uiverse.css).
+// The public landing page, in three skies: a bright day sky with the Greenlight app window rising
+// out of the clouds (its claims move Queued -> Testing -> Verdict as you scroll), frosted glass
+// step cards, and a night sky to close. Buttons, switches, the loader and check marks are adapted
+// from Uiverse.io (uiverse.css). Motion stops for viewers who prefer reduced motion.
 
 const ADMIN_LOGIN = "/approve/login?next=%2Fapp";
 const ease = [0.22, 1, 0.36, 1] as const;
@@ -21,172 +23,145 @@ function Reveal({ children, delay = 0, className }: { children: ReactNode; delay
   );
 }
 
-/** A small icon tile set between the words of the headline. */
-function Tile({ kind, delay }: { kind: "doc" | "browser" | "check"; delay: number }) {
-  const still = useReducedMotion();
-  const icon =
-    kind === "doc" ? (
-      <path d="M7 3.5h7.5L19 8v12.5H7z M14.5 3.5V8H19 M10 12h6 M10 15.5h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" />
-    ) : kind === "browser" ? (
-      <>
-        <rect x="3.5" y="5" width="17" height="14" rx="2.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-        <path d="M3.5 9h17" stroke="currentColor" strokeWidth="1.8" />
-        <path d="M11 11.5l5.5 2.6-2.3.6-1 2.4z" fill="currentColor" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
-      </>
-    ) : (
-      <path d="M6 12.5l4 4 8-9" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-    );
-  return (
-    <motion.span className={`tile ${kind}`} aria-hidden="true" initial={still ? false : { opacity: 0, scale: 0.4, rotate: -12 }} animate={{ opacity: 1, scale: 1, rotate: kind === "browser" ? 4 : kind === "check" ? -4 : 0 }} transition={{ type: "spring", stiffness: 260, damping: 16, delay }}>
-      <svg viewBox="0 0 24 24">{icon}</svg>
-    </motion.span>
-  );
-}
+// ------------------------------------------------------------------ the app window in the hero
 
-const ink = { fill: "none", stroke: "#111", strokeWidth: 2.2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
-
-/** Hand-drawn doodles around the hero. They bob gently and drift apart as you scroll. */
-function Doodles({ progress }: { progress: MotionValue<number> }) {
-  const still = useReducedMotion();
-  const left = useTransform(progress, [0, 1], still ? [0, 0] : [0, -120]);
-  const right = useTransform(progress, [0, 1], still ? [0, 0] : [0, -170]);
-  return (
-    <div className="doodles" aria-hidden="true">
-      <motion.div className="dd d-bubble" style={{ y: left }}>
-        <svg viewBox="0 0 120 100">
-          <path d="M20 18 C 40 6, 96 6, 108 26 C 118 44, 104 66, 74 70 L 52 72 L 34 90 L 38 70 C 16 66, 6 48, 12 32 C 14 26, 16 22, 20 18 Z" {...ink} />
-          <path d="M34 32 h46 M34 44 h52 M34 56 h34" {...ink} />
-        </svg>
-      </motion.div>
-      <motion.div className="dd d-bug" style={{ y: left }}>
-        <svg viewBox="0 0 110 110">
-          <ellipse cx="55" cy="60" rx="20" ry="27" {...ink} />
-          <path d="M55 34 v52 M40 46 C 30 40, 26 36, 22 30 M70 46 C 80 40, 84 36, 88 30 M35 62 h-16 M75 62 h16 M40 78 C 32 84, 28 88, 24 94 M70 78 C 78 84, 82 88, 86 94" {...ink} />
-          <circle cx="55" cy="30" r="8" {...ink} />
-          <path d="M50 22 L 44 12 M60 22 L 66 12" {...ink} />
-          <path d="M14 14 L 96 104" stroke="var(--pink)" strokeWidth="4" strokeLinecap="round" fill="none" />
-        </svg>
-      </motion.div>
-      <motion.div className="dd d-yes" style={{ y: right }}>
-        <svg viewBox="0 0 150 110">
-          <path d="M30 22 C 60 4, 128 10, 138 42 C 146 70, 112 90, 74 88 C 56 88, 40 84, 30 76 L 12 96 L 18 70 C 6 58, 6 36, 30 22 Z" {...ink} />
-          <text x="40" y="62" fontFamily="Caveat, cursive" fontWeight="600" fontSize="34" fill="#111" transform="rotate(-8 75 55)">
-            Passed!
-          </text>
-        </svg>
-      </motion.div>
-      <motion.div className="dd d-cursor" style={{ y: right }}>
-        <svg viewBox="0 0 100 100">
-          <path d="M30 24 L 72 52 L 52 56 L 62 78 L 54 82 L 44 60 L 30 74 Z" {...ink} fill="#fff" />
-          <path d="M18 14 L 24 20 M30 8 L 32 16 M8 28 L 16 30" {...ink} />
-        </svg>
-      </motion.div>
-      <motion.div className="dd d-box" style={{ y: left }}>
-        <svg viewBox="0 0 90 90">
-          <path d="M18 20 C 34 16, 56 17, 70 20 C 72 36, 72 56, 69 70 C 52 73, 34 72, 20 69 C 17 52, 16 36, 18 20 Z" {...ink} />
-          <path d="M28 44 L 42 58 L 80 10" stroke="var(--blue)" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-        </svg>
-      </motion.div>
-      <motion.div className="dd d-stars" style={{ y: right }}>
-        <svg viewBox="0 0 120 90">
-          <path d="M20 46 l 6 -14 l 6 14 l 14 2 l -11 9 l 4 14 l -13 -8 l -13 8 l 4 -14 l -11 -9 z" {...ink} />
-          <path d="M66 30 l 5 -11 l 5 11 l 11 2 l -9 7 l 3 11 l -10 -6 l -10 6 l 3 -11 l -9 -7 z" {...ink} />
-          <path d="M92 60 l 4 -9 l 4 9 l 9 1 l -7 6 l 3 9 l -9 -5 l -8 5 l 2 -9 l -7 -6 z" {...ink} />
-        </svg>
-      </motion.div>
-      <span className="dash dash-1" />
-      <span className="dash dash-2" />
-      <span className="dash dash-3" />
-      <span className="dash dash-4" />
-    </div>
-  );
-}
-
-const CLAIMS = [
-  { text: "Visitors can add a product to the cart", ok: true },
-  { text: "The cart shows the total", ok: true },
-  { text: "Users can reset their password", ok: false },
+type Stage = "queued" | "testing" | "pass" | "fail";
+const BOARD = [
+  { id: "c1", title: "Add to cart", text: "Visitors can add a product to the cart and the count goes up.", ok: true },
+  { id: "c2", title: "Cart total", text: "The cart shows the total of the items in it.", ok: true },
+  { id: "c3", title: "Password reset", text: "Users can reset their password from the sign-in page.", ok: false },
 ];
+/** Where each claim is at a given scroll step (0..6). */
+function stageOf(i: number, step: number, ok: boolean): Stage {
+  const start = i * 2 + 1;
+  if (step < start) return "queued";
+  if (step === start) return "testing";
+  return ok ? "pass" : "fail";
+}
 
-/** The hero picture: a Greenlight result in a browser window. Claims tick as you scroll. */
-function ProductFrame() {
+function ClaimCard({ c, stage }: { c: (typeof BOARD)[number]; stage: Stage }) {
+  return (
+    <motion.div layout layoutId={c.id} transition={{ type: "spring", stiffness: 260, damping: 30 }} className={`bcard ${stage}`}>
+      <b>{c.title}</b>
+      <p>{c.text}</p>
+      <div className="bcard-foot">
+        {stage === "testing" ? (
+          <span className="bchip run">
+            <span className="dash-loader small" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            Kane is testing
+          </span>
+        ) : stage === "queued" ? (
+          <>
+            <span className="bchip">Approved</span>
+            <span className="bchip">~37 credits</span>
+          </>
+        ) : (
+          <>
+            <span className={`bchip ${stage}`}>
+              <span className={`uv-check on ${stage === "fail" ? "fail" : ""}`} aria-hidden="true" />
+              {stage === "pass" ? "Passed" : "Failed"}
+            </span>
+            <span className="bchip">{stage === "pass" ? "View evidence" : "See the fix"}</span>
+          </>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+function AppWindow() {
   const ref = useRef<HTMLDivElement>(null);
   const still = useReducedMotion();
-  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "center center"] });
-  const rotateX = useTransform(scrollYProgress, [0, 1], still ? [0, 0] : [18, 0]);
-  const scale = useTransform(scrollYProgress, [0, 1], still ? [1, 1] : [0.9, 1]);
-  const [ticked, setTicked] = useState(still ? CLAIMS.length : 0);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end 0.75"] });
+  const [step, setStep] = useState(still ? 6 : 0);
   useEffect(() => {
     if (still) return;
-    return scrollYProgress.on("change", (v) => setTicked(v > 0.92 ? 3 : v > 0.78 ? 2 : v > 0.62 ? 1 : 0));
+    return scrollYProgress.on("change", (v) => setStep(Math.max(0, Math.min(6, Math.floor((v - 0.35) / 0.08)))));
   }, [scrollYProgress, still]);
-  const passed = CLAIMS.slice(0, ticked).filter((c) => c.ok).length;
-  const done = ticked >= CLAIMS.length;
-
+  const cols: { key: string; title: string; icon: string; match: (s: Stage) => boolean }[] = [
+    { key: "queued", title: "Queued", icon: "q", match: (s) => s === "queued" },
+    { key: "testing", title: "Testing", icon: "t", match: (s) => s === "testing" },
+    { key: "verdict", title: "Verdict", icon: "v", match: (s) => s === "pass" || s === "fail" },
+  ];
+  const stages = BOARD.map((c, i) => stageOf(i, step, c.ok));
+  const passed = stages.filter((s) => s === "pass").length;
   return (
-    <div className="frame-stage" ref={ref}>
-      <motion.div className="window" style={{ rotateX, scale }} role="img" aria-label="Example Greenlight result: two claims passed, one failed, with what Kane saw and a suggested fix.">
-        <div className="window-bar">
-          <span className="lights" aria-hidden="true">
-            <i />
-            <i />
-            <i />
+    <div className="appwin-wrap" ref={ref}>
+      <div className="appwin" role="img" aria-label="The Greenlight app: claims move from Queued to Testing to a verdict; two pass, one fails.">
+        <aside className="aw-side">
+          <div className="aw-brand">
+            <Logo size={20} />
+            Greenlight
+          </div>
+          <span className="aw-item on">
+            <i className="ic ic-check" /> Checks <em>3</em>
           </span>
-          <span className="window-url">greenlight · check · acme/shop</span>
-        </div>
-        <div className="window-body">
-          <div className="res-main">
-            <div className="res-head">
-              <span className="res-k">Verdict · tested by Kane on shop.example.com</span>
-              <span className={`res-word ${done ? "fail" : ""}`}>{done ? "Failed" : "Testing"}</span>
-              <span className="res-sub">
-                {done ? (
-                  <>
-                    {passed} of {CLAIMS.length} claims passed · 94 credits
-                  </>
-                ) : (
-                  <span className="res-run">
-                    <span className="dash-loader" aria-hidden="true">
-                      <i />
-                      <i />
-                      <i />
-                      <i />
-                    </span>
-                    Kane is using the live app
-                  </span>
-                )}
+          <span className="aw-item">
+            <i className="ic ic-act" /> Activity
+          </span>
+          <span className="aw-group">Main</span>
+          <span className="aw-item">
+            <i className="ic ic-grid" /> Overview
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-list" /> Claims
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-doc" /> Evidence
+          </span>
+          <span className="aw-item">
+            <i className="ic ic-fix" /> Fixes
+          </span>
+          <span className="aw-group">Records</span>
+          <span className="aw-item">
+            <i className="ic ic-hist" /> History
+          </span>
+        </aside>
+        <div className="aw-main">
+          <div className="aw-top">
+            <span className="aw-search">acme/shop · shop.example.com</span>
+            <span className="aw-dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </div>
+          <div className="aw-head">
+            <div>
+              <h3>Claims</h3>
+              <span className="aw-filter">
+                {passed} of {BOARD.length} passed · 94 credits approved
               </span>
             </div>
-            <ul className="res-claims">
-              {CLAIMS.map((c, i) => {
-                const on = i < ticked;
-                return (
-                  <li key={c.text} className={on ? (c.ok ? "p" : "f") : ""}>
-                    <span className={`uv-check ${on ? "on" : ""} ${!c.ok ? "fail" : ""}`} aria-hidden="true" />
-                    <span className="res-text">{c.text}</span>
-                    <span className="res-tag">{on ? (c.ok ? "Passed" : "Failed") : "Queued"}</span>
-                  </li>
-                );
-              })}
-            </ul>
+            <span className="aw-btn">‹ Run again</span>
           </div>
-          <div className={`res-side ${done ? "on" : ""}`}>
-            <span className="res-k">What Kane saw</span>
-            <p>“Forgot password?” opens /reset-password, which returns a 404 page.</p>
-            <span className="res-k">Suggested fix</span>
-            <pre className="res-diff">
-              <span className="del">- Users can reset their password</span>
-              {"\n"}
-              <span className="add">+ add app/reset-password/page.tsx</span>
-            </pre>
-          </div>
+          <LayoutGroup>
+            <div className="board">
+              {cols.map((col) => (
+                <div key={col.key} className="bcol">
+                  <div className="bcol-head">
+                    <span className={`bico ${col.icon}`} aria-hidden="true" />
+                    {col.title}
+                  </div>
+                  {BOARD.map((c, i) => (col.match(stages[i]!) ? <ClaimCard key={c.id} c={c} stage={stages[i]!} /> : null))}
+                  <span className="bcol-add">+ Add claim</span>
+                </div>
+              ))}
+            </div>
+          </LayoutGroup>
         </div>
-      </motion.div>
+      </div>
     </div>
   );
 }
 
-/** Step 3 card: the loader, then the verdict, once the card is on screen. */
+// ------------------------------------------------------------------ glass step cards
+
 function MiniRun() {
   const ref = useRef<HTMLDivElement>(null);
   const inView = useInView(ref, { once: true, margin: "-20% 0px" });
@@ -198,27 +173,25 @@ function MiniRun() {
     return () => ts.forEach(clearTimeout);
   }, [inView, still]);
   return (
-    <div className="mini" ref={ref}>
+    <div className="g-mini" ref={ref}>
       {phase === 0 ? (
-        <div className="mini-run">
+        <span className="g-run">
           <span className="dash-loader" aria-hidden="true">
             <i />
             <i />
             <i />
             <i />
           </span>
-          <span>Kane is testing…</span>
-        </div>
+          Kane is testing…
+        </span>
       ) : (
-        <ul className="mini-list">
-          {["Add to cart works", "Cart shows the total", "Password reset works"].map((t, i) => (
-            <li key={t}>
-              <span className={`uv-check ${phase > i ? "on" : ""} ${i === 2 ? "fail" : ""}`} aria-hidden="true" />
-              {t}
-              <b className={i === 2 ? "f" : "p"}>{phase > i ? (i === 2 ? "Failed" : "Passed") : ""}</b>
-            </li>
-          ))}
-        </ul>
+        ["Add to cart works", "Cart shows the total", "Password reset works"].map((t, i) => (
+          <span key={t} className="g-line">
+            <span className={`uv-check ${phase > i ? "on" : ""} ${i === 2 ? "fail" : ""}`} aria-hidden="true" />
+            {t}
+            <b className={i === 2 ? "f" : "p"}>{phase > i ? (i === 2 ? "Failed" : "Passed") : ""}</b>
+          </span>
+        ))
       )}
     </div>
   );
@@ -229,51 +202,60 @@ function MiniApprove() {
   const n = on.filter(Boolean).length;
   const labels = ["Add to cart works", "Cart shows the total", "Order email arrives"];
   return (
-    <div className="mini">
-      <ul className="mini-list">
-        {labels.map((t, i) => (
-          <li key={t}>
-            <label className="uv-switch small">
-              <input type="checkbox" checked={on[i]} onChange={() => setOn((o) => o.map((x, j) => (j === i ? !x : x)))} aria-label={`Test “${t}”`} />
-              <span className="switch-track" aria-hidden="true">
-                <span className="switch-inner" />
-                <span className="switch-knob" />
-              </span>
-            </label>
-            {t}
-          </li>
-        ))}
-      </ul>
-      <div className="mini-cost">
-        <span>
-          {n} claim{n === 1 ? "" : "s"}
+    <div className="g-mini">
+      {labels.map((t, i) => (
+        <span key={t} className="g-line">
+          <label className="uv-switch small">
+            <input type="checkbox" checked={on[i]} onChange={() => setOn((o) => o.map((x, j) => (j === i ? !x : x)))} aria-label={`Test “${t}”`} />
+            <span className="switch-track" aria-hidden="true">
+              <span className="switch-inner" />
+              <span className="switch-knob" />
+            </span>
+          </label>
+          {t}
         </span>
-        <b>{n ? 20 + n * 37 : 0} credits</b>
+      ))}
+      <span className="g-cost">
+        {n} claim{n === 1 ? "" : "s"} <b>{n ? 20 + n * 37 : 0} credits</b>
+      </span>
+    </div>
+  );
+}
+
+function GlassStep({ n, of, label, title, text, cta, time, next, children, go, variant = "stack" }: { n: number; of: number; label: string; title: ReactNode; text: string; cta: string; time: string; next: string; children?: ReactNode; go: () => void; variant?: "stack" | "plain" }) {
+  return (
+    <div className={`gcard ${variant}`}>
+      {variant === "stack" ? (
+        <div className="gcard-top">
+          <span className="ring" style={{ ["--p" as string]: `${Math.round((n / of) * 100)}%` }} aria-hidden="true" />
+          Step {n} of {of}
+          <span className="sp" />
+          {Math.round((n / of) * 100)}%
+        </div>
+      ) : null}
+      <div className="gcard-body">
+        <span className="gcard-k">{label}</span>
+        <h3>{title}</h3>
+        <p>{text}</p>
+        {children}
+        <div className="gcard-cta">
+          <button type="button" className={`pill-dark ${variant === "plain" ? "wide" : ""}`} onClick={go}>
+            {variant === "stack" ? <span className="pill-ic" aria-hidden="true">▶</span> : null}
+            {cta}
+            {variant === "plain" ? <span className="pill-time">{time}</span> : null}
+          </button>
+          {variant === "stack" ? <span className="gtime">◷ {time}</span> : null}
+        </div>
+      </div>
+      <div className="gcard-next">
+        <span>Coming next</span>
+        {next}
       </div>
     </div>
   );
 }
 
-function MiniPaste() {
-  return (
-    <div className="mini">
-      <div className="mini-field">
-        <span>GitHub repository</span>
-        <b>github.com/acme/shop</b>
-      </div>
-      <div className="mini-field">
-        <span>Live app URL</span>
-        <b>shop.example.com</b>
-      </div>
-      <div className="mini-field area">
-        <span>README.md</span>
-        <code>- Visitors can add a product to the cart</code>
-        <code>- The cart shows the total</code>
-        <code>- Users can reset their password</code>
-      </div>
-    </div>
-  );
-}
+// ------------------------------------------------------------------ page
 
 export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string | null; guestMode: boolean; sample: boolean; onEntered: () => Promise<void> }) {
   const { navigate } = useRouter();
@@ -287,6 +269,8 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
   };
   const heroRef = useRef<HTMLElement>(null);
   const { scrollYProgress: heroP } = useScroll({ target: heroRef, offset: ["start start", "end start"] });
+  const cloudL = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -160]);
+  const cloudR = useTransform(heroP, [0, 1], still ? [0, 0] : [0, -90]);
   const go = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: still ? "auto" : "smooth", block: "start" });
   useEffect(() => {
     document.title = "Greenlight · Does your app do what its README says?";
@@ -294,135 +278,148 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
 
   return (
     <div className="land">
-      <header className="nav">
+      <header className="topbar-land">
         <a href="/app" className="brand">
-          <Logo size={26} />
+          <Logo size={24} />
           <span className="brand-name">Greenlight</span>
         </a>
-        <nav className="nav-links" aria-label="Main">
+        <nav className="tl-links" aria-label="Main">
           <a href="#how" onClick={(e) => (e.preventDefault(), go("how"))}>
             How it works
           </a>
-          <a href="#honest" onClick={(e) => (e.preventDefault(), go("honest"))}>
+          <a href="#verdicts" onClick={(e) => (e.preventDefault(), go("verdicts"))}>
             Verdicts
           </a>
           <a href="#check" onClick={(e) => (e.preventDefault(), go("check"))}>
             Check an app
           </a>
         </nav>
-        <span className="nav-right">
+        <span className="tl-right">
           {googleUrl ? (
-            <a className="pill-link" href={googleUrl}>
+            <a className="btn-outline" href={googleUrl}>
               Sign in
             </a>
           ) : null}
-          <button type="button" className="uv-button small" onClick={() => go("check")}>
+          <button type="button" className="btn-blue" onClick={() => go("check")}>
             Check my app
           </button>
         </span>
       </header>
 
       <main id="main">
-        <section className="hero" aria-labelledby="hero-h" ref={heroRef}>
-          <Doodles progress={heroP} />
-          <motion.a className="announce" href="#check" onClick={(e) => (e.preventDefault(), go("check"))} initial={still ? false : { opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease }}>
-            <b>Free</b> One run per visitor, no sign-up <span aria-hidden="true">→</span>
-          </motion.a>
-          <motion.h1 id="hero-h" initial={still ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.05 }}>
-            Your
-            <Tile kind="doc" delay={0.45} />
-            README makes{" "}
-            <span className="scribble">
-              promises.
-              <svg viewBox="0 0 300 24" preserveAspectRatio="none" aria-hidden="true">
-                <motion.path d="M4 16 C 60 6, 110 22, 160 12 S 250 6, 296 14 M 30 21 C 100 14, 190 22, 270 18" fill="none" stroke="var(--pink)" strokeWidth="4" strokeLinecap="round" initial={still ? false : { pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.1, ease, delay: 0.9 }} />
-              </svg>
-            </span>
-            <br />
-            Kane
-            <Tile kind="browser" delay={0.7} />
-            checks them
-            <Tile kind="check" delay={0.95} />
-          </motion.h1>
-          <motion.p initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease, delay: 0.25 }}>
-            Paste a GitHub repo and its live URL. Kane tests every claim in the README on your deployed app, in a real browser, and tells you what passed, what failed and how to fix it.
-          </motion.p>
-          <motion.div className="hero-cta" initial={still ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, ease, delay: 0.35 }}>
-            <button type="button" className="uv-button" onClick={() => go("check")}>
-              Check my app <span className="uv-tail">─ it’s free</span>
-            </button>
-            <button type="button" className="ghost-btn" onClick={() => go("how")}>
-              See how it works <span aria-hidden="true">→</span>
-            </button>
+        <section className="day" ref={heroRef} aria-labelledby="hero-h">
+          <span className="frame-line" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+            <i />
+          </span>
+          <motion.div className="cloud-wrap cl-1" style={{ y: cloudR }}>
+            <Cloud seed={4} />
           </motion.div>
-          <span className="hero-note">No sign-up required</span>
-        </section>
+          <motion.div className="cloud-wrap cl-2" style={{ y: cloudL }}>
+            <Cloud seed={9} />
+          </motion.div>
+          <motion.div className="cloud-wrap cl-3" style={{ y: cloudR }}>
+            <Cloud seed={13} />
+          </motion.div>
 
-        <section className="showcase" aria-label="An example result">
-          <ProductFrame />
-        </section>
+          <div className="day-copy">
+            <motion.span className="tag" initial={still ? false : { opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease }}>
+              less guessing, more proof.
+            </motion.span>
+            <motion.h1 id="hero-h" initial={still ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1, ease, delay: 0.05 }}>
+              Your README makes <em>promises.</em>
+              <br />
+              Kane checks <em>them.</em>
+            </motion.h1>
+            <motion.p initial={still ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.2 }}>
+              Paste a GitHub repo and its live URL. Kane tests every claim in your README on the deployed app, in a real browser, and tells you what passed and what to fix.
+            </motion.p>
+            <motion.div className="day-cta" initial={still ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.9, ease, delay: 0.3 }}>
+              <span className="cta-main">
+                <button type="button" className="uv-button" onClick={() => go("check")}>
+                  Check my app
+                </button>
+                <span className="scrawl" aria-hidden="true">
+                  <svg viewBox="0 0 60 40">
+                    <path d="M8 4 C 4 18, 12 30, 34 32" fill="none" stroke="#1b2a3f" strokeWidth="1.6" strokeLinecap="round" />
+                    <path d="M28 27 L 35 32 L 28 36" fill="none" stroke="#1b2a3f" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  it’s free
+                </span>
+              </span>
+              <button type="button" className="btn-glass" onClick={() => go("how")}>
+                <span aria-hidden="true">▶</span> See how it works
+              </button>
+            </motion.div>
+          </div>
 
-        <section id="how" className="sec" aria-labelledby="how-h">
-          <Reveal className="sec-head">
-            <span className="eyebrow-tag">How it works</span>
-            <h2 id="how-h">Three steps to an honest answer</h2>
-          </Reveal>
-          <div className="how-grid">
-            <Reveal className="how-card">
-              <MiniPaste />
-              <h3>
-                <span>1</span> Paste your repo
-              </h3>
-              <p>Your GitHub link, the live URL and, if you like, your README. Every bullet point becomes a claim.</p>
-            </Reveal>
-            <Reveal className="how-card" delay={0.1}>
-              <MiniApprove />
-              <h3>
-                <span>2</span> Approve the cost
-              </h3>
-              <p>Switch claims on or off and see the exact credit cost. Clicking Run approves exactly that, nothing more.</p>
-            </Reveal>
-            <Reveal className="how-card" delay={0.2}>
-              <MiniRun />
-              <h3>
-                <span>3</span> Read the verdict
-              </h3>
-              <p>Kane uses your live app in a real browser. Each claim passes or fails, with what it saw and a fix.</p>
-            </Reveal>
+          <AppWindow />
+          <CloudBank className="bank-day" seed={7} />
+          <div className="built">
+            <span>Built with</span>
+            <div className="built-row">
+              <b>Kane CLI</b>
+              <b>TestMu AI</b>
+              <b>Vercel</b>
+              <b>Supabase</b>
+              <b>React</b>
+            </div>
           </div>
         </section>
 
-        <section id="honest" className="sec" aria-labelledby="honest-h">
+        <section className="glass-sec" id="how" aria-labelledby="how-h">
           <Reveal className="sec-head">
-            <span className="eyebrow-tag">Verdicts</span>
-            <h2 id="honest-h">Three answers. Never a guess.</h2>
+            <span className="tag dark">How it works</span>
+            <h2 id="how-h">
+              Three steps to an <em>honest</em> answer
+            </h2>
           </Reveal>
-          <div className="verdicts">
-            <Reveal className="vcard p">
+          <div className="gcards">
+            <Reveal>
+              <GlassStep n={1} of={3} label="Paste" title={<>Your repo, the live URL, your README</>} text="Every bullet point in your README becomes a claim. Edit them, drop some, add your own." cta="Start a check" time="1 min" next="Approve the cost" go={() => go("check")} />
+            </Reveal>
+            <Reveal delay={0.08}>
+              <GlassStep n={2} of={3} label="Approve" title={<>Pick the claims, see the cost</>} text="Switch claims on or off. Clicking Run approves exactly these tests and this cost, nothing more." cta="Try the switches" time="94 credits" next="Kane runs the tests" go={() => go("check")}>
+                <MiniApprove />
+              </GlassStep>
+            </Reveal>
+            <Reveal delay={0.16}>
+              <GlassStep variant="plain" n={3} of={3} label="Verdict" title={<>Passed or failed, claim by claim</>} text="Kane uses your live app in a real browser. Each failure comes with what it saw and a fix." cta="Get a verdict" time="a few minutes" next="Fix it and check again" go={() => go("check")}>
+                <MiniRun />
+              </GlassStep>
+            </Reveal>
+          </div>
+
+          <div className="verdict-row" id="verdicts">
+            <Reveal className="vglass p">
               <span className="uv-check on" aria-hidden="true" />
-              <h3>Passed</h3>
-              <p>Kane did what the claim says on your live app, and it worked.</p>
+              <b>Passed</b>
+              <span>Kane did what the claim says on your live app, and it worked.</span>
             </Reveal>
-            <Reveal className="vcard f" delay={0.08}>
+            <Reveal className="vglass f" delay={0.08}>
               <span className="uv-check on fail" aria-hidden="true" />
-              <h3>Failed</h3>
-              <p>It didn’t work. You get what Kane saw on the page and a suggested fix.</p>
+              <b>Failed</b>
+              <span>It didn’t work. You get what Kane saw and a suggested fix.</span>
             </Reveal>
-            <Reveal className="vcard u" delay={0.16}>
+            <Reveal className="vglass u" delay={0.16}>
               <span className="result-mark unknown" aria-hidden="true" />
-              <h3>Could not verify</h3>
-              <p>Kane can’t check it from a browser, like an email arriving. It says so instead of guessing.</p>
+              <b>Could not verify</b>
+              <span>Kane can’t check it from a browser, so it says so instead of guessing.</span>
             </Reveal>
           </div>
         </section>
 
-        <section id="check" className="sec check" aria-labelledby="check-h">
+        <section className="check-sec" id="check" aria-labelledby="check-h">
           <Reveal className="sec-head center">
-            <span className="eyebrow-tag">Check an app</span>
-            <h2 id="check-h">Does your app do what its README says?</h2>
-            <p>One free run, up to two claims. You see the cost before anything runs.</p>
+            <span className="tag dark">Check an app</span>
+            <h2 id="check-h">
+              Does your app do what its README <em>says?</em>
+            </h2>
+            <p>One free run, up to two claims. No account needed. You see the cost before anything runs.</p>
           </Reveal>
-          <Reveal className="check-wrap" delay={0.1}>
+          <Reveal className="check-glass" delay={0.1}>
             {guestMode ? (
               <CheckForm
                 session={null}
@@ -439,21 +436,45 @@ export function Landing({ googleUrl, guestMode, onEntered }: { googleUrl: string
             )}
           </Reveal>
         </section>
-      </main>
 
-      <footer className="foot">
-        <span className="brand">
-          <Logo size={20} />
-          <span className="brand-name">Greenlight</span>
-        </span>
-        <span>Real browser tests by Kane.</span>
-        <span className="sp" />
-        {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
-        <a href={ADMIN_LOGIN}>Administrator sign-in</a>
-        <a href="https://uiverse.io" rel="noopener">
-          Some UI elements from Uiverse.io
-        </a>
-      </footer>
+        <section className="night" aria-labelledby="night-h">
+          <Stars />
+          <div className="night-copy">
+            <h2 id="night-h">
+              Get the green light in <span className="lit">minutes</span>
+              <svg className="sparkle" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 1 C 12.6 8, 16 11.4, 23 12 C 16 12.6, 12.6 16, 12 23 C 11.4 16, 8 12.6, 1 12 C 8 11.4, 11.4 8, 12 1 Z" fill="none" stroke="#fff" strokeWidth="1.2" />
+              </svg>
+            </h2>
+            <p>Paste a repo and a live URL. Your first verdict arrives in minutes. No sign-up, no setup.</p>
+            <div className="night-cta">
+              <button type="button" className="btn-night" onClick={() => go("check")}>
+                Check my app
+              </button>
+              <button type="button" className="btn-night icon" onClick={() => go("how")}>
+                <span className="kbd" aria-hidden="true">
+                  ⏵
+                </span>
+                How it works
+              </button>
+            </div>
+          </div>
+          <CloudBank className="bank-night" seed={21} />
+          <footer className="foot-sky">
+            <span className="brand">
+              <Logo size={22} />
+              <span className="brand-name">Greenlight</span>
+            </span>
+            <span className="foot-links">
+              {googleUrl ? <a href={googleUrl}>Sign in with Google</a> : null}
+              <a href={ADMIN_LOGIN}>Administrator sign-in</a>
+              <a href="https://uiverse.io" rel="noopener">
+                UI elements from Uiverse.io
+              </a>
+            </span>
+          </footer>
+        </section>
+      </main>
     </div>
   );
 }
