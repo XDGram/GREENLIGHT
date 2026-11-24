@@ -16,7 +16,7 @@ document.getElementById("subscribe-form").addEventListener("submit", function (e
   var email = document.getElementById("email").value;
   var out = document.getElementById("subscribe-result");
   subscribe(email).then(function (res) {
-    if (res.status === "ok") {
+    if (res.ok) {
       out.className = "ok";
       out.textContent = "Thanks for subscribing, " + email + "!";
     } else {
