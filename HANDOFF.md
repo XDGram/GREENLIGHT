@@ -32,9 +32,10 @@ without being asked. Explain things in plain words.
   `forceNew: "1"`, `target: "production"`, `project` = the id above. Then check `get_deployment`
   is READY and aliased to `greenlight-api-xi.vercel.app`.
 - Supabase project `ncbrsrklofofdqdftwjw`. Schema `greenlight` (tables, RLS deny-all) and
-  `greenlight_api` (SECURITY DEFINER RPCs, service_role only). **Migrations 1-5 are applied;
-  migration 6 (`supabase/migrations/20261122090000_greenlight_journey.sql`) is NOT applied, on
-  purpose: the owner said not to touch Supabase.** The code works without it (see below).
+  `greenlight_api` (SECURITY DEFINER RPCs, service_role only). **Migrations 1-6 are applied**
+  (migration 6, `supabase/migrations/20261122090000_greenlight_journey.sql`, on 25 Nov at the owner's
+  request: atomic visitor-run reservations, Fix Centre and agent-request tables). The code still
+  works without it (see below).
 
 ## How the one-page check works (code map)
 

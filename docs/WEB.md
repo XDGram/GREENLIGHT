@@ -40,7 +40,7 @@ recorded actual spend and the recorded estimates over all runs, plus the confirm
 queued or running job. A run that would cross it is refused before anything is stored; if the
 total can't be read, runs are refused (fails closed). It reads existing tables only.
 
-**Without migration 6.** Visitor runs work on the platform migration (5) alone: visitor accounts
+**Without migration 6** (production has it since 25 Nov). Visitor runs work on the platform migration (5) alone: visitor accounts
 are created with the base account functions, and the one-run-per-visitor limit is counted from the
 visitor's own jobs. The per-day limits and atomic reservations need migration 6.
 
