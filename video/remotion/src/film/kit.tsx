@@ -52,7 +52,7 @@ export function camAt(t: number, shots: Shot[], travel = 0.9): { x: number; y: n
  * The world (a 1920 × 1080 stage) seen through a camera. The camera eases between shots;
  * fast moves pick up a little blur, the way a real lens smears a whip.
  */
-export function Camera({ shots, travel = 0.9, shake = 0, children }: { shots: Shot[]; travel?: number; shake?: number; children: React.ReactNode }) {
+export function Camera({ shots, travel = 0.9, shake = 0, glitch = 0, punch = 0, children }: { shots: Shot[]; travel?: number; shake?: number; glitch?: number; punch?: number; children: React.ReactNode }) {
   const t = useT();
   const c = camAt(t, shots, travel);
   const p = camAt(t - 1 / FPS, shots, travel);
@@ -70,8 +70,8 @@ export function Camera({ shots, travel = 0.9, shake = 0, children }: { shots: Sh
           width: 1920,
           height: 1080,
           transformOrigin: "0 0",
-          transform: `translate(${960 - c.x * c.k + sx}px, ${540 - c.y * c.k + sy}px) scale(${c.k})`,
-          filter: blur > 0.3 ? `blur(${blur.toFixed(2)}px)` : undefined,
+          transform: `translate(${960 - c.x * c.k * (1 + punch) + sx}px, ${540 - c.y * c.k * (1 + punch) + sy}px) scale(${c.k * (1 + punch)})`,
+          filter: [blur > 0.3 ? `blur(${blur.toFixed(2)}px)` : "", glitch > 0.02 ? `drop-shadow(${(glitch * 14).toFixed(1)}px 0 0 rgba(255,40,80,0.75)) drop-shadow(${(-glitch * 14).toFixed(1)}px 0 0 rgba(40,220,255,0.75))` : ""].join(" ").trim() || undefined,
         }}
       >
         {children}
@@ -136,23 +136,25 @@ export function Click({ x, y, t, at, color = "#2ee68a", size = 1 }: { x: number;
 // ------------------------------------------------------------------ kinetic type
 
 /**
- * A line of words that rise out of a mask one by one, from blur to sharp, with a slight scale
- * settle. `hl` colours chosen words. `out` sends them up and away.
+ * A line of words that snap up out of a mask, one by one: crisp edges, no blur, a fast expo
+ * settle. Highlighted words (`hl`) get a solid marker bar that sweeps in behind them, with the
+ * word knocked out in ink. `out` sends the line up and away. Plays a swish as it lands.
  */
 export function Words({
   text,
   t,
   at,
   out = 999,
-  per = 0.075,
+  per = 0.06,
   size = 96,
   weight = 800,
   color = "#fff",
   hl = {},
   align = "center",
-  lh = 1.04,
+  lh = 1.08,
   ls = -0.045,
   style,
+  sound = true,
 }: {
   text: string;
   t: number;
@@ -167,55 +169,64 @@ export function Words({
   lh?: number;
   ls?: number;
   style?: React.CSSProperties;
+  sound?: boolean;
 }) {
   const words = text.split(" ");
   return (
-    <div style={{ font: `${weight} ${size}px/${lh} ${SANS}`, letterSpacing: `${ls}em`, color, textAlign: align, display: "flex", flexWrap: "wrap", justifyContent: align === "center" ? "center" : "flex-start", columnGap: `${size * 0.26}px`, ...style }}>
-      {words.map((w, i) => {
-        const a = at + i * per;
-        const pin = ramp(t, a, a + 0.75);
-        const pout = ramp(t, out + i * 0.035, out + i * 0.035 + 0.45, IN);
-        const key = w.replace(/[^\w']/g, "");
-        return (
-          <span key={i} style={{ display: "inline-block", overflow: "hidden", padding: `0 0.04em ${size * 0.12}px`, marginBottom: -size * 0.12 }}>
-            <span
-              style={{
-                display: "inline-block",
-                color: hl[key] ?? color,
-                transform: `translateY(${(1 - pin) * 105 - pout * 110}%) scale(${mix(1.18, 1, pin)})`,
-                filter: `blur(${(1 - pin) * 14 + pout * 10}px)`,
-                opacity: pin * (1 - pout),
-              }}
-            >
-              {w}
+    <>
+      <div style={{ font: `${weight} ${size}px/${lh} ${SANS}`, letterSpacing: `${ls}em`, color, textAlign: align, display: "flex", flexWrap: "wrap", justifyContent: align === "center" ? "center" : "flex-start", columnGap: `${size * 0.25}px`, ...style }}>
+        {words.map((w, i) => {
+          const a = at + i * per;
+          const pin = ramp(t, a, a + 0.42);
+          const pout = ramp(t, out + i * 0.03, out + i * 0.03 + 0.3, IN);
+          const key = w.replace(/[^\w']/g, "");
+          const mark = hl[key];
+          const bar = mark ? ramp(t, a + 0.18, a + 0.5) : 0;
+          return (
+            <span key={i} style={{ position: "relative", display: "inline-block", overflow: "hidden", padding: `0.02em ${mark ? "0.12em" : "0.02em"} ${size * 0.1}px`, marginBottom: -size * 0.1 }}>
+              {mark ? <span style={{ position: "absolute", left: 0, right: 0, top: "8%", bottom: `${(size * 0.1) / 2}px`, background: mark, borderRadius: size * 0.08, transform: `scaleX(${bar * (1 - pout)})`, transformOrigin: "left center" }} /> : null}
+              <span
+                style={{
+                  position: "relative",
+                  display: "inline-block",
+                  color: mark && bar > 0.5 ? "#04130b" : color,
+                  transform: `translateY(${(1 - pin) * 110 - pout * 115}%)`,
+                }}
+              >
+                {w}
+              </span>
             </span>
-          </span>
-        );
-      })}
-    </div>
+          );
+        })}
+      </div>
+      {sound ? <Sfx at={at} name="swish" volume={0.28} /> : null}
+    </>
   );
 }
 
-/** One big word that slams in from scale with blur, then sits. */
+/** One big line that punches in from scale with a hard landing and a hit. */
 export function Slam({ text, t, at, size = 220, color = "#fff", out = 999, glow }: { text: string; t: number; at: number; size?: number; color?: string; out?: number; glow?: string }) {
-  const p = ramp(t, at, at + 0.38, OUT);
-  const o = 1 - ramp(t, out, out + 0.35, IN);
-  if (t < at) return null;
+  const p = ramp(t, at, at + 0.28, OUT);
+  const o = 1 - ramp(t, out, out + 0.3, IN);
   return (
-    <div
-      style={{
-        font: `800 ${size}px/1 ${SANS}`,
-        letterSpacing: "-0.055em",
-        color,
-        transform: `scale(${mix(2.6, 1, p) + (1 - o) * 0.4})`,
-        filter: `blur(${(1 - p) * 22 + (1 - o) * 16}px)`,
-        opacity: Math.min(1, p * 2) * o,
-        textShadow: glow ? `0 0 60px ${glow}` : undefined,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {text}
-    </div>
+    <>
+      {t >= at ? (
+        <div
+          style={{
+            font: `800 ${size}px/1 ${SANS}`,
+            letterSpacing: `${mix(0.08, -0.055, p)}em`,
+            color,
+            transform: `scale(${mix(1.9, 1, p) + (1 - o) * 0.25})`,
+            opacity: Math.min(1, p * 3) * o,
+            textShadow: glow ? `0 0 70px ${glow}` : undefined,
+            whiteSpace: "nowrap",
+          }}
+        >
+          {text}
+        </div>
+      ) : null}
+      <Sfx at={at} name="hit" volume={0.7} />
+    </>
   );
 }
 
@@ -223,11 +234,13 @@ export function Slam({ text, t, at, size = 220, color = "#fff", out = 999, glow 
 export function Tag({ text, t, at, out = 999, color = "#2ee68a", ink = "#04130b", size = 30 }: { text: string; t: number; at: number; out?: number; color?: string; ink?: string; size?: number }) {
   const p = ramp(t, at, at + 0.5, BACK);
   const o = 1 - ramp(t, out, out + 0.3, IN);
-  if (t < at) return null;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: `${size * 0.38}px ${size * 0.8}px`, borderRadius: 999, background: color, color: ink, font: `800 ${size}px ${SANS}`, letterSpacing: "-0.02em", transform: `scale(${mix(0.4, 1, p)})`, opacity: clamp01(p * 1.5) * o, boxShadow: `0 14px 40px ${color}55` }}>
+    <>
+    <Sfx at={at} name="pop" volume={0.35} />
+    {t < at ? null : <span style={{ display: "inline-flex", alignItems: "center", gap: 10, padding: `${size * 0.38}px ${size * 0.8}px`, borderRadius: 999, background: color, color: ink, font: `800 ${size}px ${SANS}`, letterSpacing: "-0.02em", transform: `scale(${mix(0.4, 1, p)})`, opacity: clamp01(p * 1.5) * o, boxShadow: `0 14px 40px ${color}55` }}>
       {text}
-    </span>
+    </span>}
+    </>
   );
 }
 
@@ -307,7 +320,7 @@ export function Shell({ enter, exit, pre, dur, nextPre, children }: { enter: In;
 
 // ------------------------------------------------------------------ sound
 
-export type SfxName = "click" | "type" | "tick" | "fail" | "pass" | "impact" | "whoosh" | "riser";
+export type SfxName = "click" | "type" | "tick" | "fail" | "pass" | "impact" | "whoosh" | "riser" | "pop" | "swish" | "hit" | "sub" | "glitch" | "data" | "boom";
 export function Sfx({ at, name, volume = 0.5 }: { at: number; name: SfxName; volume?: number }) {
   const { pre } = useContext(SceneCtx);
   const from = Math.round((at + pre) * FPS);
@@ -332,3 +345,39 @@ export function Typing({ start, text, cps = 24, volume = 0.16 }: { start: number
 }
 
 export const typed = (text: string, t: number, start: number, cps = 24) => text.slice(0, Math.max(0, Math.floor((t - start) * cps)));
+
+
+/** A glitch envelope: a hard on, a few flickers, off within `len` seconds. */
+export const glitchAt = (t: number, at: number, len = 0.35) => (t < at || t > at + len ? 0 : (1 - (t - at) / len) * (Math.sin((t - at) * 90) > -0.2 ? 1 : 0.2));
+/** A quick zoom punch (0 → amp → 0) at time `at`, for beats. */
+export const punchAt = (t: number, at: number, amp = 0.035, len = 0.4) => (t < at || t > at + len ? 0 : amp * Math.sin(Math.PI * clamp01((t - at) / len)) * (1 - (t - at) / len));
+
+/** A diagonal light sweep across a region (a glint). */
+export function Sweep({ t, at, x = 0, y = 0, w = 1920, h = 1080, len = 0.8, alpha = 0.5 }: { t: number; at: number; x?: number; y?: number; w?: number; h?: number; len?: number; alpha?: number }) {
+  if (t < at || t > at + len) return null;
+  const p = OUT((t - at) / len);
+  return (
+    <div style={{ position: "absolute", left: x, top: y, width: w, height: h, overflow: "hidden", pointerEvents: "none", zIndex: 65, borderRadius: 22 }}>
+      <div style={{ position: "absolute", top: -h, bottom: -h, width: 260, left: mix(-400, w + 200, p), transform: "rotate(18deg)", background: `linear-gradient(90deg, transparent, rgba(255,255,255,${alpha}), transparent)` }} />
+    </div>
+  );
+}
+
+/** Chapter label: a number, a line drawing out, and the name, top left. Ticks as it lands. */
+export function Chapter({ n, name, t, at = 0.15, out = 2.6, dark = true }: { n: string; name: string; t: number; at?: number; out?: number; dark?: boolean }) {
+  const p = ramp(t, at, at + 0.5);
+  const o = 1 - ramp(t, out, out + 0.4, IN);
+  const ink = dark ? "#ffffff" : "#ffffff";
+  return (
+    <>
+      <div style={{ position: "absolute", left: 70, top: 56, display: "flex", alignItems: "center", gap: 16, opacity: o, zIndex: 90, font: `600 18px ${MONO}`, letterSpacing: "0.18em", color: ink, textTransform: "uppercase" }}>
+        <span style={{ opacity: clamp01(p * 2), color: "#2ee68a" }}>{n}</span>
+        <span style={{ width: 70 * p, height: 1.5, background: ink, opacity: 0.6 }} />
+        <span style={{ overflow: "hidden", display: "inline-block" }}>
+          <span style={{ display: "inline-block", transform: `translateY(${(1 - p) * 110}%)` }}>{name}</span>
+        </span>
+      </div>
+      <Sfx at={at} name="data" volume={0.22} />
+    </>
+  );
+}

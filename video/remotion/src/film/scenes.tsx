@@ -1,7 +1,7 @@
 import React from "react";
 import { AbsoluteFill } from "remotion";
 import { say } from "../timeline";
-import { BACK, Burst, Camera, clamp01, Click, Cursor, cursorAt, Flash, IN, mix, MONO, OUT, press, ramp, SANS, Sfx, shakeAt, Shockwave, Slam, Tag, typed, Typing, useT, Words } from "./kit";
+import { BACK, Burst, Camera, Chapter, clamp01, Click, Cursor, cursorAt, Flash, glitchAt, IN, mix, MONO, OUT, press, punchAt, ramp, SANS, Sfx, shakeAt, Shockwave, Slam, Sweep, Tag, typed, Typing, useT, Words } from "./kit";
 import { AppBar, Badge, Button, C, ClaimRow, Field, KaneCore, Night, ORANGE, Shop, Sky, Step, Terminal, Window, Wordmark } from "./ui";
 
 // The eleven shots. Every action is timed to the spoken word with say(scene, phrase).
@@ -39,6 +39,7 @@ export function Promise() {
           [end - 0.6, 960, 540, 1.18],
         ]}
         travel={0.8}
+        punch={punchAt(t, add) + punchAt(t, sign) + punchAt(t, keep - 0.1, 0.06)}
       >
         <AbsoluteFill style={{ display: "grid", placeItems: "center" }}>
           <div style={{ opacity: 1 - ramp(t, card - 0.4, card, IN) }}>
@@ -74,14 +75,19 @@ export function Promise() {
         <AbsoluteFill style={{ display: "grid", placeItems: "center" }}>
           <div>
             <Words text="But does the live app" t={t} at={but} size={96} out={end - 0.25} />
-            <Words text="actually keep them?" t={t} at={keep - 0.35} size={128} hl={{ keep: C.green, them: C.green }} out={end - 0.25} />
+            <Words text="actually keep them?" t={t} at={keep - 0.35} size={128} hl={{ keep: C.green }} out={end - 0.25} />
           </div>
         </AbsoluteFill>
       </Camera>
       <Burst x={960} y={540} t={t} at={end} color={C.green} />
       <Typing start={add - 0.1} text="- Add to cart" cps={30} />
       <Typing start={sign - 0.1} text="- Sign up for the newsletter" cps={34} />
-      <Sfx at={end - 0.5} name="riser" volume={0.35} />
+      <Chapter n="01" name="The promise" t={t} at={0.3} out={2.4} />
+      <Sfx at={card} name="whoosh" volume={0.3} />
+      <Sfx at={add} name="pop" volume={0.3} />
+      <Sfx at={sign} name="pop" volume={0.3} />
+      <Sfx at={keep - 0.1} name="sub" volume={0.6} />
+      <Sfx at={end - 0.5} name="riser" volume={0.4} />
     </AbsoluteFill>
   );
 }
@@ -98,7 +104,7 @@ export function Brand() {
   return (
     <AbsoluteFill>
       <Sky t={t} />
-      <Camera shots={[[0, 960, 540, 1], [2, 960, 540, 1.06], [12, 960, 520, 1.12]]} travel={6} shake={shakeAt(t, hit + 0.1, 12)}>
+      <Camera shots={[[0, 960, 540, 1], [2, 960, 540, 1.06], [12, 960, 520, 1.12]]} travel={6} shake={shakeAt(t, hit + 0.1, 12)} punch={punchAt(t, kane, 0.03) + punchAt(t, claude, 0.03)}>
         <AbsoluteFill style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 40 }}>
           <div style={{ transform: `scale(${mix(2.4, 1, p)})`, filter: `blur(${(1 - p) * 26}px)`, opacity: clamp01(p * 2) }}>
             <Wordmark h={190} />
@@ -112,7 +118,8 @@ export function Brand() {
       </Camera>
       <Shockwave x={960} y={460} t={t} at={hit + 0.1} color="#ffffff" />
       <Flash t={t} at={hit + 0.05} max={0.55} />
-      <Sfx at={hit} name="impact" volume={0.8} />
+      <Sfx at={hit} name="boom" volume={0.85} />
+      <Chapter n="02" name="Greenlight" t={t} at={1.2} out={3.6} />
       <Sfx at={kane} name="tick" volume={0.3} />
       <Sfx at={claude} name="tick" volume={0.3} />
     </AbsoluteFill>
@@ -158,6 +165,7 @@ export function Start() {
         ]}
         travel={0.7}
         shake={shakeAt(t, clickAt, 8)}
+        punch={punchAt(t, m + 0.2, 0.04)}
       >
         <Window {...WIN} url={APP}>
           <AppBar />
@@ -179,7 +187,10 @@ export function Start() {
         <Cursor x={cur[0]} y={cur[1]} down={press(t, clickAt)} />
         <Click x={cur[0]} y={cur[1]} t={t} at={clickAt} />
         <Shockwave x={330} y={862} t={t} at={clickAt} color={C.green} max={700} />
+        <Sweep t={t} at={0.2} {...WIN} />
+        <Sweep t={t} at={m + 0.3} x={220} y={470} w={1480} h={300} alpha={0.6} />
       </Camera>
+      <Chapter n="03" name="Start a check" t={t} />
       <div style={{ position: "absolute", left: 0, right: 0, top: 110, display: "flex", justifyContent: "center", gap: 20 }}>
         <Tag text="No account" t={t} at={noAcc} out={clickAt - 1.4} size={34} />
         <Tag text="No setup" t={t} at={noSet} out={clickAt - 1.4} size={34} color="#fff" ink={C.ink} />
@@ -190,6 +201,9 @@ export function Start() {
       <Sfx at={clickAt} name="click" volume={0.55} />
       <Sfx at={clickAt + 0.02} name="impact" volume={0.35} />
       <Sfx at={11.4} name="whoosh" volume={0.45} />
+      <Sfx at={r - 0.25} name="swish" volume={0.25} />
+      <Sfx at={u - 0.25} name="swish" volume={0.25} />
+      <Sfx at={m + 0.2} name="hit" volume={0.35} />
     </AbsoluteFill>
   );
 }
@@ -227,6 +241,7 @@ export function Claims() {
         ]}
         travel={0.75}
         shake={shakeAt(t, run, 18, 0.6)}
+        punch={punchAt(t, turns + 0.2, 0.03) + punchAt(t, cost + 1.2, 0.04)}
       >
         <Window {...WIN} url={APP}>
           <AppBar />
@@ -252,7 +267,12 @@ export function Claims() {
         <Click x={cur[0]} y={cur[1]} t={t} at={toggle} color={C.blue} />
         <Click x={cur[0]} y={cur[1]} t={t} at={toggle + 0.95} color={C.blue} />
         <Click x={cur[0]} y={cur[1]} t={t} at={run} />
+        <Sweep t={t} at={turns + 0.7} x={220} y={290} w={1480} h={260} alpha={0.55} />
       </Camera>
+      <Chapter n="04" name="Claims" t={t} />
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 64 }}>
+        <Words text="Nothing runs until you press Run." t={t} at={nothing} size={58} weight={800} per={0.05} hl={{ Run: C.green }} out={run - 0.15} />
+      </div>
       <Shockwave x={960} y={540} t={t} at={run + 0.05} color={C.green} max={1500} rings={4} />
       <Burst x={960} y={540} t={t} at={run + 0.05} color={C.green} />
       <Flash t={t} at={run + 0.1} max={0.7} />
@@ -260,7 +280,10 @@ export function Claims() {
       <Sfx at={toggle + 0.95} name="click" volume={0.35} />
       <Sfx at={cost} name="tick" volume={0.3} />
       <Sfx at={run} name="click" volume={0.55} />
-      <Sfx at={run + 0.03} name="impact" volume={0.9} />
+      <Sfx at={run + 0.03} name="boom" volume={0.9} />
+      <Sfx at={turns} name="pop" volume={0.3} />
+      <Sfx at={turns + 0.18} name="pop" volume={0.3} />
+      <Sfx at={cost + 1.2} name="hit" volume={0.4} />
     </AbsoluteFill>
   );
 }
@@ -329,6 +352,7 @@ export function Kane() {
             <Words text="every claim, as a plain-English test" t={t} at={hands + 0.4} size={46} weight={600} per={0.05} out={dive - 0.2} hl={{ "plainEnglish": C.green }} />
           </div>
           <Shockwave x={960} y={540} t={t} at={hands + 1.15} color={C.green} max={900} />
+          <Chapter n="05" name="Kane CLI tests it" t={t} at={0.4} out={3} />
           <Flash t={t} at={dive + 0.2} len={0.3} max={1} />
         </>
       ) : (
@@ -345,6 +369,8 @@ export function Kane() {
             ]}
             travel={0.7}
             shake={shakeAt(t, fail1, 16, 0.5) + shakeAt(t, fail2, 16, 0.5)}
+            glitch={glitchAt(t, fail1) + glitchAt(t, fail2, 0.45)}
+            punch={punchAt(t, addAt + 0.1, 0.04) + punchAt(t, works, 0.035)}
           >
             <Window {...WIN} url={LIVE}>
               <Shop count={t > addAt + 0.1 ? 1 : 0} email={email} msg={msg} adding={ramp(t, addAt + 0.1, addAt + 0.3) * (1 - ramp(t, addAt + 0.3, addAt + 0.7))} />
@@ -378,6 +404,12 @@ export function Kane() {
       <Typing start={typeAt + 0.3} text="ada@example.com" cps={26} />
       <Sfx at={subAt} name="click" volume={0.5} />
       <Sfx at={fail1} name="fail" volume={0.45} />
+      <Sfx at={fail1} name="glitch" volume={0.55} />
+      <Sfx at={fail2} name="glitch" volume={0.6} />
+      <Sfx at={fail2 + 0.05} name="sub" volume={0.55} />
+      <Sfx at={works} name="pop" volume={0.4} />
+      <Sfx at={hands} name="swish" volume={0.3} />
+      <Sfx at={hands + 1.15} name="hit" volume={0.55} />
       <Sfx at={sub2} name="click" volume={0.5} />
       <Sfx at={fail2} name="fail" volume={0.5} />
     </AbsoluteFill>
@@ -410,6 +442,8 @@ export function Verdict() {
         ]}
         travel={0.7}
         shake={shakeAt(t, pass, 8) + shakeAt(t, fail, 14)}
+        glitch={glitchAt(t, fail, 0.3)}
+        punch={punchAt(t, pass, 0.035) + punchAt(t, saw + 0.3, 0.03) + punchAt(t, fix + 0.4, 0.04)}
       >
         <Window {...WIN} url={APP}>
           <AppBar active="My checks" />
@@ -454,10 +488,16 @@ export function Verdict() {
         </Window>
         <Shockwave x={1280} y={430} t={t} at={pass} color={C.green} max={420} rings={2} />
         <Shockwave x={1280} y={560} t={t} at={fail} color={C.red} max={520} rings={3} />
+        <Sweep t={t} at={here + 0.3} {...WIN} />
+        <Sweep t={t} at={fix + 0.5} x={1180} y={360} w={560} h={420} alpha={0.6} />
       </Camera>
+      <Chapter n="06" name="The verdict" t={t} />
       <Sfx at={pass} name="pass" volume={0.4} />
       <Sfx at={fail} name="fail" volume={0.5} />
-      <Sfx at={fail + 0.02} name="impact" volume={0.4} />
+      <Sfx at={fail + 0.02} name="glitch" volume={0.5} />
+      <Sfx at={pass} name="hit" volume={0.35} />
+      <Sfx at={saw} name="swish" volume={0.3} />
+      <Sfx at={fix + 0.4} name="hit" volume={0.45} />
       <Sfx at={fix} name="whoosh" volume={0.35} />
     </AbsoluteFill>
   );
@@ -481,7 +521,7 @@ export function Install() {
   return (
     <AbsoluteFill>
       <Night t={t} tint="#16305e" accent="#3a2a12" />
-      <Camera shots={[[0, 960, 540, 1], [copy - 0.7, 1300, 540, 1.6], [ready - 0.2, 960, 540, 1]]} travel={0.7}>
+      <Camera shots={[[0, 960, 540, 1], [copy - 0.7, 1300, 540, 1.6], [ready - 0.2, 960, 540, 1]]} travel={0.7} punch={punchAt(t, copy + 0.05, 0.045) + punchAt(t, ready + 0.7, 0.03)}>
         <div style={{ position: "absolute", left: 330, top: 260, width: 1260, padding: "44px 52px", borderRadius: 28, background: "#fff", boxShadow: "0 50px 120px rgba(0,0,0,0.5)", transform: `scale(${mix(0.9, 1, ramp(t, 0, 0.6)) - term * 0.15}) translateY(${-term * 260}px)`, opacity: 1 - term, filter: `blur(${term * 16}px)` }}>
           <div style={{ font: `600 20px ${SANS}`, color: C.blue }}>First time?</div>
           <div style={{ marginTop: 6, font: `800 46px ${SANS}`, letterSpacing: "-0.035em", color: C.ink }}>Install Claude Code</div>
@@ -511,6 +551,8 @@ export function Install() {
       <Sfx at={copy} name="click" volume={0.5} />
       <Sfx at={copy + 0.1} name="tick" volume={0.3} />
       <Sfx at={ready} name="whoosh" volume={0.4} />
+      <Sfx at={ready + 0.7} name="hit" volume={0.4} />
+      <Chapter n="07" name="First time" t={t} />
     </AbsoluteFill>
   );
 }
@@ -538,7 +580,7 @@ export function Paste() {
   return (
     <AbsoluteFill>
       <Night t={t} tint="#14325f" accent="#3a2a12" />
-      <Camera shots={[[0, 960, 540, 1], [click - 0.7, 560, 520, 1.5], [copy - 0.6, 640, 700, 1.5], [copy + 0.3, 960, 540, 1], [enter - 0.6, 1360, 520, 1.35]]} travel={0.7} shake={shakeAt(t, paste, 12)}>
+      <Camera shots={[[0, 960, 540, 1], [click - 0.7, 560, 520, 1.5], [copy - 0.6, 640, 700, 1.5], [copy + 0.3, 960, 540, 1], [enter - 0.6, 1360, 520, 1.35]]} travel={0.7} shake={shakeAt(t, paste, 12)} punch={punchAt(t, click + 0.15, 0.035) + punchAt(t, enter, 0.04)}>
         <div style={{ position: "absolute", left: 120, top: 200, width: 840, height: 700, borderRadius: 28, background: "#fff", padding: "40px 44px", boxShadow: "0 50px 120px rgba(0,0,0,0.5)" }}>
           <div style={{ font: `600 20px ${SANS}`, color: C.blue }}>Close the loop</div>
           <div style={{ marginTop: 6, font: `800 42px ${SANS}`, letterSpacing: "-0.035em", color: C.ink }}>Fix it with Claude Code</div>
@@ -587,7 +629,10 @@ export function Paste() {
       <Sfx at={click} name="click" volume={0.5} />
       <Sfx at={copy} name="click" volume={0.5} />
       <Sfx at={copy + 0.25} name="whoosh" volume={0.5} />
-      <Sfx at={paste} name="impact" volume={0.55} />
+      <Sfx at={paste} name="hit" volume={0.6} />
+      <Sfx at={click + 0.15} name="swish" volume={0.3} />
+      <Sfx at={enter + 0.1} name="data" volume={0.3} />
+      <Chapter n="08" name="One paste" t={t} />
       <Sfx at={enter} name="click" volume={0.45} />
     </AbsoluteFill>
   );
@@ -619,6 +664,7 @@ export function Fix() {
           [g - 0.4, 960, 540, 0.92],
         ]}
         travel={0.8}
+        punch={punchAt(t, a, 0.02) + punchAt(t, b, 0.02) + punchAt(t, diff, 0.04) + punchAt(t, d, 0.02) + punchAt(t, eDone, 0.03) + punchAt(t, f, 0.02)}
       >
         <Terminal x={210} y={70} w={1500} h={940} title="demo-shop — claude">
           <div style={{ background: "#1d2027", borderRadius: 8, padding: "10px 16px", color: "#c9ced6", fontSize: 22 }}>&gt; [Pasted message from Greenlight]</div>
@@ -655,11 +701,17 @@ export function Fix() {
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 60 }}>
         <Words text="You just watch." t={t} at={g} size={78} hl={{ watch: C.green }} />
       </div>
-      <Sfx at={a} name="tick" volume={0.25} />
-      <Sfx at={diff} name="tick" volume={0.3} />
-      <Sfx at={d} name="tick" volume={0.25} />
-      <Sfx at={eDone} name="tick" volume={0.25} />
-      <Sfx at={f} name="tick" volume={0.25} />
+      <Sfx at={a} name="data" volume={0.3} />
+      <Sfx at={aRes} name="pop" volume={0.25} />
+      <Sfx at={b} name="data" volume={0.3} />
+      <Sfx at={c} name="data" volume={0.3} />
+      <Sfx at={diff} name="hit" volume={0.45} />
+      <Sfx at={d} name="data" volume={0.3} />
+      <Sfx at={e} name="data" volume={0.3} />
+      <Sfx at={eDone} name="pop" volume={0.35} />
+      <Sfx at={f} name="data" volume={0.3} />
+      <Chapter n="09" name="Claude Code fixes it" t={t} />
+      <Sweep t={t} at={diff + 0.2} x={300} y={540} w={900} h={200} alpha={0.35} />
     </AbsoluteFill>
   );
 }
@@ -719,7 +771,11 @@ export function Again() {
       <Sfx at={sub} name="click" volume={0.5} />
       <Sfx at={sub + 0.3} name="pass" volume={0.5} />
       <Sfx at={every - 0.6} name="riser" volume={0.35} />
-      <Sfx at={every} name="impact" volume={0.9} />
+      <Sfx at={every} name="boom" volume={0.95} />
+      <Sfx at={sub + 0.3} name="hit" volume={0.5} />
+      <Sfx at={every + 0.3} name="pop" volume={0.3} />
+      <Sfx at={every + 0.45} name="pop" volume={0.3} />
+      <Chapter n="10" name="Kane checks again" t={t} />
       <Sfx at={found} name="tick" volume={0.25} />
       <Sfx at={fixed} name="tick" volume={0.25} />
       <Sfx at={proved} name="pass" volume={0.35} />
@@ -757,7 +813,8 @@ export function Close() {
       </Camera>
       <Shockwave x={960} y={400} t={t} at={gl - 0.25} color="#ffffff" max={1300} />
       <AbsoluteFill style={{ background: "#000", opacity: ramp(t, end - 1.6, end - 0.1, IN) }} />
-      <Sfx at={gl - 0.3} name="impact" volume={0.7} />
+      <Sfx at={gl - 0.3} name="boom" volume={0.8} />
+      <Sfx at={tryIt - 0.2} name="pop" volume={0.35} />
     </AbsoluteFill>
   );
 }
