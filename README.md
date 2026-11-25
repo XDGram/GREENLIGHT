@@ -4,6 +4,8 @@
 
 Live app: **https://greenlight-api-xi.vercel.app/app** (no account needed)
 
+Demo film (3:06): [`video/release/greenlight-launch.mp4`](video/release/greenlight-launch.mp4)
+
 Built for the Kane CLI Hackathon. Agent: **Claude Code**.
 
 ![Greenlight](brand/greenlight-share-1200x630.png)
@@ -141,3 +143,12 @@ To use the Claude Code command without the web page, copy `skills/greenlight/com
 - **Deploy timing.** A re-check tests whatever is deployed at the live URL. The `/greenlight` command waits for the new deploy before asking for a re-check, but a slow deploy can mean testing the old version. Kane's notes make that visible.
 - **Guest runs stay private.** They are capped per guest and per day and never become public records.
 - **Fix suggestions.** Without an Anthropic API key configured, the result page's suggested fixes are generic. Kane's own note on what it saw is always shown.
+
+---
+
+## Credits
+
+- Music in the demo film: "Inspired" by Kevin MacLeod (incompetech.com), licensed under Creative Commons: By Attribution 4.0 (http://creativecommons.org/licenses/by/4.0/).
+- Interface sounds in the demo film: Kenney, Interface Sounds (CC0).
+- Demo shop elements from Uiverse.io (MIT): the add-to-cart button by vinodjangid07 and the subscribe card by satyamchaudharydev. Kane CLI loader on the run page: "Circuit Board Loader" by Vosoone (MIT).
+- Voiceover: generated with ai33pro (voice "Bella").
