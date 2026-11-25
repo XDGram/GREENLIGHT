@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "historyId": "677201bc-3c69-4965-b150-be0fef83c678",
+  "currentRevision": "6143b885-0260-442e-80f5-31724252d6f6",
+  "pendingChanges": false,
+  "files": {
+    "fonts/inter-latin-500-normal.woff2": {
+      "hash": "b0e7558f4710a1e255b93e3deefe3aebb19f3bb41c150f685a74d3b1a1c79e87",
+      "content": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/b0/b0e7558f4710a1e255b93e3deefe3aebb19f3bb41c150f685a74d3b1a1c79e87"
+    },
+    "fonts/inter-latin-600-normal.woff2": {
+      "hash": "62553d159189834af73c9a6264704be5b2bee9a08da66a14768d8e5c6ffd2cdb",
+      "content": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/62/62553d159189834af73c9a6264704be5b2bee9a08da66a14768d8e5c6ffd2cdb"
+    },
+    "fonts/inter-latin-700-normal.woff2": {
+      "hash": "aac638f7503cebb084ec494cf00f75f7d8260d50c2f4e7820bccabba09626a3a",
+      "content": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/aa/aac638f7503cebb084ec494cf00f75f7d8260d50c2f4e7820bccabba09626a3a"
+    },
+    "hyperframes.json": {
+      "hash": "c70287c6a452b5dfd5879a8627b90c894df11583924aeb268ef3f90622fa9ac8",
+      "content": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/c7/c70287c6a452b5dfd5879a8627b90c894df11583924aeb268ef3f90622fa9ac8"
+    },
+    "index.html": {
+      "hash": "da82b96b737c73efd2bd24eaa294808ce11f6be0331243a96da2f6180958e7ce",
+      "content": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/da/da82b96b737c73efd2bd24eaa294808ce11f6be0331243a96da2f6180958e7ce"
+    },
+    "meta.json": {
+      "hash": "6fb8607bf330aab6003c12b17e0cf1b5ca939a35c47f4de43102fbfe10fac6a3",
+      "content": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/6f/6fb8607bf330aab6003c12b17e0cf1b5ca939a35c47f4de43102fbfe10fac6a3"
+    }
+  },
+  "revisions": {
+    "6143b885-0260-442e-80f5-31724252d6f6": {
+      "actor": {
+        "kind": "outside",
+        "name": "Outside"
+      },
+      "label": "Changed outside the app",
+      "startedAt": 1795594899245,
+      "endedAt": 1795594899247,
+      "files": {
+        "index.html": {
+          "before": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/b2/b2b869c58a8f47a3058b04f53891e3a0b2e7ec6859337f22516e9268239653a9",
+          "after": "/root/.cache/hyperframes/history/677201bc-3c69-4965-b150-be0fef83c678/blobs/da/da82b96b737c73efd2bd24eaa294808ce11f6be0331243a96da2f6180958e7ce"
+        }
+      }
+    }
+  },
+  "checks": {
+    "latest": null,
+    "revisions": {},
+    "unversioned": []
+  },
+  "snapshots": {
+    "latest": null,
+    "revisions": {},
+    "unversioned": []
+  },
+  "renders": {
+    "latest": {
+      "id": "43944f99-1f39-4334-b96a-3b65e218edb2",
+      "completedAt": 1795594924876,
+      "output": "/home/user/GREENLIGHT/video/public/hf/outro.mp4",
+      "status": "completed",
+      "revision": "6143b885-0260-442e-80f5-31724252d6f6"
+    },
+    "retainedRevisions": [
+      "6143b885-0260-442e-80f5-31724252d6f6"
+    ]
+  },
+  "pendingArtifactCleanup": []
+}

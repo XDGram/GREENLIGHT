@@ -1,5 +1,17 @@
 # Greenlight demo video
 
+**The launch film:** `release/greenlight-launch.mp4` (1920 × 1080, 30 fps, 3:06), composition `Launch` in `remotion/src/launch/`.
+
+- White stage; the product is the real Greenlight app and the real demo shop, captured at 2× by
+  `capture/capture-app.cjs` and `capture/capture-shop.cjs` (with the box of every element the pointer clicks).
+- Kinetic type (Inter), cards, Screen Studio style camera that zooms to each click with motion blur.
+- Closing card made with HyperFrames (`hyperframes/outro`, from the logo-outro and blur-in recipes), rendered to `public/hf/outro.mp4`.
+- Sound: Kenney Interface Sounds (CC0, `public/sfx/kenney`), voice by Bella (ai33pro), music "Inspired" by Kevin MacLeod (CC BY 4.0).
+- Demo shop elements from Uiverse.io (MIT): the add-to-cart button by vinodjangid07 and the subscribe card by satyamchaudharydev.
+
+Rebuild: start the local preview server, run the two capture scripts, `python3 prep.py 186`, render HyperFrames outro, then
+`npx remotion render Launch out/launch.mp4 --crf=18`.
+
 **The film:** `release/greenlight-demo.mp4` (1920 × 1080, 30 fps, 3:06). Script and rules: `SCRIPT.md`, `BRIEF.md`.
 
 Rebuild it:
