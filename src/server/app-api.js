@@ -544,7 +544,8 @@ const failedBeforeKane = (j) => j.status === "failed" && !j.recordId && (PRE_KAN
 async function guestJobsUsed(store, account) {
   const projects = await store.listProjects(account);
   const jobs = await projectJobs(store, projects.map((p) => p.id));
-  return jobs.filter((j) => !failedBeforeKane(j)).length;
+  // A visitor's own runs: Claude Code's re-checks (requested by the agent token) have their own limit.
+  return jobs.filter((j) => !failedBeforeKane(j) && j.requestedBy !== "agent").length;
 }
 
 /**
@@ -670,6 +671,8 @@ export async function submitVerification({ config, store, s, project, body, jobs
   return job;
 }
 
+const MAX_CLAIMS_PER_RUN = 12;
+
 /**
  * Per-run ceiling and claim limit for the one-page check. Runs are limited by credits only: the
  * per-run cap, the visitors' credit budget left today, and what is left of the server's total cap.
@@ -686,7 +689,9 @@ async function checkLimits(config, s, store) {
     }
   }
   const L = guest ? GUEST_LIMITS : USER_LIMITS;
-  const max = maxClaims(ceiling, config, Math.min(L.tests, L.claims));
+  // Kane runs claims one after another and stops at its timeout (25 min in a sandbox); about 1.4 min
+  // per claim was measured on real runs, so one run holds at most 12 claims.
+  const max = maxClaims(ceiling, config, Math.min(L.tests, L.claims, MAX_CLAIMS_PER_RUN));
   return { ceiling, maxClaims: max, costs: Array.from({ length: max }, (_, i) => checkCost(i + 1, config)), limits: L };
 }
 
@@ -929,6 +934,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         if (!guestRunsEnabled(config)) throw new GreenlightError("server_not_configured", "Kane runs are not available for visitors on this server.");
         if (await guestPaused(store)) throw new GreenlightError("guest_limit_reached", "Kane runs are paused by the administrator right now.");
         const st = await guestRunState(store, config, s);
+        if (st.leftForYou < 1) throw new GreenlightError("guest_limit_reached", `You have used your ${st.perGuest} free Kane run${st.perGuest === 1 ? "" : "s"}.`);
         if (st.creditsLeftToday < cost) throw new GreenlightError("guest_limit_reached", `Only ${st.creditsLeftToday} Kane credits are left today; test fewer claims.`);
         if ((await store.listProjects(s.account)).length >= (config.guest?.projectsPerGuest ?? 5)) throw new GreenlightError("guest_limit_reached", `Visitors can keep up to ${config.guest?.projectsPerGuest ?? 5} apps.`);
       }

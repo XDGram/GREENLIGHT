@@ -44,8 +44,12 @@ total can't be read, runs are refused (fails closed). It reads existing tables o
 are created with the base account functions, and the one-run-per-visitor limit is counted from the
 visitor's own jobs. The per-day limits and atomic reservations need migration 6.
 
-No AI is involved; claims come from the text. Visitor runs keep every guest limit (one run per
-visitor, daily runs and credits, per-run ceiling, admin pause, atomic reservation). Runs made of
+No AI is involved; claims come from the text. Each claim is checked on the live app or, when it is
+about the code, in the repository on GitHub (Kane opens the repo and reads the files). Visitor runs
+are limited by credits: the free runs per visitor (`GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST`, set to 3
+in production; Claude Code's re-checks are not counted), at most 12 claims per run (so a run fits
+Kane's timeout), the server's total credit cap, the admin pause, and atomic reservation where the
+database supports it. Runs made of
 Kane-judged claims are verdicts, never certifications (`notCertifiedBecause: kane_judged_claims`);
 only exact visible-text tests can certify.
 

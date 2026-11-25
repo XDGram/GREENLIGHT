@@ -14,7 +14,7 @@ Built for the Kane CLI Hackathon. Agent: **Claude Code**.
 
 ## Try it in five minutes
 
-You don't need an account, a key or a credit card. Guest runs use our TestMu credits and have a daily cap.
+You don't need an account, a key or a credit card. Each visitor gets 3 free runs on our TestMu credits, and one run can check up to 12 claims.
 
 1. Open **https://greenlight-api-xi.vercel.app/app** and click **Check my app** (top right).
 2. Paste the demo app. It has one claim that works and one that is broken on purpose:
@@ -141,7 +141,7 @@ To use the Claude Code command without the web page, copy `skills/greenlight/com
 - **Each run authors its tests fresh.** In local mode, Kane 0.10.6 keeps no replayable recording, so every run pays to author each test again. A 2-claim run costs about 90 to 100 credits. This is why every run needs an approved spend.
 - **The live view shows only what the server knows.** While a run is going, Kane doesn't report per-claim progress, so the page shows the run's status, a timer and the claims, but not which claim Kane is on.
 - **Deploy timing.** A re-check tests whatever is deployed at the live URL. The `/greenlight` command waits for the new deploy before asking for a re-check, but a slow deploy can mean testing the old version. Kane's notes make that visible.
-- **Guest runs stay private.** They are capped per guest and per day and never become public records.
+- **Visitor runs stay private.** Each visitor gets 3 free runs (Claude Code's re-checks don't count), one run holds up to 12 claims so it finishes inside Kane's timeout, and all runs share the server's credit budget. They never become public records.
 - **Fix suggestions.** Without an Anthropic API key configured, the result page's suggested fixes are generic. Kane's own note on what it saw is always shown.
 
 ---

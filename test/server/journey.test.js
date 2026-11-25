@@ -631,13 +631,15 @@ test("Claude Code closes the loop: a token reads Kane's verdict and re-runs the 
 });
 
 test("a site without /greenlight.json still reaches Kane, and claims about the code are checked on GitHub", async () => {
-  const h = await setup({ ai: false });
+  const h = await setup({ ai: false, env: { GREENLIGHT_TOTAL_CREDIT_CAP: "3500", GREENLIGHT_GUEST_DAILY_CREDITS: "3500", GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "3" } });
   const g = browser(h, "203.0.113.95");
   await g.go("POST", "/app/api/guest/start", {});
   h.state.greenlightJson = false; // most real apps don't publish it: the repository's head commit is used
   const base = { repository: "https://github.com/acme/shop", url: "https://shop.example.com/" };
   const found = await g.go("POST", "/app/api/checks/claims", { ...base, notes: "- Visitors can add products to the cart\n- The checkout code is written in TypeScript" });
   assert.deepEqual(found.body.targets, ["app", "code"], "a claim about the code is suggested for the repository");
+  assert.equal(found.body.maxClaims, 12, "a big budget still holds at most 12 claims, so a run finishes inside Kane's timeout");
+  assert.equal(found.body.guestRuns.leftForYou, 3);
   const started = await g.go("POST", "/app/api/checks", { ...base, claims: found.body.claims, targets: found.body.targets, confirm: true, confirmSpend: 94 });
   assert.equal(started.status, 202, started.text);
   await h.ctx.jobs.idle();

@@ -43,7 +43,8 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
   const overBudget = Boolean(guestRuns && cost != null && guestRuns.creditsLeftToday < cost);
   const budget = found?.budget ?? null;
   const overCap = Boolean(budget && cost != null && cost > budget.left);
-  const noRunsLeft = overCap || Boolean(guestRuns && (guestRuns.paused || !guestRuns.enabled || overBudget));
+  const counted = Boolean(guestRuns && guestRuns.perGuest < 1000);
+  const noRunsLeft = overCap || Boolean(guestRuns && (guestRuns.paused || !guestRuns.enabled || overBudget || (counted && guestRuns.leftForYou < 1)));
 
   const findClaims = async () => {
     setBusy("claims");
@@ -99,10 +100,14 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
         ? "Kane runs are paused by the administrator right now."
         : !guestRuns.enabled
           ? "Kane runs for visitors are not switched on on this server."
-          : guestRuns.creditsLeftToday >= (found?.costs[0] ?? Infinity)
+          : counted && guestRuns.leftForYou < 1
+            ? `You have used your ${guestRuns.perGuest} free Kane runs.`
+            : guestRuns.creditsLeftToday >= (found?.costs[0] ?? Infinity)
             ? `${guestRuns.creditsLeftToday} Kane credits are left today: test fewer claims.`
             : "Today's Kane credits are used up. Try again tomorrow."
-      : "No account needed. Results stay private."
+      : counted
+        ? `No account needed. ${guestRuns.leftForYou} free run${guestRuns.leftForYou === 1 ? "" : "s"} left. Results stay private.`
+        : "No account needed. Results stay private."
     : null;
 
   async function loadReadme(f: File) {
