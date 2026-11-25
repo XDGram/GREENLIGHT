@@ -1,9 +1,14 @@
 // Demo Shop: a cart counter and a newsletter sign-up.
 
 var count = 0;
-document.getElementById("add-item").addEventListener("click", function () {
-  count += 1;
-  document.getElementById("cart-count").textContent = String(count);
+var badge = document.getElementById("cart-count");
+document.querySelectorAll(".cartBtn").forEach(function (button) {
+  button.addEventListener("click", function () {
+    count += 1;
+    badge.textContent = String(count);
+    badge.classList.add("bump");
+    setTimeout(function () { badge.classList.remove("bump"); }, 250);
+  });
 });
 
 // Stands in for the newsletter API: it accepts any address and answers { ok: true }.
