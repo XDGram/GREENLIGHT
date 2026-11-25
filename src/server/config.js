@@ -211,6 +211,11 @@ export function loadConfig(env = process.env) {
   const browserApprovalAccounts = Object.freeze([...new Set([...listed, ...(webApproval?.approvers.map((a) => a.account) ?? [])])].sort());
   // Guest demo mode (GREENLIGHT_GUEST_MODE=on): no sign-up, a signed browser cookie, its own
   // tables, and hard limits on real runs. Needs Supabase (limits are enforced in the database).
+  // Kane runs are capped by credits, not by counts: by default one run may use whatever is left
+  // of the server's total credit cap (GREENLIGHT_TOTAL_CREDIT_CAP).
+  const totalCap = num(env.GREENLIGHT_TOTAL_CREDIT_CAP, 400);
+  const creditDefault = totalCap > 0 ? totalCap : 1000;
+  const NO_COUNT_LIMIT = 1_000_000;
   let guest = null;
   if (env.GREENLIGHT_GUEST_MODE === "on") {
     if (!supabase) throw new Error("guest mode needs Supabase (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY)");
@@ -221,16 +226,16 @@ export function loadConfig(env = process.env) {
       // Demo checks read the live page over HTTP; they never run Kane or spend credits.
       runsPerGuest: num(env.GREENLIGHT_GUEST_RUNS_PER_GUEST, 10),
       runsPerDay: num(env.GREENLIGHT_GUEST_RUNS_PER_DAY, 500),
-      // Strict per-run ceiling for visitors (never above the server's own cap). 100 fits two tests of
-      // up to 3 steps (37 + 37 + 20 per run).
-      maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, 100), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150)),
+      // Per-run ceiling for visitors: the credit budget, never above the server's own per-run cap.
+      maxCreditsPerRun: Math.min(num(env.GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN, creditDefault), num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, creditDefault)),
       projectsPerGuest: num(env.GREENLIGHT_GUEST_PROJECTS_PER_GUEST, 5, { min: 1 }),
-      // Real Kane runs by guests (they spend Greenlight's credits): strict caps, enforced in the database.
-      realRunsPerGuest: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST, 1),
+      // Real Kane runs by guests spend Greenlight's credits. They are limited by credits (below and the
+      // total cap), enforced in the database; run counts are off unless set explicitly.
+      realRunsPerGuest: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST, NO_COUNT_LIMIT),
       rechecksPerCheck: num(env.GREENLIGHT_GUEST_RECHECKS_PER_CHECK, 3),
-      realRunsPerDay: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_DAY, 3),
+      realRunsPerDay: num(env.GREENLIGHT_GUEST_REAL_RUNS_PER_DAY, NO_COUNT_LIMIT),
       // Credits all visitors together may spend per rolling 24 hours (reserved before each run).
-      dailyCredits: num(env.GREENLIGHT_GUEST_DAILY_CREDITS, 150),
+      dailyCredits: num(env.GREENLIGHT_GUEST_DAILY_CREDITS, creditDefault),
       aiPerGuest: num(env.GREENLIGHT_GUEST_AI_PER_GUEST, 8),
       sessionsPerIpHour: num(env.GREENLIGHT_GUEST_SESSIONS_PER_IP_HOUR, 20, { min: 1 }),
       sampleProjectId: sample,
@@ -258,10 +263,10 @@ export function loadConfig(env = process.env) {
     publicBaseUrl: env.GREENLIGHT_PUBLIC_BASE_URL || null,
     maxConcurrentJobs: num(env.GREENLIGHT_MAX_CONCURRENT_JOBS, 1, { min: 1 }),
     maxQueuedJobs: num(env.GREENLIGHT_MAX_QUEUED_JOBS, 5),
-    maxCreditsPerRun: num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, 150),
+    maxCreditsPerRun: num(env.GREENLIGHT_MAX_CREDITS_PER_RUN, creditDefault),
     // Hard ceiling on all Kane credits this server may ever commit (every run, every account);
     // 0 turns it off.
-    totalCreditCap: num(env.GREENLIGHT_TOTAL_CREDIT_CAP, 400),
+    totalCreditCap: totalCap,
     reserve: num(env.GREENLIGHT_CREDIT_RESERVE, 500),
     rateLimitPerMinute: num(env.GREENLIGHT_RATE_LIMIT_PER_MINUTE, 60, { min: 1 }),
     kaneTimeoutMs,

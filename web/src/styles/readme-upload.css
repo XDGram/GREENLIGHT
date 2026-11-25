@@ -4,3 +4,8 @@
 .field textarea.dropping { border-color: var(--blue); outline: 3px dashed rgba(59, 130, 230, 0.35); outline-offset: 0; background: #f3f8ff; }
 .field .hint.upload-ok { color: #1d6b45; }
 .field .hint.upload-bad { color: #b42318; }
+
+/* Where Kane checks a claim: the live app or the code on GitHub. */
+.target-seg { display: inline-flex; flex: none; padding: 3px; border-radius: 10px; background: var(--panel-2, #f2f5f9); border: 1px solid var(--line, #e3e9f1); }
+.target-seg button { border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--muted, #5f6b7a); cursor: pointer; white-space: nowrap; }
+.target-seg button.on { background: #fff; color: var(--ink, #141a22); box-shadow: 0 1px 3px rgba(20, 26, 34, 0.12); }

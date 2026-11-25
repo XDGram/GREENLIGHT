@@ -55,7 +55,7 @@ import { analyzeProject, requirementsFrom, reviseTests } from "./understand.js";
 import { handleFixApi } from "./fix-centre.js";
 import { createAgentRequest } from "./agent-requests.js";
 import { handleAdminApi } from "./admin-api.js";
-import { claimsFromText, cleanClaim, checkCost, maxClaims, checkSpecYaml } from "./simple-check.js";
+import { claimsFromText, cleanClaim, checkCost, maxClaims, checkSpecYaml, guessTarget } from "./simple-check.js";
 
 export const APP_API_PREFIX = "/app/api/";
 const PROJECT = /^\/app\/api\/projects\/(prj_[0-9a-f]{32})(?:\/(details|repository-check|deployment-check|draft|preview|versions|certifications|understand|fixes))?$/;
@@ -649,7 +649,7 @@ export async function submitVerification({ config, store, s, project, body, jobs
     ).reservation;
     if (!recheck && reservation === null && (await guestJobsUsed(store, project.account)) >= config.guest.realRunsPerGuest) {
       // Database without reservations: the per-visitor limit is counted from the visitor's jobs.
-      throw new GreenlightError("guest_limit_reached", "You have used your free Kane run on this browser.");
+      throw new GreenlightError("guest_limit_reached", "This browser has reached its Kane run limit.");
     }
   } else {
     if (autoCommit) Object.assign(request, await serverCommit({ store, project, config, fetchImpl, checkHost, now }));
@@ -670,10 +670,21 @@ export async function submitVerification({ config, store, s, project, body, jobs
   return job;
 }
 
-/** Per-run ceiling and claim limit for the one-page check. */
-function checkLimits(config, s) {
+/**
+ * Per-run ceiling and claim limit for the one-page check. Runs are limited by credits only: the
+ * per-run cap, the visitors' credit budget left today, and what is left of the server's total cap.
+ */
+async function checkLimits(config, s, store) {
   const guest = s.role === "guest";
-  const ceiling = guest ? config.guest?.maxCreditsPerRun ?? 0 : config.maxCreditsPerRun ?? 150;
+  let ceiling = guest ? config.guest?.maxCreditsPerRun ?? 0 : config.maxCreditsPerRun ?? 150;
+  if (guest && store) ceiling = Math.min(ceiling, (await guestRunState(store, config, s)).creditsLeftToday);
+  if (config.totalCreditCap && store) {
+    try {
+      ceiling = Math.min(ceiling, Math.max(0, config.totalCreditCap - (await committedCredits(store))));
+    } catch {
+      ceiling = 0;
+    }
+  }
   const L = guest ? GUEST_LIMITS : USER_LIMITS;
   const max = maxClaims(ceiling, config, Math.min(L.tests, L.claims));
   return { ceiling, maxClaims: max, costs: Array.from({ length: max }, (_, i) => checkCost(i + 1, config)), limits: L };
@@ -886,14 +897,15 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         notes = await readmeOf(r, { fetchImpl, now, config });
         if (notes) source = "readme";
       }
-      const lim = checkLimits(config, s);
+      const lim = await checkLimits(config, s, store);
       let budget = null;
       try {
         budget = config.totalCreditCap ? { cap: config.totalCreditCap, left: Math.max(0, config.totalCreditCap - (await committedCredits(store))) } : null;
       } catch {
         budget = config.totalCreditCap ? { cap: config.totalCreditCap, left: 0 } : null;
       }
-      return sendJson(res, 200, { claims: claimsFromText(notes ?? ""), source, maxClaims: lim.maxClaims, costs: lim.costs, ceiling: lim.ceiling, guestRuns: s.role === "guest" ? await guestRunState(store, config, s) : null, budget });
+      const found = claimsFromText(notes ?? "");
+      return sendJson(res, 200, { claims: found, targets: found.map(guessTarget), source, maxClaims: lim.maxClaims, costs: lim.costs, ceiling: lim.ceiling, guestRuns: s.role === "guest" ? await guestRunState(store, config, s) : null, budget });
     }
 
     if (path === "/app/api/checks" && isPost) {
@@ -904,10 +916,12 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       const appUrl = liveUrl(body.url);
       const claims = (Array.isArray(body.claims) ? body.claims : []).map(cleanClaim);
       if (!claims.length) throw new GreenlightError("invalid_request", "Choose at least one claim to test.");
-      const lim = checkLimits(config, s);
-      if (!lim.maxClaims) throw new GreenlightError("server_not_configured", "The per-run credit limit on this server is too low for a test.");
-      if (claims.length > lim.maxClaims) throw new GreenlightError("invalid_request", `One run can test up to ${lim.maxClaims} claims here; untick the rest.`);
+      const targets = claims.map((_, i) => (Array.isArray(body.targets) && body.targets[i] === "code" ? "code" : "app"));
       const cost = checkCost(claims.length, config);
+      await checkTotalCap(store, config, cost); // the server's total budget first, with its own message
+      const lim = await checkLimits(config, s, store);
+      if (!lim.maxClaims) throw new GreenlightError("guest_limit_reached", "There are not enough Kane credits left for a test right now.");
+      if (claims.length > lim.maxClaims) throw new GreenlightError("invalid_request", `The credits left cover up to ${lim.maxClaims} claims in one run; untick the rest.`);
       if (body.confirm !== true || !Number.isFinite(body.confirmSpend) || body.confirmSpend < cost) {
         throw new GreenlightError("confirmation_required", `This run is estimated at ${cost} credits; confirm that amount to start it.`, { estimate: cost });
       }
@@ -915,8 +929,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
         if (!guestRunsEnabled(config)) throw new GreenlightError("server_not_configured", "Kane runs are not available for visitors on this server.");
         if (await guestPaused(store)) throw new GreenlightError("guest_limit_reached", "Kane runs are paused by the administrator right now.");
         const st = await guestRunState(store, config, s);
-        if (st.leftForYou < 1) throw new GreenlightError("guest_limit_reached", "You have used your free Kane run. Sign in to run more.");
-        if (st.leftToday < 1 || st.creditsLeftToday < cost) throw new GreenlightError("guest_limit_reached", "Today's free Kane runs are used up. Try again tomorrow, or sign in.");
+        if (st.creditsLeftToday < cost) throw new GreenlightError("guest_limit_reached", `Only ${st.creditsLeftToday} Kane credits are left today; test fewer claims.`);
         if ((await store.listProjects(s.account)).length >= (config.guest?.projectsPerGuest ?? 5)) throw new GreenlightError("guest_limit_reached", `Visitors can keep up to ${config.guest?.projectsPerGuest ?? 5} apps.`);
       }
       await checkTotalCap(store, config, cost); // before anything is stored
@@ -924,7 +937,7 @@ export async function handleAppApi({ req, res, url, s, store, config, sameOrigin
       const name = (repo.check?.repo?.fullName ?? `${repo.owner}/${repo.repo}`).slice(0, 120);
       let specText;
       try {
-        specText = checkSpecYaml({ name, url: appUrl, claims, limits: lim.limits });
+        specText = checkSpecYaml({ name, url: appUrl, claims, limits: lim.limits, targets, repositoryUrl: repo.url });
         projectFromText(specText);
       } catch (err) {
         if (err instanceof SpecError) throw new GreenlightError("invalid_request", "A claim can't be turned into a test.", { problems: err.errors });

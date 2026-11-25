@@ -143,6 +143,8 @@ export const api = {
 /** The one-page check: claims from the README or notes, then one Kane run. */
 export interface ClaimsResult {
   claims: string[];
+  /** Where Greenlight suggests Kane checks each claim: the live app, or the code on GitHub. */
+  targets?: ("app" | "code")[];
   source: "notes" | "readme" | "none";
   maxClaims: number;
   costs: number[];
@@ -153,7 +155,7 @@ export interface ClaimsResult {
 }
 export const checkApi = {
   claims: (body: { repository: string; url: string; notes: string }) => post<ClaimsResult>("/app/api/checks/claims", body),
-  run: (body: { repository: string; url: string; notes: string; claims: string[]; confirm: true; confirmSpend: number }) => post<{ projectId: string; job: Job; estimate: number }>("/app/api/checks", body),
+  run: (body: { repository: string; url: string; notes: string; claims: string[]; targets: ("app" | "code")[]; confirm: true; confirmSpend: number }) => post<{ projectId: string; job: Job; estimate: number }>("/app/api/checks", body),
 };
 
 export const adminApi = {

@@ -101,14 +101,27 @@ export function maxClaims(ceiling, config, hardMax = 8) {
   return n;
 }
 
-/** greenlight.yaml for a check: one test per claim, each a single `check` step Kane judges. */
-export function checkSpecYaml({ name, url, claims, limits }) {
+/**
+ * Where Kane should check a claim: in the live app, or in the code on GitHub. A first guess from the
+ * wording; the person can change it before running.
+ */
+const CODE_WORDS = /\b(code|codebase|source|repo|repository|function|module|endpoint|api route|database|schema|table|migration|env(?:ironment)? var|dependenc(?:y|ies)|package\.json|npm|written in|implemented|typescript|javascript|python|react|next\.js|vite|tests? (?:cover|suite)|unit tests?|ci\b|github actions?|licen[cs]e|readme|commit|config(?:uration)? file|docker|server-side|backend|library|framework)\b/i;
+export const guessTarget = (text) => (CODE_WORDS.test(String(text)) ? "code" : "app");
+
+/** greenlight.yaml for a check: one test per claim, each a single `check` step Kane judges, in the app or in the repository. */
+export function checkSpecYaml({ name, url, claims, limits, targets = [], repositoryUrl = null }) {
   return buildSpecYaml(
     {
       name,
       url,
       claims: claims.map((text) => ({ text })),
-      tests: claims.map((text, i) => ({ id: `claim-${i + 1}`, title: text.length > 120 ? `${text.slice(0, 117)}...` : text, claims: [`CLM-${String(i + 1).padStart(3, "0")}`], steps: [{ name: "Claim", kind: "check", text }] })),
+      tests: claims.map((text, i) => ({
+        id: `claim-${i + 1}`,
+        title: text.length > 120 ? `${text.slice(0, 117)}...` : text,
+        claims: [`CLM-${String(i + 1).padStart(3, "0")}`],
+        ...(targets[i] === "code" && repositoryUrl ? { startUrl: repositoryUrl } : {}),
+        steps: [{ name: "Claim", kind: "check", text }],
+      })),
     },
     limits,
   );

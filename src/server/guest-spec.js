@@ -10,7 +10,7 @@ import { GreenlightError } from "../cli/errors.js";
 import { isLocalOrPrivateHost } from "../deploy/host.js";
 import { guestEstimate } from "./guest-run.js";
 
-export const GUEST_LIMITS = Object.freeze({ claims: 8, tests: 4, steps: 8, text: 400, name: 80, description: 400 });
+export const GUEST_LIMITS = Object.freeze({ claims: 30, tests: 20, steps: 8, text: 400, name: 80, description: 400 });
 /** Signed-in users: larger specs (the per-run credit cap still applies at certification). */
 export const USER_LIMITS = Object.freeze({ claims: 30, tests: 20, steps: 12, text: 400, name: 120, description: 1000 });
 
@@ -70,7 +70,9 @@ export function buildSpecYaml(input, L = GUEST_LIMITS) {
     const steps = Array.isArray(t?.steps) ? t.steps : [];
     if (!steps.length) throw new GreenlightError("invalid_request", `Test ${i + 1} needs steps.`);
     if (steps.length > L.steps) throw new GreenlightError("invalid_request", `Test ${i + 1} has more than ${L.steps} steps.`);
-    lines.push(`  - id: ${id}`, `    title: ${q(title)}`, `    claims: [${[...new Set(refs)].join(", ")}]`, "    steps:");
+    lines.push(`  - id: ${id}`, `    title: ${q(title)}`, `    claims: [${[...new Set(refs)].join(", ")}]`);
+    if (typeof t?.startUrl === "string") lines.push(`    start_url: ${q(t.startUrl)}`);
+    lines.push("    steps:");
     steps.forEach((s, n) => {
       const kind = s?.kind === "expect_text" ? "expect_text" : s?.kind === "do" ? "do" : s?.kind === "check" ? "check" : null;
       if (!kind) throw new GreenlightError("invalid_request", `Test ${i + 1}, step ${n + 1}: choose "do" or "expect text".`);

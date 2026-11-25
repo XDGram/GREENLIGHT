@@ -26,13 +26,18 @@ export function checkStep(text) {
   return `Use the app as a normal visitor would to find out whether this claim is true, then verify it: ${text}`;
 }
 
+/** Kane step text for a claim about the code, judged by reading the repository on GitHub. */
+export function codeCheckStep(text) {
+  return `This page is the app's source code on GitHub. Read the repository as a developer would (open the README and the files that matter, use the file finder or search if needed) to find out whether this claim is true in the code, then verify it: ${text}`;
+}
+
 /** Kane step text for an exact visible-text assertion. */
 export function expectTextStep(text) {
   return `Verify the page shows the exact text "${text}".`;
 }
 
 export function renderTest(spec, test) {
-  const url = new URL(test.startPath, spec.project.url).href;
+  const url = test.startUrl ?? new URL(test.startPath, spec.project.url).href;
   const tags = test.claims.map((c) => c.toLowerCase());
   const claimTexts = new Map(spec.claims.map((c) => [c.id, c.text]));
   const lines = [
@@ -52,7 +57,7 @@ export function renderTest(spec, test) {
   ];
   for (const s of test.steps) {
     lines.push(`## ${s.name}`);
-    lines.push(s.kind === "expect_text" ? expectTextStep(s.text) : s.kind === "check" ? checkStep(s.text) : s.text);
+    lines.push(s.kind === "expect_text" ? expectTextStep(s.text) : s.kind === "check" ? (test.startUrl ? codeCheckStep(s.text) : checkStep(s.text)) : s.text);
     lines.push("");
   }
   return lines.join("\n");

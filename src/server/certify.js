@@ -88,7 +88,7 @@ export async function runCertification({ store, job, config, deps }) {
   // as unconfirmed. Never a commit the requester typed in for guests.
   const unconfirmed = guest && job.request.commitSource === "branch_head";
   const deployment = unconfirmed
-    ? { state: "ready", reasons: [], url, deployedCommit: job.request.commit, expectedCommit: job.request.commit, environment: "unconfirmed", commitSource: "branch_head_unconfirmed" }
+    ? { state: "ready", safeToRunKane: true, reasons: [], url, deployedCommit: job.request.commit, expectedCommit: job.request.commit, environment: "unconfirmed", commitSource: "branch_head_unconfirmed" }
     : await deps.verifyLiveDeployment({
         url,
         expectedCommit: job.request.commit,

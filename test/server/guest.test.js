@@ -122,7 +122,7 @@ test("guest mode is off by default and needs Supabase and an https public URL", 
   assert.equal(loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir() }).guest, null);
   assert.throws(() => loadConfig({ GREENLIGHT_DATA_DIR: os.tmpdir(), GREENLIGHT_GUEST_MODE: "on" }), /needs Supabase/);
   const c = loadConfig({ SUPABASE_URL: "https://x.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_xxxxxxxxxxxxxxxxxxxxxxxx", GREENLIGHT_PUBLIC_BASE_URL: BASE, GREENLIGHT_GUEST_MODE: "on", ANTHROPIC_API_KEY: "sk-ant-test-secret" });
-  assert.deepEqual([c.guest.runsPerGuest, c.guest.runsPerDay, c.guest.maxCreditsPerRun, c.guest.realRunsPerGuest, c.guest.dailyCredits], [10, 500, 100, 1, 150]);
+  assert.deepEqual([c.guest.runsPerGuest, c.guest.runsPerDay, c.guest.maxCreditsPerRun, c.guest.realRunsPerGuest, c.guest.dailyCredits], [10, 500, 400, 1_000_000, 400]); // credits are the limit: the total cap by default, no run counts
   assert.ok(!JSON.stringify(c).includes("sk-ant-test-secret"), "the Anthropic key never serialises");
 });
 
@@ -150,7 +150,7 @@ test("a guest starts without signing up, is remembered, and keeps to their own d
   const bad = await b.go("POST", "/app/api/guest/preview", { ...FORM, tests: [{ title: "x", claims: ["a"], steps: [{ name: "s", kind: "do", text: "Verify the page shows Dangerous." }] }] });
   assert.equal(bad.body.ok, false);
   assert.ok(bad.body.problems.some((p) => /verification|expect_text/.test(p)), JSON.stringify(bad.body.problems));
-  const big = { ...FORM, tests: [0, 1, 2, 3].map((i) => ({ ...FORM.tests[i % 2], title: `t${i}` })) };
+  const big = { ...FORM, tests: Array.from({ length: 12 }, (_, i) => ({ ...FORM.tests[i % 2], title: `t${i}` })) }; // 12 tests cost more than the 400-credit budget
   const over = await b.go("POST", "/app/api/guest/preview", big);
   assert.equal(over.body.ok, false);
   assert.match(over.body.problems.join(" "), /credits/);

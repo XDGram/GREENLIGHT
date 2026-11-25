@@ -31,7 +31,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
   const fileRef = useRef<HTMLInputElement>(null);
   const notesId = useId();
   const [found, setFound] = useState<ClaimsResult | null>(null);
-  const [claims, setClaims] = useState<{ text: string; on: boolean }[]>([]);
+  const [claims, setClaims] = useState<{ text: string; on: boolean; target: "app" | "code" }[]>([]);
   const [extra, setExtra] = useState("");
   const [busy, setBusy] = useState<"claims" | "run" | null>(null);
   const [error, setError] = useState<Err>(null);
@@ -43,7 +43,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
   const overBudget = Boolean(guestRuns && cost != null && guestRuns.creditsLeftToday < cost);
   const budget = found?.budget ?? null;
   const overCap = Boolean(budget && cost != null && cost > budget.left);
-  const noRunsLeft = overCap || Boolean(guestRuns && (guestRuns.paused || !guestRuns.enabled || guestRuns.leftForYou < 1 || guestRuns.leftToday < 1 || overBudget));
+  const noRunsLeft = overCap || Boolean(guestRuns && (guestRuns.paused || !guestRuns.enabled || overBudget));
 
   const findClaims = async () => {
     setBusy("claims");
@@ -52,7 +52,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
       await beforeFirstCall?.();
       const r = await checkApi.claims({ repository, url, notes });
       setFound(r);
-      setClaims(r.claims.map((text, i) => ({ text, on: i < r.maxClaims })));
+      setClaims(r.claims.map((text, i) => ({ text, on: i < r.maxClaims, target: r.targets?.[i] ?? "app" })));
     } catch (e) {
       setError(asErr(e));
     } finally {
@@ -69,7 +69,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
   const addClaim = () => {
     const t = extra.trim();
     if (!t) return;
-    setClaims((cs) => [...cs, { text: t, on: cs.filter((c) => c.on).length < max }]);
+    setClaims((cs) => [...cs, { text: t, on: cs.filter((c) => c.on).length < max, target: "app" }]);
     setExtra("");
   };
 
@@ -78,7 +78,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
     setBusy("run");
     setError(null);
     try {
-      const r = await checkApi.run({ repository, url, notes, claims: chosen.map((c) => c.text.trim()), confirm: true, confirmSpend: cost });
+      const r = await checkApi.run({ repository, url, notes, claims: chosen.map((c) => c.text.trim()), targets: chosen.map((c) => c.target), confirm: true, confirmSpend: cost });
       onStarted(r.projectId);
     } catch (e) {
       setError(asErr(e));
@@ -99,12 +99,10 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
         ? "Kane runs are paused by the administrator right now."
         : !guestRuns.enabled
           ? "Kane runs for visitors are not switched on on this server."
-          : guestRuns.leftForYou < 1
-            ? "You have used your free Kane run on this browser."
-            : guestRuns.leftToday >= 1 && overBudget && guestRuns.creditsLeftToday >= (found?.costs[0] ?? Infinity)
-              ? `Today's free budget has ${guestRuns.creditsLeftToday} credits left: test fewer claims.`
-              : "Today's free Kane runs are used up. Try again tomorrow."
-      : `No account needed · ${guestRuns.leftForYou} free run${guestRuns.leftForYou === 1 ? "" : "s"} left · results stay private`
+          : guestRuns.creditsLeftToday >= (found?.costs[0] ?? Infinity)
+            ? `${guestRuns.creditsLeftToday} Kane credits are left today: test fewer claims.`
+            : "Today's Kane credits are used up. Try again tomorrow."
+      : "No account needed. Results stay private."
     : null;
 
   async function loadReadme(f: File) {
@@ -204,7 +202,7 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
           <p className="small" style={{ margin: 0 }}>
             {claims.length === 0
               ? `No claims were found${found.source === "none" ? " (the repository's README could not be read)" : ""}. Add what the app should do below.`
-              : `Found ${found.claims.length} claim${found.claims.length === 1 ? "" : "s"} in ${found.source === "readme" ? "the repository's README" : "your notes"}. One run can test up to ${max}. Pick which ones, or edit them.`}
+              : `Found ${found.claims.length} claim${found.claims.length === 1 ? "" : "s"} in ${found.source === "readme" ? "the repository's README" : "your notes"}. The credits left cover up to ${max} in one run. Pick which ones, choose where Kane checks each one, or edit them.`}
           </p>
           <ul className="list" style={{ gap: 8 }}>
             {claims.map((c, i) => (
@@ -220,6 +218,13 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
                   <span className="sr-only">Claim {i + 1}</span>
                   <input value={c.text} onChange={(e) => setClaims((cs) => cs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
                 </label>
+                <div className="target-seg" role="group" aria-label={`Where Kane checks claim ${i + 1}`}>
+                  {(["app", "code"] as const).map((tg) => (
+                    <button key={tg} type="button" className={c.target === tg ? "on" : ""} aria-pressed={c.target === tg} onClick={() => setClaims((cs) => cs.map((x, j) => (j === i ? { ...x, target: tg } : x)))} title={tg === "app" ? "Kane checks this on the live app" : "Kane checks this in the code on GitHub"}>
+                      {tg === "app" ? "Live app" : "Code"}
+                    </button>
+                  ))}
+                </div>
               </li>
             ))}
           </ul>
@@ -237,7 +242,9 @@ export function CheckForm({ session, beforeFirstCall, onStarted }: { session: Se
             <p style={{ margin: 0 }}>
               {chosen.length ? (
                 <>
-                  Kane opens <b>{url}</b> in a real browser and tests {chosen.length} claim{chosen.length === 1 ? "" : "s"}. Estimated cost: <b>{cost} credits</b>.
+                  Kane tests {chosen.length} claim{chosen.length === 1 ? "" : "s"} in a real browser
+                  {chosen.some((c) => c.target === "app") ? <> on <b>{url}</b></> : null}
+                  {chosen.some((c) => c.target === "code") ? <>{chosen.some((c) => c.target === "app") ? " and" : ""} in the code on <b>GitHub</b></> : null}. Estimated cost: <b>{cost} credits</b>.
                 </>
               ) : (
                 "Tick at least one claim to test."

@@ -41,7 +41,9 @@ const MAX_TEST_ID = 60;
 const TOP_KEYS = new Set(["version", "project", "claims", "tests"]);
 const PROJECT_KEYS = new Set(["name", "description", "url"]);
 const CLAIM_KEYS = new Set(["id", "text", "requirement"]);
-const TEST_KEYS = new Set(["id", "title", "claims", "start_path", "mode", "max_steps", "steps"]);
+const TEST_KEYS = new Set(["id", "title", "claims", "start_path", "start_url", "mode", "max_steps", "steps"]);
+/** A test may start on a public GitHub repository instead of the app, to check a claim in the code. */
+export const REPO_URL = /^https:\/\/github\.com\/[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}(?:\/[A-Za-z0-9._\/-]*)?$/;
 const STEP_KEYS = new Set(["name", "do", "expect_text", "check"]);
 const VISUAL_KEYS = new Set(["expect", "expect_visual", "expect_screenshot", "visual", "looks_like", "see", "screenshot", "expect_image"]);
 
@@ -192,6 +194,12 @@ export function validateSpec(doc) {
           errors.push(`${label}.start_path: must be a path starting with "/", without query, fragment or spaces`);
         } else startPath = t.start_path;
       }
+      let startUrl = null;
+      if (t.start_url !== undefined && t.start_url !== null) {
+        if (t.start_path !== undefined && t.start_path !== null) errors.push(`${label}: use start_path or start_url, not both`);
+        else if (typeof t.start_url !== "string" || !REPO_URL.test(t.start_url) || t.start_url.includes("..")) errors.push(`${label}.start_url: must be a public GitHub repository URL (https://github.com/owner/repo)`);
+        else startUrl = t.start_url;
+      }
       let mode = "testing";
       if (t.mode !== undefined && t.mode !== null) {
         if (t.mode !== "testing" && t.mode !== "action") errors.push(`${label}.mode: must be "testing" or "action"`);
@@ -249,7 +257,7 @@ export function validateSpec(doc) {
           errors.push(`${label}: needs at least one expect_text step (an exact visible-text check) or check step (a claim Kane judges)`);
         }
       }
-      tests.push({ id: t.id, title: isText(t.title) ? t.title.trim() : null, claims: tClaims, startPath, mode, maxSteps, steps });
+      tests.push({ id: t.id, title: isText(t.title) ? t.title.trim() : null, claims: tClaims, startPath, ...(startUrl ? { startUrl } : {}), mode, maxSteps, steps });
     });
   }
 

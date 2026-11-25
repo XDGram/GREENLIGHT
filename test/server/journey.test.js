@@ -8,7 +8,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
 import os from "node:os";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { loadConfig, createServerContext, startServer, SupabaseStore, createSupabaseClient } from "../../src/server/index.js";
 import { guestAccount } from "../../src/server/approval-policy.js";
 import { createFakeSupabase } from "./fake-supabase.js";
@@ -125,6 +125,7 @@ async function setup({ env = {}, ai = true } = {}) {
     runKane: async (opts) => {
       const files = opts.args.filter((a) => a.endsWith("_test.md"));
       state.kaneCalls.push(files);
+      state.kaneTests = await Promise.all(files.map((f) => readFile(path.isAbsolute(f) ? f : path.join(opts.cwd, f), "utf8").catch(() => "")));
       const store = path.join(opts.cwd, ".testmuai", "evidence");
       await mkdir(store, { recursive: true });
       await writeFile(path.join(store, `${EXEC_ID}.evidence`), zipOf({ "run.yaml": "status: finalized\n" }));
@@ -494,7 +495,7 @@ test("guest credits: exact cost confirmed, strict per-run ceiling, shared daily 
 });
 
 test("the one-page check: README claims, one Run click approves and starts Kane, verdict per claim with Kane's note", async () => {
-  const h = await setup({ ai: false, env: { GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "1" } });
+  const h = await setup({ ai: false, env: { GREENLIGHT_GUEST_REAL_RUNS_PER_GUEST: "1", GREENLIGHT_GUEST_MAX_CREDITS_PER_RUN: "100" } });
   const g = browser(h, "203.0.113.77");
   await g.go("POST", "/app/api/guest/start", {});
   const base = { repository: "https://github.com/acme/shop", url: "https://shop.example.com/" };
@@ -504,6 +505,7 @@ test("the one-page check: README claims, one Run click approves and starts Kane,
   assert.equal(pasted.status, 200, pasted.text);
   assert.deepEqual(pasted.body.claims, ["Visitors can add products to the cart", "The cart shows a total"]);
   assert.equal(pasted.body.source, "notes");
+  assert.deepEqual(pasted.body.targets, ["app", "app"], "claims about what visitors see are checked on the live app");
   assert.deepEqual([pasted.body.maxClaims, pasted.body.costs], [2, [57, 94]], "the visitor's 100-credit ceiling fits two claims");
   const fromReadme = await g.go("POST", "/app/api/checks/claims", base);
   assert.deepEqual([fromReadme.body.source, fromReadme.body.claims], ["readme", ["Add products to a cart and see the total."]]);
@@ -626,4 +628,24 @@ test("Claude Code closes the loop: a token reads Kane's verdict and re-runs the 
   assert.deepEqual([over.status, over.body.error.code], [429, "guest_limit_reached"]);
   // Other accounts' checks are invisible to this token.
   assert.equal((await api("GET", `/v1/checks/prj_${"0".repeat(32)}`)).status, 404);
+});
+
+test("a site without /greenlight.json still reaches Kane, and claims about the code are checked on GitHub", async () => {
+  const h = await setup({ ai: false });
+  const g = browser(h, "203.0.113.95");
+  await g.go("POST", "/app/api/guest/start", {});
+  h.state.greenlightJson = false; // most real apps don't publish it: the repository's head commit is used
+  const base = { repository: "https://github.com/acme/shop", url: "https://shop.example.com/" };
+  const found = await g.go("POST", "/app/api/checks/claims", { ...base, notes: "- Visitors can add products to the cart\n- The checkout code is written in TypeScript" });
+  assert.deepEqual(found.body.targets, ["app", "code"], "a claim about the code is suggested for the repository");
+  const started = await g.go("POST", "/app/api/checks", { ...base, claims: found.body.claims, targets: found.body.targets, confirm: true, confirmSpend: 94 });
+  assert.equal(started.status, 202, started.text);
+  await h.ctx.jobs.idle();
+  const job = (await g.go("GET", `/app/api/jobs/${started.body.job.id}`)).body.job;
+  assert.equal(job.status, "succeeded", JSON.stringify(job.error));
+  assert.equal(h.state.kaneCalls.length, 1, "Kane ran");
+  const [app, code] = h.state.kaneTests;
+  assert.match(app, /^url: https:\/\/shop\.example\.com\//m);
+  assert.match(code, /^url: https:\/\/github\.com\/acme\/shop$/m);
+  assert.match(code, /source code on GitHub/);
 });
