@@ -511,7 +511,7 @@ export function Landing({ googleUrl, guestMode, onEntered, session = null }: { g
             <h2 id="check-h">
               Does your app do what its README <span className="soft">says?</span>
             </h2>
-            <p>One free run, up to two claims. No account needed. You see the cost before anything runs.</p>
+            <p>No account needed. Kane checks claims on your live app or in your code, and you see the cost before anything runs.</p>
           </Reveal>
           <Reveal className="check-glass" delay={0.1}>
             {guestMode ? (
